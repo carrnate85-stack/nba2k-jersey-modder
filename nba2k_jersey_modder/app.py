@@ -1632,51 +1632,6 @@ class JerseyModderApp(tk.Tk):
 
         ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
         row += 1
-        ttk.Label(controls, text="Front wordmark position", style="Status.TLabel").grid(
-            row=row, column=0, sticky=tk.W, pady=(0, 8)
-        )
-        row += 1
-        wordmark_frame = ttk.Frame(controls)
-        wordmark_frame.grid(row=row, column=0, sticky="ew", pady=(0, 4))
-        ttk.Label(wordmark_frame, text="X").pack(side=tk.LEFT)
-        tk.Spinbox(
-            wordmark_frame,
-            from_=-1024,
-            to=1024,
-            increment=1,
-            width=7,
-            textvariable=self.front_wordmark_offset_x_var,
-        ).pack(side=tk.LEFT, padx=(6, 14))
-        ttk.Label(wordmark_frame, text="Y").pack(side=tk.LEFT)
-        tk.Spinbox(
-            wordmark_frame,
-            from_=-1024,
-            to=1024,
-            increment=1,
-            width=7,
-            textvariable=self.front_wordmark_offset_y_var,
-        ).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(
-            wordmark_frame,
-            text="Reset",
-            command=self.reset_front_wordmark_position,
-        ).pack(side=tk.RIGHT)
-        row += 1
-        wordmark_scale_frame = ttk.Frame(controls)
-        wordmark_scale_frame.grid(row=row, column=0, sticky="ew", pady=(0, 4))
-        ttk.Label(wordmark_scale_frame, text="Scale %").pack(side=tk.LEFT)
-        tk.Spinbox(
-            wordmark_scale_frame,
-            from_=10,
-            to=500,
-            increment=5,
-            width=7,
-            textvariable=self.front_wordmark_scale_var,
-        ).pack(side=tk.LEFT, padx=(6, 0))
-        row += 1
-
-        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
-        row += 1
         ttk.Label(controls, text="Preview number", style="Status.TLabel").grid(
             row=row, column=0, sticky=tk.W, pady=(0, 8)
         )
@@ -1686,52 +1641,10 @@ class JerseyModderApp(tk.Tk):
 
         ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
         row += 1
-        ttk.Label(controls, text="Background cleanup", style="Status.TLabel").grid(
-            row=row, column=0, sticky=tk.W, pady=(0, 8)
-        )
-        row += 1
-        ttk.Checkbutton(
-            controls,
-            text="Make white transparent",
-            variable=self.generator_remove_white_var,
-        ).grid(row=row, column=0, sticky=tk.W, pady=(0, 4))
-        row += 1
-        ttk.Checkbutton(
-            controls,
-            text="Make black transparent",
-            variable=self.generator_remove_black_var,
-        ).grid(row=row, column=0, sticky=tk.W, pady=(0, 8))
-        row += 1
-        ttk.Checkbutton(
-            controls,
-            text="Outside background only",
-            variable=self.generator_outside_only_var,
-        ).grid(row=row, column=0, sticky=tk.W, pady=(0, 8))
-        row += 1
-        tolerance_frame = ttk.Frame(controls)
-        tolerance_frame.grid(row=row, column=0, sticky="ew", pady=(0, 4))
-        ttk.Label(tolerance_frame, text="Tolerance").pack(side=tk.LEFT)
-        tk.Spinbox(
-            tolerance_frame,
-            from_=0,
-            to=128,
-            width=5,
-            textvariable=self.generator_tolerance_var,
-        ).pack(side=tk.RIGHT)
-        row += 1
-
-        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
-        row += 1
         ttk.Button(
             controls,
             text="Generate Preview",
             command=self.generate_jersey_preview,
-        ).grid(row=row, column=0, sticky="ew", pady=(0, 8))
-        row += 1
-        ttk.Button(
-            controls,
-            text="Open Web Editor",
-            command=self.open_web_editor,
         ).grid(row=row, column=0, sticky="ew", pady=(0, 8))
         row += 1
         ttk.Button(
@@ -1762,18 +1675,23 @@ class JerseyModderApp(tk.Tk):
 
         preview_frame = ttk.Frame(tab)
         preview_frame.grid(row=0, column=1, sticky="nsew")
+        ttk.Button(
+            preview_frame,
+            text="Open Web Editor",
+            command=self.open_web_editor,
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self.generator_status = ttk.Label(
             preview_frame,
             text="Generate a first-draft jersey_color texture from the built-in master template.",
             style="Muted.TLabel",
         )
-        self.generator_status.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        self.generator_status.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         self.generator_preview = tk.Canvas(preview_frame, background="#20242b")
         self.generator_preview.bind("<ButtonPress-1>", self._generator_preview_press)
         self.generator_preview.bind("<B1-Motion>", self._generator_preview_drag)
         self.generator_preview.bind("<ButtonRelease-1>", self._generator_preview_release)
-        self.generator_preview.grid(row=1, column=0, sticky="nsew")
-        preview_frame.rowconfigure(1, weight=1)
+        self.generator_preview.grid(row=2, column=0, sticky="nsew")
+        preview_frame.rowconfigure(2, weight=1)
         preview_frame.columnconfigure(0, weight=1)
 
         tab.columnconfigure(0, minsize=430)
