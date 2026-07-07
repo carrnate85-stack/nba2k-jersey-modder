@@ -174,6 +174,20 @@ def _save_sheet_as_matching_dds(
     texconv_path: str | Path | None,
 ) -> None:
     if info.dds_format == "DXT1":
+        texconv = Path(texconv_path) if texconv_path else find_texconv()
+        if texconv is not None and texconv.exists():
+            try:
+                _save_with_texconv(
+                    sheet,
+                    output_path,
+                    texconv,
+                    "BC1_UNORM",
+                    "BC1 DDS conversion",
+                    extra_args=("-dx9",),
+                )
+                return
+            except RuntimeError:
+                pass
         save_bc1_dds(sheet, output_path)
         return
 
@@ -184,21 +198,24 @@ def _save_sheet_as_matching_dds(
                 "This font uses BC7 DDS. Put texconv.exe in the app folder or "
                 "in a tools folder, then try Save Back again."
             )
-        _save_bc7_with_texconv(sheet, output_path, texconv, info)
+        format_name = "BC7_UNORM_SRGB" if info.dxgi_format == 99 else "BC7_UNORM"
+        _save_with_texconv(sheet, output_path, texconv, format_name, "BC7 DDS conversion")
         return
 
     raise RuntimeError(f"Font DDS format {info.format_label} is not supported for write-back yet.")
 
 
-def _save_bc7_with_texconv(
+def _save_with_texconv(
     sheet: "PillowImage",
     output_path: Path,
     texconv: Path,
-    info: FontNumberTextureInfo,
+    format_name: str,
+    error_label: str,
+    *,
+    extra_args: tuple[str, ...] = (),
 ) -> None:
     source_png = output_path.with_suffix(".png")
     sheet.save(source_png)
-    format_name = "BC7_UNORM_SRGB" if info.dxgi_format == 99 else "BC7_UNORM"
     command = [
         str(texconv),
         "-nologo",
@@ -207,6 +224,7 @@ def _save_bc7_with_texconv(
         format_name,
         "-m",
         "0",
+        *extra_args,
         "-o",
         str(output_path.parent),
         str(source_png),
@@ -215,7 +233,7 @@ def _save_bc7_with_texconv(
     converted = output_path.parent / f"{source_png.stem}.DDS"
     if result.returncode != 0 or not converted.exists():
         details = (result.stderr or result.stdout or "texconv did not create a DDS.").strip()
-        raise RuntimeError(f"BC7 DDS conversion failed.\n\n{details}")
+        raise RuntimeError(f"{error_label} failed.\n\n{details}")
     converted.replace(output_path)
 
 
