@@ -46,8 +46,6 @@ from .template import (
     MASTER_TEMPLATE_IMAGE,
     MASTER_TEMPLATE_ZONES,
     TemplateZone,
-    detect_v1_color_zones,
-    detect_v3_color_zones,
     find_hex_color_zone_bbox,
     load_template,
     save_template,
@@ -445,12 +443,6 @@ class JerseyModderApp(tk.Tk):
         ttk.Button(toolbar, text="Load Image", command=self.load_template_image).pack(
             side=tk.LEFT, padx=(8, 0)
         )
-        ttk.Button(toolbar, text="Detect V1 Colors", command=self.detect_template_colors).pack(
-            side=tk.LEFT, padx=(8, 0)
-        )
-        ttk.Button(toolbar, text="Detect V3 Colors", command=self.detect_template_v3_colors).pack(
-            side=tk.LEFT, padx=(8, 0)
-        )
         ttk.Button(toolbar, text="Load Zones", command=self.load_template_zones).pack(
             side=tk.LEFT, padx=(8, 0)
         )
@@ -587,6 +579,7 @@ class JerseyModderApp(tk.Tk):
             self.zone_list.column(column, width=48, anchor=tk.E)
         self.zone_list.grid(row=7, column=0, sticky="nsew")
         self.zone_list.bind("<<TreeviewSelect>>", self._on_template_zone_select)
+        self.zone_list.bind("<Double-1>", self._open_template_zone_popup_from_click)
         controls.columnconfigure(0, weight=1)
         controls.rowconfigure(7, weight=1)
 
@@ -6700,6 +6693,179 @@ class JerseyModderApp(tk.Tk):
         self._load_template_zone_into_editor(index)
         self._redraw_template_zones(refresh_list=False)
 
+    def _open_template_zone_popup_from_click(self, event: tk.Event) -> None:
+        item_id = self.zone_list.identify_row(event.y)
+        if item_id:
+            self.zone_list.selection_set(item_id)
+            self.zone_list.focus(item_id)
+        index = self._selected_template_zone_index()
+        if index is None:
+            return
+        self._open_template_zone_popup(index)
+
+    def _open_template_zone_popup(self, index: int) -> None:
+        if not (0 <= index < len(self.template_zones)):
+            return
+        zone = self.template_zones[index]
+        dialog = tk.Toplevel(self)
+        dialog.title(f"Edit Zone: {zone.name}")
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        name_var = tk.StringVar(value=zone.name)
+        type_var = tk.StringVar(value=zone.zone_type)
+        color_var = tk.StringVar(value=zone.color)
+        x_var = tk.IntVar(value=zone.x)
+        y_var = tk.IntVar(value=zone.y)
+        width_var = tk.IntVar(value=zone.width)
+        height_var = tk.IntVar(value=zone.height)
+        layer_var = tk.IntVar(value=zone.layer)
+
+        body = ttk.Frame(dialog, padding=12)
+        body.grid(row=0, column=0, sticky="nsew")
+        ttk.Label(body, text="Name").grid(row=0, column=0, sticky="w")
+        ttk.Entry(body, textvariable=name_var, width=34).grid(
+            row=1, column=0, columnspan=4, sticky="ew", pady=(2, 8)
+        )
+
+        ttk.Label(body, text="Type").grid(row=2, column=0, sticky="w")
+        ttk.Combobox(
+            body,
+            textvariable=type_var,
+            values=(
+                "base",
+                "wordmark",
+                "number",
+                "name",
+                "logo",
+                "patch",
+                "stripe",
+                "trim",
+                "pattern",
+                "mask",
+            ),
+            state="readonly",
+            width=18,
+        ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(2, 8))
+
+        ttk.Label(body, text="Hex").grid(row=2, column=2, sticky="w", padx=(8, 0))
+        color_row = ttk.Frame(body)
+        color_row.grid(row=3, column=2, columnspan=2, sticky="ew", padx=(8, 0), pady=(2, 8))
+        color_swatch = tk.Label(
+            color_row,
+            width=4,
+            background=zone.color,
+            relief=tk.SOLID,
+            borderwidth=1,
+        )
+        color_swatch.pack(side=tk.RIGHT)
+        ttk.Entry(color_row, textvariable=color_var, width=11).pack(side=tk.LEFT)
+
+        def choose_color() -> None:
+            chosen = colorchooser.askcolor(color=color_var.get(), parent=dialog)[1]
+            if not chosen:
+                return
+            normalized = self._normalize_hex_color(chosen)
+            if normalized is None:
+                return
+            color_var.set(normalized)
+            color_swatch.configure(background=normalized)
+
+        ttk.Button(color_row, text="Pick", command=choose_color).pack(
+            side=tk.LEFT,
+            padx=(8, 0),
+        )
+
+        for column, (label, variable) in enumerate(
+            (
+                ("X", x_var),
+                ("Y", y_var),
+                ("W", width_var),
+                ("H", height_var),
+                ("Layer", layer_var),
+            )
+        ):
+            ttk.Label(body, text=label).grid(row=4, column=column, sticky="w")
+            tk.Spinbox(
+                body,
+                from_=-9999 if label in {"X", "Y"} else 1,
+                to=9999,
+                increment=1,
+                width=7,
+                textvariable=variable,
+            ).grid(row=5, column=column, sticky="ew", padx=(0, 6), pady=(2, 8))
+
+        error_var = tk.StringVar(value="")
+        ttk.Label(body, textvariable=error_var, style="Muted.TLabel").grid(
+            row=6,
+            column=0,
+            columnspan=5,
+            sticky="w",
+            pady=(0, 8),
+        )
+
+        def apply_changes() -> None:
+            color = self._normalize_hex_color(color_var.get())
+            if color is None or not color:
+                error_var.set("Enter a valid hex color.")
+                return
+            try:
+                x = int(x_var.get())
+                y = int(y_var.get())
+                width = max(1, int(width_var.get()))
+                height = max(1, int(height_var.get()))
+                layer = int(layer_var.get())
+            except (tk.TclError, ValueError):
+                error_var.set("Enter valid numbers for X, Y, W, H, and Layer.")
+                return
+
+            if self.template_image_path is not None:
+                try:
+                    source_width, source_height = self._template_source_size()
+                except RuntimeError:
+                    source_width = source_height = None
+                if source_width is not None and source_height is not None:
+                    x = max(0, min(source_width - 1, x))
+                    y = max(0, min(source_height - 1, y))
+                    width = max(1, min(source_width - x, width))
+                    height = max(1, min(source_height - y, height))
+
+            self.template_zones[index] = replace(
+                self.template_zones[index],
+                name=name_var.get().strip() or self.template_zones[index].name,
+                zone_type=type_var.get(),
+                x=x,
+                y=y,
+                width=width,
+                height=height,
+                color=color,
+                layer=layer,
+            )
+            self._refresh_template_zone_list(selected_index=index)
+            self._load_template_zone_into_editor(index)
+            self._redraw_template_zones(refresh_list=False)
+            if self._is_editing_master_template():
+                try:
+                    self._write_master_template_zones()
+                except OSError as exc:
+                    messagebox.showerror("Save Master failed", str(exc), parent=dialog)
+                    return
+            self.template_status.configure(
+                text=f"Updated zone {self.template_zones[index].name}."
+            )
+            dialog.destroy()
+
+        buttons = ttk.Frame(body)
+        buttons.grid(row=7, column=0, columnspan=5, sticky="e")
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+        ttk.Button(buttons, text="Apply", command=apply_changes).pack(
+            side=tk.RIGHT,
+            padx=(0, 8),
+        )
+        dialog.bind("<Return>", lambda _event: apply_changes())
+        dialog.wait_window()
+
     def _selected_template_zone_index(self) -> int | None:
         selected = self.zone_list.selection()
         if not selected:
@@ -6793,38 +6959,6 @@ class JerseyModderApp(tk.Tk):
             )
         else:
             self.template_status.configure(text=f"Updated zone {self.template_zones[index].name}.")
-
-    def detect_template_colors(self) -> None:
-        if self.template_image_path is None:
-            messagebox.showinfo("Detect V1 Colors", "Load your template image first.")
-            return
-        try:
-            zones = detect_v1_color_zones(self.template_image_path)
-        except RuntimeError as exc:
-            messagebox.showerror("Detect V1 Colors failed", str(exc))
-            return
-        self.template_zones = zones
-        self._redraw_template_zones()
-        self._refresh_template_zone_list()
-        self.template_status.configure(
-            text=f"Detected {len(zones)} color-coded zones from {self.template_image_path.name}."
-        )
-
-    def detect_template_v3_colors(self) -> None:
-        if self.template_image_path is None:
-            messagebox.showinfo("Detect V3 Colors", "Load your template image first.")
-            return
-        try:
-            zones = detect_v3_color_zones(self.template_image_path)
-        except RuntimeError as exc:
-            messagebox.showerror("Detect V3 Colors failed", str(exc))
-            return
-        self.template_zones = zones
-        self._redraw_template_zones()
-        self._refresh_template_zone_list()
-        self.template_status.configure(
-            text=f"Detected {len(zones)} V3 zones from {self.template_image_path.name}."
-        )
 
     def save_template_zones(self) -> None:
         if self.template_image_path is None:
