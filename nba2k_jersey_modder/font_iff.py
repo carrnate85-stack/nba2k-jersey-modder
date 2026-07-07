@@ -226,8 +226,22 @@ def _replace_archive_entry(
     replacement_data: bytes,
 ) -> None:
     output_iff.parent.mkdir(parents=True, exist_ok=True)
+    same_path = source_iff.resolve() == output_iff.resolve()
+    target_path = output_iff
+    temp_output: Path | None = None
+    if same_path:
+        handle = tempfile.NamedTemporaryFile(
+            prefix=f"{output_iff.stem}_",
+            suffix=output_iff.suffix,
+            dir=output_iff.parent,
+            delete=False,
+        )
+        temp_output = Path(handle.name)
+        handle.close()
+        target_path = temp_output
+
     with zipfile.ZipFile(source_iff, "r") as source:
-        with zipfile.ZipFile(output_iff, "w") as target:
+        with zipfile.ZipFile(target_path, "w") as target:
             for info in source.infolist():
                 if info.filename == entry_name:
                     new_info = zipfile.ZipInfo(info.filename, date_time=info.date_time)
@@ -239,6 +253,8 @@ def _replace_archive_entry(
                     target.writestr(new_info, replacement_data)
                 else:
                     target.writestr(info, source.read(info.filename))
+    if temp_output is not None:
+        temp_output.replace(output_iff)
 
 
 def _fit_digit_to_cell(digit: "PillowImage", size: tuple[int, int]) -> "PillowImage":

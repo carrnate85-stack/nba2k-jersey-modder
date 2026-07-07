@@ -674,6 +674,38 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(replaced[84:88], b"DXT1")
         self.assertNotEqual(replaced, original_dds_bytes)
 
+    def test_write_number_sheet_to_font_iff_can_overwrite_source_safely(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            source_iff = tmp_path / "font.iff"
+            original_dds = tmp_path / "original.dds"
+            save_bc1_dds(Image.new("RGBA", (40, 4), (10, 20, 30, 255)), original_dds)
+            original_dds_bytes = original_dds.read_bytes()
+            with zipfile.ZipFile(source_iff, "w") as archive:
+                archive.writestr("font_color_info.RDAT", b"keep")
+                archive.writestr(
+                    "font_number_color.1234567890abcdef.dds",
+                    original_dds_bytes,
+                )
+
+            info = inspect_font_number_texture(source_iff)
+            sheet = Image.new("RGBA", (info.width, info.height), (220, 30, 40, 255))
+
+            write_number_sheet_to_font_iff(source_iff, source_iff, sheet)
+
+            with zipfile.ZipFile(source_iff) as archive:
+                replaced = archive.read("font_number_color.1234567890abcdef.dds")
+                kept = archive.read("font_color_info.RDAT")
+
+        self.assertEqual(kept, b"keep")
+        self.assertTrue(replaced.startswith(b"DDS "))
+        self.assertNotEqual(replaced, original_dds_bytes)
+
     def test_save_bc1_dds_writes_dxt1_texture(self) -> None:
         try:
             from PIL import Image
