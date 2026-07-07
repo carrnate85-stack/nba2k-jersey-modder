@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
 set "GIT_EXE=git"
@@ -28,12 +28,12 @@ if errorlevel 1 (
     echo Paste the empty GitHub repository URL.
     echo Example: https://github.com/your-name/nba2k-jersey-modder.git
     set /p REPO_URL=GitHub URL: 
-    if "%REPO_URL%"=="" (
+    if "!REPO_URL!"=="" (
         echo No URL entered.
         pause
         exit /b 1
     )
-    "%GIT_EXE%" remote add origin "%REPO_URL%"
+    "%GIT_EXE%" remote add origin "!REPO_URL!"
 )
 
 "%GIT_EXE%" branch -M main
