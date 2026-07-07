@@ -153,7 +153,12 @@ class JerseyModderApp(tk.Tk):
         self.custom_fabric_overlay_path: Path | None = None
         self.generated_texture_path: Path | None = None
         self.generated_preview_image: tk.PhotoImage | None = None
-        self.generator_font_preview_image: tk.PhotoImage | None = None
+        self.generator_number_preview_image: tk.PhotoImage | None = None
+        self.generator_number_preview_enabled_var = tk.BooleanVar(value=True)
+        self.generator_number_preview_text_var = tk.StringVar(value="15")
+        self.generator_number_preview_x_var = tk.IntVar(value=1160)
+        self.generator_number_preview_y_var = tk.IntVar(value=780)
+        self.generator_number_preview_scale_var = tk.IntVar(value=100)
         self.generator_preview_rect: tuple[int, int, int, int] | None = None
         self.generator_preview_scale = 1.0
         self.generator_image_rects: dict[str, tuple[int, int, int, int]] = {}
@@ -1592,6 +1597,15 @@ class JerseyModderApp(tk.Tk):
 
         ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
         row += 1
+        ttk.Label(controls, text="Preview number", style="Status.TLabel").grid(
+            row=row, column=0, sticky=tk.W, pady=(0, 8)
+        )
+        row += 1
+        self._build_generator_number_preview_controls(controls, row)
+        row += 1
+
+        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
+        row += 1
         ttk.Label(controls, text="Background cleanup", style="Status.TLabel").grid(
             row=row, column=0, sticky=tk.W, pady=(0, 8)
         )
@@ -1673,28 +1687,8 @@ class JerseyModderApp(tk.Tk):
         self.generator_preview.bind("<B1-Motion>", self._generator_preview_drag)
         self.generator_preview.bind("<ButtonRelease-1>", self._generator_preview_release)
         self.generator_preview.grid(row=1, column=0, sticky="nsew")
-        font_preview_frame = ttk.Frame(preview_frame)
-        font_preview_frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        ttk.Label(
-            font_preview_frame,
-            text="Font preview",
-            style="Status.TLabel",
-        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
-        self.generator_font_preview = tk.Canvas(
-            font_preview_frame,
-            background="#20242b",
-            height=130,
-            highlightthickness=0,
-        )
-        self.generator_font_preview.grid(row=1, column=0, sticky="ew")
-        self.generator_font_preview.bind(
-            "<Configure>",
-            lambda _event: self._show_generator_font_preview(self.number_creator_sheet_path),
-        )
-        font_preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(1, weight=1)
         preview_frame.columnconfigure(0, weight=1)
-        self._show_generator_font_preview(self.number_creator_sheet_path)
 
         tab.columnconfigure(0, minsize=430)
         tab.columnconfigure(1, weight=1)
@@ -1850,6 +1844,63 @@ class JerseyModderApp(tk.Tk):
             command=self.remove_selected_generator_logo,
         ).grid(row=2, column=0, sticky="ew")
         frame.columnconfigure(0, weight=1)
+
+    def _build_generator_number_preview_controls(self, parent: ttk.Frame, row: int) -> None:
+        frame = ttk.Frame(parent)
+        frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        ttk.Checkbutton(
+            frame,
+            text="Show",
+            variable=self.generator_number_preview_enabled_var,
+            command=self._redraw_generator_preview_overlays,
+        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(frame, text="Number").grid(
+            row=0,
+            column=1,
+            sticky="w",
+            padx=(10, 4),
+            pady=(0, 6),
+        )
+        number_entry = ttk.Entry(
+            frame,
+            width=6,
+            textvariable=self.generator_number_preview_text_var,
+        )
+        number_entry.grid(row=0, column=2, sticky="w", pady=(0, 6))
+        number_entry.bind("<Return>", lambda _event: self._redraw_generator_preview_overlays())
+        number_entry.bind("<FocusOut>", lambda _event: self._redraw_generator_preview_overlays())
+
+        for column, (label, variable, width) in enumerate(
+            (
+                ("X", self.generator_number_preview_x_var, 7),
+                ("Y", self.generator_number_preview_y_var, 7),
+                ("Scale %", self.generator_number_preview_scale_var, 6),
+            )
+        ):
+            ttk.Label(frame, text=label).grid(row=1, column=column * 2, sticky="w")
+            spinbox = tk.Spinbox(
+                frame,
+                from_=0 if label != "Scale %" else 5,
+                to=2048 if label != "Scale %" else 500,
+                increment=1 if label != "Scale %" else 5,
+                width=width,
+                textvariable=variable,
+                command=self._redraw_generator_preview_overlays,
+            )
+            spinbox.grid(row=1, column=column * 2 + 1, sticky="w", padx=(4, 10))
+            spinbox.bind("<Return>", lambda _event: self._redraw_generator_preview_overlays())
+            spinbox.bind("<FocusOut>", lambda _event: self._redraw_generator_preview_overlays())
+        ttk.Button(
+            frame,
+            text="Reset",
+            command=self.reset_generator_number_preview,
+        ).grid(row=2, column=0, columnspan=6, sticky="ew", pady=(8, 0))
+        ttk.Label(
+            frame,
+            text="Preview only - not exported",
+            style="Muted.TLabel",
+        ).grid(row=3, column=0, columnspan=6, sticky="w", pady=(4, 0))
+        frame.columnconfigure(5, weight=1)
 
     def _build_fabric_overlay_controls(self, parent: ttk.Frame, row: int) -> None:
         frame = ttk.Frame(parent)
@@ -5013,7 +5064,7 @@ class JerseyModderApp(tk.Tk):
             if hasattr(self, "number_creator_preview"):
                 self.number_creator_preview.delete("all")
             self.number_creator_sheet_path = None
-            self._show_generator_font_preview(None)
+            self._redraw_generator_preview_overlays()
             self.number_creator_status.configure(text="Upload at least one digit first.")
             return
         output_path = (
@@ -5034,7 +5085,7 @@ class JerseyModderApp(tk.Tk):
             return
         self.number_creator_sheet_path = output_path
         self._show_number_creator_sheet_preview(output_path)
-        self._show_generator_font_preview(output_path)
+        self._redraw_generator_preview_overlays()
         self.number_creator_status.configure(text=f"Preview built with {len(self.number_creator_digit_paths)} digit(s).")
 
     def save_number_creator_sheet_as(self) -> None:
@@ -5427,57 +5478,6 @@ class JerseyModderApp(tk.Tk):
             max(10, (canvas_width - preview_size[0]) // 2),
             max(10, (canvas_height - preview_size[1]) // 2),
             image=self.number_creator_preview_image,
-            anchor=tk.NW,
-        )
-
-    def _show_generator_font_preview(self, path: Path | None) -> None:
-        if not hasattr(self, "generator_font_preview"):
-            return
-        self.generator_font_preview.delete("all")
-        if path is None or not path.exists():
-            self.generator_font_preview.create_text(
-                14,
-                14,
-                text="No font preview",
-                fill="#d8dbe2",
-                anchor=tk.NW,
-                font=("Segoe UI", 10),
-            )
-            self.generator_font_preview_image = None
-            return
-        try:
-            from PIL import Image, ImageDraw, ImageTk
-        except ImportError:
-            return
-        self.generator_font_preview.update_idletasks()
-        width = max(1, self.generator_font_preview.winfo_width() - 20)
-        height = max(1, self.generator_font_preview.winfo_height() - 20)
-        with Image.open(path) as opened:
-            sheet = opened.convert("RGBA")
-        scale = min(width / sheet.width, height / sheet.height, 1.0)
-        preview_size = (
-            max(1, round(sheet.width * scale)),
-            max(1, round(sheet.height * scale)),
-        )
-        sheet = sheet.resize(preview_size, Image.Resampling.LANCZOS)
-        background = Image.new("RGBA", preview_size, (238, 238, 238, 255))
-        draw = ImageDraw.Draw(background)
-        square = 14
-        for y in range(0, preview_size[1], square):
-            for x in range(0, preview_size[0], square):
-                if (x // square + y // square) % 2:
-                    draw.rectangle(
-                        (x, y, x + square - 1, y + square - 1),
-                        fill=(205, 205, 205, 255),
-                    )
-        background.alpha_composite(sheet)
-        self.generator_font_preview_image = ImageTk.PhotoImage(background)
-        canvas_width = self.generator_font_preview.winfo_width()
-        canvas_height = self.generator_font_preview.winfo_height()
-        self.generator_font_preview.create_image(
-            max(10, (canvas_width - preview_size[0]) // 2),
-            max(10, (canvas_height - preview_size[1]) // 2),
-            image=self.generator_font_preview_image,
             anchor=tk.NW,
         )
 
@@ -6322,6 +6322,10 @@ class JerseyModderApp(tk.Tk):
         )
         self._draw_generator_image_boxes()
 
+    def _redraw_generator_preview_overlays(self) -> None:
+        if hasattr(self, "generator_preview"):
+            self._draw_generator_image_boxes()
+
     def _draw_generator_image_boxes(self) -> None:
         self.generator_preview.delete("generator_overlay")
         self.generator_image_rects.clear()
@@ -6334,6 +6338,8 @@ class JerseyModderApp(tk.Tk):
         except Exception:
             return
         active_keys = {placement.key for placement in placements}
+        if self._generator_number_preview_available():
+            active_keys.add("preview_number")
         if self.generator_selected_image_key not in active_keys:
             self.generator_selected_image_key = None
 
@@ -6376,6 +6382,151 @@ class JerseyModderApp(tk.Tk):
                 fill="#ffcc33",
                 tags=("generator_overlay",),
             )
+        self._draw_generator_number_preview(left, top)
+
+    def _generator_number_preview_available(self) -> bool:
+        if not self.generator_number_preview_enabled_var.get():
+            return False
+        return bool(self._generator_number_preview_text())
+
+    def _generator_number_preview_text(self) -> str:
+        return "".join(
+            character
+            for character in self.generator_number_preview_text_var.get()
+            if character.isdigit()
+        )
+
+    def _generator_number_preview_scale(self) -> int:
+        try:
+            value = self.generator_number_preview_scale_var.get()
+        except tk.TclError:
+            value = 100
+        value = max(5, min(500, value))
+        self.generator_number_preview_scale_var.set(value)
+        return value
+
+    def _draw_generator_number_preview(self, preview_left: int, preview_top: int) -> None:
+        if not self._generator_number_preview_available():
+            self.generator_number_preview_image = None
+            return
+        try:
+            from PIL import Image, ImageTk
+
+            image = self._build_generator_number_preview_image()
+        except Exception:
+            self.generator_number_preview_image = None
+            return
+        if image is None:
+            self.generator_number_preview_image = None
+            return
+
+        scale_percent = self._generator_number_preview_scale()
+        texture_width = max(1, round(image.width * scale_percent / 100))
+        texture_height = max(1, round(image.height * scale_percent / 100))
+        try:
+            x = max(0, min(2048, int(self.generator_number_preview_x_var.get())))
+            y = max(0, min(2048, int(self.generator_number_preview_y_var.get())))
+        except tk.TclError:
+            x, y = 1160, 780
+        self.generator_number_preview_x_var.set(x)
+        self.generator_number_preview_y_var.set(y)
+        self.generator_image_rects["preview_number"] = (
+            x,
+            y,
+            texture_width,
+            texture_height,
+        )
+
+        canvas_width = max(1, round(texture_width * self.generator_preview_scale))
+        canvas_height = max(1, round(texture_height * self.generator_preview_scale))
+        display = image.resize((canvas_width, canvas_height), Image.Resampling.LANCZOS)
+        self.generator_number_preview_image = ImageTk.PhotoImage(display)
+        x1 = preview_left + x * self.generator_preview_scale
+        y1 = preview_top + y * self.generator_preview_scale
+        x2 = x1 + canvas_width
+        y2 = y1 + canvas_height
+        self.generator_preview.create_image(
+            x1,
+            y1,
+            image=self.generator_number_preview_image,
+            anchor=tk.NW,
+            tags=("generator_overlay",),
+        )
+        if self.generator_selected_image_key != "preview_number":
+            return
+        self.generator_preview.create_rectangle(
+            x1,
+            y1,
+            x2,
+            y2,
+            outline="#ffcc33",
+            width=2,
+            tags=("generator_overlay",),
+        )
+        self.generator_preview.create_rectangle(
+            x2 - 7,
+            y2 - 7,
+            x2 + 7,
+            y2 + 7,
+            fill="#ffcc33",
+            outline="#20242b",
+            tags=("generator_overlay",),
+        )
+        self.generator_preview.create_text(
+            x1 + 4,
+            y1 - 10,
+            text="Preview number",
+            anchor=tk.W,
+            fill="#ffcc33",
+            tags=("generator_overlay",),
+        )
+
+    def _build_generator_number_preview_image(self):
+        try:
+            from PIL import Image
+        except ImportError as exc:
+            raise RuntimeError("Preview number requires Pillow.") from exc
+
+        digits = []
+        for character in self._generator_number_preview_text():
+            path = self.number_creator_digit_paths.get(character)
+            if path is None or not path.exists():
+                return None
+            with Image.open(path) as opened:
+                digit = opened.convert("RGBA")
+            bbox = digit.getchannel("A").getbbox()
+            if bbox is not None:
+                left, top, right, bottom = bbox
+                padding = max(2, round(digit.height * 0.03))
+                digit = digit.crop(
+                    (
+                        max(0, left - padding),
+                        max(0, top - padding),
+                        min(digit.width, right + padding),
+                        min(digit.height, bottom + padding),
+                    )
+                )
+            digits.append(digit)
+        if not digits:
+            return None
+        gap = max(2, round(max(digit.height for digit in digits) * 0.04))
+        width = sum(digit.width for digit in digits) + gap * (len(digits) - 1)
+        height = max(digit.height for digit in digits)
+        number = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        x = 0
+        for digit in digits:
+            y = (height - digit.height) // 2
+            number.alpha_composite(digit, (x, y))
+            x += digit.width + gap
+        return number
+
+    def reset_generator_number_preview(self) -> None:
+        self.generator_number_preview_enabled_var.set(True)
+        self.generator_number_preview_text_var.set("15")
+        self.generator_number_preview_x_var.set(1160)
+        self.generator_number_preview_y_var.set(780)
+        self.generator_number_preview_scale_var.set(100)
+        self._redraw_generator_preview_overlays()
 
     def _generator_preview_press(self, event: tk.Event) -> None:
         hit = self._hit_generator_image(event.x, event.y)
@@ -6400,6 +6551,11 @@ class JerseyModderApp(tk.Tk):
             ),
             "front_scale": self._front_wordmark_scale_percent(),
             "logos": tuple(self.generator_logo_placements),
+            "preview_number": (
+                self.generator_number_preview_x_var.get(),
+                self.generator_number_preview_y_var.get(),
+                self._generator_number_preview_scale(),
+            ),
         }
 
     def _generator_preview_drag(self, event: tk.Event) -> None:
@@ -6416,12 +6572,19 @@ class JerseyModderApp(tk.Tk):
             self._drag_front_wordmark(mode, delta_x, delta_y, texture_x)
         elif key.startswith("logo:"):
             self._drag_logo(key, mode, delta_x, delta_y, texture_x, texture_y)
+        elif key == "preview_number":
+            self._drag_generator_number_preview(mode, delta_x, delta_y, texture_x)
+            self._draw_generator_image_boxes()
+            return
         self._schedule_generator_preview_refresh()
 
     def _generator_preview_release(self, _event: tk.Event) -> None:
         if self.generator_drag_state:
-            self._cancel_generator_preview_refresh()
-            self.generate_jersey_preview(select_tab=False, update_status=False)
+            if self.generator_drag_state["key"] == "preview_number":
+                self._draw_generator_image_boxes()
+            else:
+                self._cancel_generator_preview_refresh()
+                self.generate_jersey_preview(select_tab=False, update_status=False)
         self.generator_drag_state = None
 
     def _drag_front_wordmark(
@@ -6445,6 +6608,26 @@ class JerseyModderApp(tk.Tk):
         start_scale = self.generator_drag_state["front_scale"]
         self.front_wordmark_scale_var.set(
             max(1, min(500, round(start_scale * new_width / max(1, rect_width))))
+        )
+
+    def _drag_generator_number_preview(
+        self,
+        mode: str,
+        delta_x: int,
+        delta_y: int,
+        texture_x: float,
+    ) -> None:
+        if self.generator_drag_state is None:
+            return
+        start_x, start_y, start_scale = self.generator_drag_state["preview_number"]
+        if mode == "move":
+            self.generator_number_preview_x_var.set(max(0, min(2048, start_x + delta_x)))
+            self.generator_number_preview_y_var.set(max(0, min(2048, start_y + delta_y)))
+            return
+        rect_x, _rect_y, rect_width, _rect_height = self.generator_drag_state["rect"]
+        new_width = max(1, texture_x - rect_x)
+        self.generator_number_preview_scale_var.set(
+            max(5, min(500, round(start_scale * new_width / max(1, rect_width))))
         )
 
     def _drag_logo(
