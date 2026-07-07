@@ -7510,10 +7510,10 @@ def _recolor_font_image(
 
     max_distance = max(visible_distances)
     if max_distance <= 1:
-        threshold = 1.25
+        threshold = 1.75
     else:
-        threshold = max(1.75, min(7.0, max_distance * 0.5))
-    softness = max(1.0, threshold * 0.35)
+        threshold = max(2.5, min(8.5, max_distance * 0.62))
+    softness = max(0.75, threshold * 0.22)
 
     recolored = []
     for index, (red, green, blue, alpha) in enumerate(pixels):
