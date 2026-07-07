@@ -1530,6 +1530,9 @@ class JerseyModderApp(tk.Tk):
             "collar_trim_color": tk.StringVar(value="#ffffff"),
         }
         self.generator_file_labels: dict[str, ttk.Label] = {}
+        self.generator_color_row_frames: dict[str, ttk.Frame] = {}
+        self.generator_upload_row_frames: dict[str, ttk.Frame] = {}
+        self.generator_jersey_only_widgets: list[tk.Widget] = []
 
         row = 0
         ttk.Label(controls, text="Template", style="Status.TLabel").grid(
@@ -1567,7 +1570,12 @@ class JerseyModderApp(tk.Tk):
 
         ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
         row += 1
-        ttk.Label(controls, text="Base colors", style="Status.TLabel").grid(
+        self.generator_base_colors_label = ttk.Label(
+            controls,
+            text="Base colors",
+            style="Status.TLabel",
+        )
+        self.generator_base_colors_label.grid(
             row=row, column=0, sticky=tk.W, pady=(0, 8)
         )
         row += 1
@@ -1579,13 +1587,19 @@ class JerseyModderApp(tk.Tk):
             ("collar_background_color", "Collar background"),
         ):
             self._add_generator_color_row(controls, row, key, label)
+            if key in {"front_color", "back_color"}:
+                self.generator_jersey_only_widgets.append(self.generator_color_row_frames[key])
             row += 1
 
-        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
+        trim_separator = ttk.Separator(controls)
+        trim_separator.grid(row=row, column=0, sticky="ew", pady=12)
+        self.generator_jersey_only_widgets.append(trim_separator)
         row += 1
-        ttk.Label(controls, text="Trim colors", style="Status.TLabel").grid(
+        trim_label = ttk.Label(controls, text="Trim colors", style="Status.TLabel")
+        trim_label.grid(
             row=row, column=0, sticky=tk.W, pady=(0, 8)
         )
+        self.generator_jersey_only_widgets.append(trim_label)
         row += 1
         for key, label in (
             ("left_arm_hole_trim_color", "Left arm hole"),
@@ -1593,6 +1607,7 @@ class JerseyModderApp(tk.Tk):
             ("collar_trim_color", "Collar trim"),
         ):
             self._add_generator_color_row(controls, row, key, label)
+            self.generator_jersey_only_widgets.append(self.generator_color_row_frames[key])
             row += 1
 
         ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
@@ -1610,6 +1625,13 @@ class JerseyModderApp(tk.Tk):
             ("collar_trim_image", "Collar trim image"),
         ):
             self._add_generator_upload_row(controls, row, key, label)
+            if key in {
+                "front_wordmark_image",
+                "left_arm_hole_trim_image",
+                "right_arm_hole_trim_image",
+                "collar_trim_image",
+            }:
+                self.generator_jersey_only_widgets.append(self.generator_upload_row_frames[key])
             row += 1
 
         ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
@@ -1630,13 +1652,18 @@ class JerseyModderApp(tk.Tk):
         self._build_fabric_overlay_controls(controls, row)
         row += 1
 
-        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
+        number_separator = ttk.Separator(controls)
+        number_separator.grid(row=row, column=0, sticky="ew", pady=12)
+        self.generator_jersey_only_widgets.append(number_separator)
         row += 1
-        ttk.Label(controls, text="Preview number", style="Status.TLabel").grid(
+        number_label = ttk.Label(controls, text="Preview number", style="Status.TLabel")
+        number_label.grid(
             row=row, column=0, sticky=tk.W, pady=(0, 8)
         )
+        self.generator_jersey_only_widgets.append(number_label)
         row += 1
         self._build_generator_number_preview_controls(controls, row)
+        self.generator_jersey_only_widgets.append(self.generator_number_preview_frame)
         row += 1
 
         ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
@@ -1659,11 +1686,13 @@ class JerseyModderApp(tk.Tk):
             command=self.save_generated_dds_as,
         ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
         row += 1
-        ttk.Button(
+        self.generator_region_dds_button = ttk.Button(
             controls,
             text="Save Jersey Region DDS As",
             command=self.save_jersey_region_dds_as,
-        ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
+        )
+        self.generator_region_dds_button.grid(row=row, column=0, sticky="ew", pady=(8, 0))
+        self.generator_jersey_only_widgets.append(self.generator_region_dds_button)
         row += 1
         ttk.Button(
             controls,
@@ -1740,6 +1769,7 @@ class JerseyModderApp(tk.Tk):
     ) -> None:
         frame = ttk.Frame(parent)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        self.generator_color_row_frames[key] = frame
         label_widget = ttk.Label(frame, text=label)
         label_widget.pack(side=tk.LEFT)
         self.generator_color_labels[key] = label_widget
@@ -1786,6 +1816,7 @@ class JerseyModderApp(tk.Tk):
     ) -> None:
         frame = ttk.Frame(parent)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        self.generator_upload_row_frames[key] = frame
         ttk.Button(
             frame,
             text=label,
@@ -1818,6 +1849,14 @@ class JerseyModderApp(tk.Tk):
     def _sync_generator_template_controls(self, *, refresh_preview: bool) -> None:
         is_shorts = self.generator_garment_var.get() == "Shorts"
         self.generator_shorts_template_box.configure(state="readonly" if is_shorts else "disabled")
+        self.generator_base_colors_label.configure(
+            text="Shorts colors" if is_shorts else "Base colors"
+        )
+        for widget in self.generator_jersey_only_widgets:
+            if is_shorts:
+                widget.grid_remove()
+            else:
+                widget.grid()
         labels = {
             "front_color": "Front",
             "back_color": "Back",
@@ -1831,8 +1870,6 @@ class JerseyModderApp(tk.Tk):
         if is_shorts:
             labels.update(
                 {
-                    "front_color": "Front (jersey only)",
-                    "back_color": "Back (jersey only)",
                     "left_panel_color": "Left shorts panel",
                     "right_panel_color": "Right shorts panel",
                     "collar_background_color": "Waistband",
@@ -1909,6 +1946,7 @@ class JerseyModderApp(tk.Tk):
     def _build_generator_number_preview_controls(self, parent: ttk.Frame, row: int) -> None:
         frame = ttk.Frame(parent)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        self.generator_number_preview_frame = frame
         ttk.Checkbutton(
             frame,
             text="Show",
