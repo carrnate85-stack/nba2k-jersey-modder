@@ -123,6 +123,8 @@ class JerseyModderApp(tk.Tk):
         self.template_drag_start: tuple[int, int] | None = None
         self.template_preview_id: int | None = None
         self.template_mouse_coord_var = tk.StringVar(value="Mouse: --")
+        self.template_garment_var = tk.StringVar(value="Jersey")
+        self.template_shorts_template_var = tk.StringVar(value="Retro shorts")
         self.zone_x_var = tk.IntVar(value=0)
         self.zone_y_var = tk.IntVar(value=0)
         self.zone_width_var = tk.IntVar(value=0)
@@ -414,6 +416,28 @@ class JerseyModderApp(tk.Tk):
 
         toolbar = ttk.Frame(tab)
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        ttk.Label(toolbar, text="Master").pack(side=tk.LEFT)
+        self.template_garment_box = ttk.Combobox(
+            toolbar,
+            textvariable=self.template_garment_var,
+            values=("Jersey", "Shorts"),
+            state="readonly",
+            width=10,
+        )
+        self.template_garment_box.pack(side=tk.LEFT, padx=(6, 8))
+        self.template_shorts_template_box = ttk.Combobox(
+            toolbar,
+            textvariable=self.template_shorts_template_var,
+            values=tuple(SHORTS_TEMPLATE_OPTIONS),
+            state="disabled",
+            width=14,
+        )
+        self.template_shorts_template_box.pack(side=tk.LEFT, padx=(0, 8))
+        self.template_garment_box.bind("<<ComboboxSelected>>", self._on_template_master_choice_changed)
+        self.template_shorts_template_box.bind(
+            "<<ComboboxSelected>>",
+            self._on_template_master_choice_changed,
+        )
         ttk.Button(
             toolbar,
             text="Load Master Template",
@@ -6908,7 +6932,8 @@ class JerseyModderApp(tk.Tk):
         self.tabs.select(self.template_tab)
 
     def load_master_template(self) -> None:
-        if not MASTER_TEMPLATE_IMAGE.exists() or not MASTER_TEMPLATE_ZONES.exists():
+        image_path, zones_path = self._current_template_master_paths()
+        if not image_path.exists() or not zones_path.exists():
             messagebox.showerror(
                 "Master Template Missing",
                 "The built-in master template files were not found.",
@@ -6916,21 +6941,39 @@ class JerseyModderApp(tk.Tk):
             return
 
         try:
-            image = tk.PhotoImage(file=str(MASTER_TEMPLATE_IMAGE))
-            template = load_template(MASTER_TEMPLATE_ZONES)
+            image = tk.PhotoImage(file=str(image_path))
+            template = load_template(zones_path)
         except (tk.TclError, OSError, ValueError, TypeError) as exc:
             messagebox.showerror("Master Template failed", str(exc))
             return
 
-        self.template_image_path = MASTER_TEMPLATE_IMAGE
+        self.template_image_path = image_path
         self.template_original_size = (image.width(), image.height())
         self.template_zones = list(template.zones)
         self.template_zoom = 1.0
         self._render_template_image(fit=True)
         self.template_status.configure(
-            text=f"Loaded built-in master template ({image.width()} x {image.height()})."
+            text=f"Loaded {self._current_template_master_label()} ({image.width()} x {image.height()})."
         )
         self.tabs.select(self.template_tab)
+
+    def _current_template_master_paths(self) -> tuple[Path, Path]:
+        if self.template_garment_var.get() == "Shorts":
+            return SHORTS_TEMPLATE_OPTIONS.get(
+                self.template_shorts_template_var.get(),
+                SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
+            )
+        return MASTER_TEMPLATE_IMAGE, MASTER_TEMPLATE_ZONES
+
+    def _current_template_master_label(self) -> str:
+        if self.template_garment_var.get() == "Shorts":
+            return self.template_shorts_template_var.get()
+        return "Jersey master template"
+
+    def _on_template_master_choice_changed(self, _event: tk.Event | None = None) -> None:
+        is_shorts = self.template_garment_var.get() == "Shorts"
+        self.template_shorts_template_box.configure(state="readonly" if is_shorts else "disabled")
+        self.load_master_template()
 
     def choose_zone_color(self) -> None:
         color = colorchooser.askcolor(color=self.zone_color_var.get())[1]
@@ -7311,21 +7354,23 @@ class JerseyModderApp(tk.Tk):
             messagebox.showerror("Save Master failed", str(exc))
             return
         self.template_status.configure(
-            text=f"Saved {len(self.template_zones)} zones to the built-in master template."
+            text=f"Saved {len(self.template_zones)} zones to {self._current_template_master_label()}."
         )
 
     def _is_editing_master_template(self) -> bool:
+        image_path, _zones_path = self._current_template_master_paths()
         return (
             self.template_image_path is not None
-            and self.template_image_path.resolve() == MASTER_TEMPLATE_IMAGE.resolve()
+            and self.template_image_path.resolve() == image_path.resolve()
         )
 
     def _write_master_template_zones(self) -> None:
+        image_path, zones_path = self._current_template_master_paths()
         template = JerseyTemplate(
-            image_path=str(MASTER_TEMPLATE_IMAGE),
+            image_path=str(image_path),
             zones=tuple(self.template_zones),
         )
-        save_template(MASTER_TEMPLATE_ZONES, template)
+        save_template(zones_path, template)
 
     def load_template_zones(self) -> None:
         selected = filedialog.askopenfilename(
