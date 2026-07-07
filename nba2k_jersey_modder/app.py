@@ -235,8 +235,8 @@ class JerseyModderApp(tk.Tk):
         self.number_creator_nudge_y_var = tk.IntVar(value=0)
         self.number_recolor_light_var = tk.StringVar(value="#ffffff")
         self.number_recolor_dark_var = tk.StringVar(value="#000000")
-        self.number_recolor_no_light_var = tk.BooleanVar(value=False)
-        self.number_recolor_no_dark_var = tk.BooleanVar(value=False)
+        self.number_recolor_no_light_var = tk.BooleanVar(value=True)
+        self.number_recolor_no_dark_var = tk.BooleanVar(value=True)
         self.number_recolor_edge_protection_var = tk.IntVar(value=75)
         self.number_recolor_edge_protection_label_var = tk.StringVar(value="75%")
         self.tweak_file_path: Path | None = None
@@ -1228,7 +1228,7 @@ class JerseyModderApp(tk.Tk):
         ttk.Label(light_row, text="Light / fill").pack(side=tk.LEFT)
         ttk.Checkbutton(
             light_row,
-            text="No color",
+            text="No change",
             variable=self.number_recolor_no_light_var,
             command=self._refresh_number_recolor_swatches,
         ).pack(side=tk.LEFT, padx=(10, 0))
@@ -1263,7 +1263,7 @@ class JerseyModderApp(tk.Tk):
         ttk.Label(dark_row, text="Dark / outline").pack(side=tk.LEFT)
         ttk.Checkbutton(
             dark_row,
-            text="No color",
+            text="No change",
             variable=self.number_recolor_no_dark_var,
             command=self._refresh_number_recolor_swatches,
         ).pack(side=tk.LEFT, padx=(10, 0))
@@ -1288,6 +1288,7 @@ class JerseyModderApp(tk.Tk):
             command=self.restore_number_font_original_colors,
         ).pack(side=tk.LEFT, padx=(8, 0))
         recolor.columnconfigure(0, weight=1)
+        self._refresh_number_recolor_swatches()
 
         font_tools = ttk.LabelFrame(side, text="Font IFF", padding=8)
         font_tools.grid(row=1, column=0, sticky="ew", pady=(0, 10))
