@@ -1,0 +1,25 @@
+{
+  "image_path": "assets/templates/jersey_region.template.png",
+  "zones": [
+    {
+      "name": "jersey_region_main_cloth",
+      "zone_type": "base",
+      "x": 0,
+      "y": 0,
+      "width": 1024,
+      "height": 1024,
+      "color": "#cb0066",
+      "layer": 0
+    },
+    {
+      "name": "jersey_region_dark_band",
+      "zone_type": "stripe",
+      "x": 0,
+      "y": 0,
+      "width": 1024,
+      "height": 192,
+      "color": "#c00066",
+      "layer": 5
+    }
+  ]
+}

@@ -33,6 +33,7 @@ from .generator import (
     generate_layered_jersey_psd,
     image_placement_rects,
     logo_target_zones,
+    render_jersey_region_map,
 )
 from .iff_patch import (
     Replacement,
@@ -42,6 +43,8 @@ from .iff_patch import (
 )
 from .scanner import IffScanResult, ResourceHit, TexturePair, scan_iff
 from .template import (
+    JERSEY_REGION_TEMPLATE_IMAGE,
+    JERSEY_TEMPLATE_OPTIONS,
     JerseyTemplate,
     MASTER_TEMPLATE_IMAGE,
     MASTER_TEMPLATE_ZONES,
@@ -124,6 +127,7 @@ class JerseyModderApp(tk.Tk):
         self.template_preview_id: int | None = None
         self.template_mouse_coord_var = tk.StringVar(value="Mouse: --")
         self.template_garment_var = tk.StringVar(value="Jersey")
+        self.template_jersey_template_var = tk.StringVar(value="Jersey color")
         self.template_shorts_template_var = tk.StringVar(value="Retro shorts")
         self.zone_x_var = tk.IntVar(value=0)
         self.zone_y_var = tk.IntVar(value=0)
@@ -425,6 +429,14 @@ class JerseyModderApp(tk.Tk):
             width=10,
         )
         self.template_garment_box.pack(side=tk.LEFT, padx=(6, 8))
+        self.template_jersey_template_box = ttk.Combobox(
+            toolbar,
+            textvariable=self.template_jersey_template_var,
+            values=tuple(JERSEY_TEMPLATE_OPTIONS),
+            state="readonly",
+            width=14,
+        )
+        self.template_jersey_template_box.pack(side=tk.LEFT, padx=(0, 8))
         self.template_shorts_template_box = ttk.Combobox(
             toolbar,
             textvariable=self.template_shorts_template_var,
@@ -434,6 +446,10 @@ class JerseyModderApp(tk.Tk):
         )
         self.template_shorts_template_box.pack(side=tk.LEFT, padx=(0, 8))
         self.template_garment_box.bind("<<ComboboxSelected>>", self._on_template_master_choice_changed)
+        self.template_jersey_template_box.bind(
+            "<<ComboboxSelected>>",
+            self._on_template_master_choice_changed,
+        )
         self.template_shorts_template_box.bind(
             "<<ComboboxSelected>>",
             self._on_template_master_choice_changed,
@@ -1728,6 +1744,12 @@ class JerseyModderApp(tk.Tk):
             controls,
             text="Save DDS BC1 As",
             command=self.save_generated_dds_as,
+        ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
+        row += 1
+        ttk.Button(
+            controls,
+            text="Save Jersey Region DDS As",
+            command=self.save_jersey_region_dds_as,
         ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
         row += 1
         ttk.Button(
@@ -6376,6 +6398,60 @@ class JerseyModderApp(tk.Tk):
             return
         self.generator_status.configure(text=f"Saved BC1 DDS texture to {target}.")
 
+    def save_jersey_region_dds_as(self) -> None:
+        if self.generator_garment_var.get() != "Jersey":
+            messagebox.showinfo(
+                "Save Jersey Region DDS",
+                "Switch the generator template type to Jersey before exporting a jersey region.",
+            )
+            return
+        selected = filedialog.asksaveasfilename(
+            title="Save Jersey Region as DDS BC1",
+            defaultextension=".dds",
+            filetypes=(("DDS files", "*.dds"), ("All files", "*.*")),
+        )
+        if not selected:
+            return
+        target = Path(selected)
+        try:
+            template = load_template(MASTER_TEMPLATE_ZONES)
+            inputs = self._generator_inputs()
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror("Region DDS save failed", str(exc))
+            return
+        self.generator_status.configure(text=f"Saving jersey region DDS to {selected}...")
+        thread = threading.Thread(
+            target=self._save_jersey_region_dds_worker,
+            args=(template, inputs, target),
+            daemon=True,
+        )
+        thread.start()
+
+    def _save_jersey_region_dds_worker(
+        self,
+        template: JerseyTemplate,
+        inputs: GeneratorInputs,
+        target: Path,
+    ) -> None:
+        try:
+            image = render_jersey_region_map(
+                template,
+                inputs,
+                JERSEY_REGION_TEMPLATE_IMAGE,
+            )
+            save_bc1_dds(image, target)
+        except Exception as exc:  # noqa: BLE001 - background GUI boundary.
+            self.after(0, lambda: self._finish_jersey_region_dds_save(target, exc))
+            return
+        self.after(0, lambda: self._finish_jersey_region_dds_save(target, None))
+
+    def _finish_jersey_region_dds_save(self, target: Path, error: Exception | None) -> None:
+        if error is not None:
+            messagebox.showerror("Region DDS save failed", str(error))
+            self.generator_status.configure(text="Region DDS save failed.")
+            return
+        self.generator_status.configure(text=f"Saved jersey region DDS to {target}.")
+
     def save_layered_psd_as(self) -> None:
         selected = filedialog.asksaveasfilename(
             title="Save Layered Photoshop File",
@@ -6963,15 +7039,19 @@ class JerseyModderApp(tk.Tk):
                 self.template_shorts_template_var.get(),
                 SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
             )
-        return MASTER_TEMPLATE_IMAGE, MASTER_TEMPLATE_ZONES
+        return JERSEY_TEMPLATE_OPTIONS.get(
+            self.template_jersey_template_var.get(),
+            JERSEY_TEMPLATE_OPTIONS["Jersey color"],
+        )
 
     def _current_template_master_label(self) -> str:
         if self.template_garment_var.get() == "Shorts":
             return self.template_shorts_template_var.get()
-        return "Jersey master template"
+        return self.template_jersey_template_var.get()
 
     def _on_template_master_choice_changed(self, _event: tk.Event | None = None) -> None:
         is_shorts = self.template_garment_var.get() == "Shorts"
+        self.template_jersey_template_box.configure(state="disabled" if is_shorts else "readonly")
         self.template_shorts_template_box.configure(state="readonly" if is_shorts else "disabled")
         self.load_master_template()
 

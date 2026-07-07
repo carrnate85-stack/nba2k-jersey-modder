@@ -35,11 +35,15 @@ from nba2k_jersey_modder.generator import (
     logo_target_zones,
     remove_detected_background,
     remove_image_background,
+    render_jersey_region_map,
     upscale_logo_image,
 )
 from nba2k_jersey_modder.scanner import ResourceHit
 from nba2k_jersey_modder.scanner import scan_iff
 from nba2k_jersey_modder.template import (
+    JERSEY_REGION_TEMPLATE_IMAGE,
+    JERSEY_REGION_TEMPLATE_ZONES,
+    JERSEY_TEMPLATE_OPTIONS,
     JerseyTemplate,
     MASTER_TEMPLATE_IMAGE,
     MASTER_TEMPLATE_ZONES,
@@ -379,6 +383,17 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("right_side_panel", by_name)
         self.assertGreater(by_name["left_side_panel"].layer, by_name["front_jersey_base"].layer)
 
+    def test_bundled_region_template_exists_and_loads(self) -> None:
+        self.assertTrue(JERSEY_REGION_TEMPLATE_IMAGE.exists())
+        self.assertTrue(JERSEY_REGION_TEMPLATE_ZONES.exists())
+        self.assertIn("Jersey region", JERSEY_TEMPLATE_OPTIONS)
+
+        template = load_template(JERSEY_REGION_TEMPLATE_ZONES)
+        by_name = {zone.name: zone for zone in template.zones}
+
+        self.assertIn("jersey_region_main_cloth", by_name)
+        self.assertIn("jersey_region_dark_band", by_name)
+
     def test_bundled_retro_shorts_template_exists_and_loads(self) -> None:
         self.assertTrue(SHORTS_TEMPLATE_RETRO_IMAGE.exists())
         self.assertTrue(SHORTS_TEMPLATE_RETRO_ZONES.exists())
@@ -386,8 +401,7 @@ class TemplateTests(unittest.TestCase):
         template = load_template(SHORTS_TEMPLATE_RETRO_ZONES)
         by_name = {zone.name: zone for zone in template.zones}
 
-        self.assertIn("shorts_waistband_top", by_name)
-        self.assertIn("shorts_waistband_bottom", by_name)
+        self.assertTrue(any(name.startswith("shorts_waistband") for name in by_name))
         self.assertIn("shorts_left_panel", by_name)
         self.assertIn("shorts_right_panel", by_name)
         self.assertIn("shorts_belt_buckle_logo", by_name)
@@ -1048,6 +1062,49 @@ class GeneratorTests(unittest.TestCase):
             {zone.name for zone in logo_target_zones(template)},
             {"shorts_belt_buckle_logo"},
         )
+
+    def test_render_jersey_region_map_marks_panels_and_decals(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            wordmark = tmp_path / "wordmark.png"
+            logo = tmp_path / "logo.png"
+            wordmark_image = Image.new("RGBA", (120, 60), (0, 0, 0, 0))
+            ImageDraw.Draw(wordmark_image).rectangle((10, 10, 110, 50), fill=(255, 255, 255, 255))
+            wordmark_image.save(wordmark)
+            logo_image = Image.new("RGBA", (64, 64), (255, 255, 255, 255))
+            logo_image.save(logo)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone("front_wordmark", "wordmark", 900, 600, 400, 220, "#000000", 30),
+                    TemplateZone("left_side_panel", "stripe", 100, 1000, 200, 600, "#0000ff", 10),
+                    TemplateZone("right_side_panel", "stripe", 1700, 1000, 200, 600, "#ff0000", 10),
+                    TemplateZone("front_left_chest_logo", "logo", 1010, 610, 180, 180, "#ffffff", 50),
+                ),
+            )
+
+            region = render_jersey_region_map(
+                template,
+                GeneratorInputs(
+                    front_color="#ffffff",
+                    back_color="#ffffff",
+                    left_panel_color="#ffffff",
+                    right_panel_color="#ffffff",
+                    front_wordmark_image=wordmark,
+                    logo_placements=(LogoPlacement(logo, "front_left_chest_logo"),),
+                ),
+                JERSEY_REGION_TEMPLATE_IMAGE,
+            )
+
+        self.assertEqual(region.size, (1024, 1024))
+        self.assertEqual(region.getpixel((60, 550)), (192, 0, 102, 255))
+        self.assertEqual(region.getpixel((540, 340)), (132, 0, 216, 255))
+        self.assertEqual(region.getpixel((10, 300)), (203, 0, 102, 255))
 
     def test_wrap_logo_type_stretches_across_x_axis(self) -> None:
         try:

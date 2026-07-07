@@ -80,6 +80,9 @@ FABRIC_OVERLAY_EXCLUDED_ZONE_NAMES = {
     "shorts_waistband_bottom",
 }
 
+JERSEY_REGION_SIDE_PANEL_COLOR = (192, 0, 102, 255)
+JERSEY_REGION_DECAL_COLOR = (132, 0, 216, 255)
+
 
 @dataclass(frozen=True)
 class RenderLayer:
@@ -329,7 +332,10 @@ def _clear_fabric_overlay_excluded_zones(overlay, template: JerseyTemplate) -> N
     alpha = overlay.getchannel("A")
     draw = ImageDraw.Draw(alpha)
     for zone in template.zones:
-        if zone.name not in FABRIC_OVERLAY_EXCLUDED_ZONE_NAMES:
+        if (
+            zone.name not in FABRIC_OVERLAY_EXCLUDED_ZONE_NAMES
+            and not zone.name.startswith("shorts_waistband")
+        ):
             continue
         left = round(zone.x * scale_x)
         top = round(zone.y * scale_y)
@@ -361,6 +367,66 @@ def generate_layered_jersey_psd(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     _write_layered_psd(output_path, composite, layers)
     return output_path
+
+
+def render_jersey_region_map(
+    template: JerseyTemplate,
+    inputs: GeneratorInputs,
+    region_template_path: Path,
+    size: tuple[int, int] = (1024, 1024),
+):
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError("Jersey region generation requires Pillow.") from exc
+
+    base = Image.open(region_template_path).convert("RGBA")
+    if base.size != size:
+        base = base.resize(size, Image.Resampling.NEAREST)
+
+    design_width, design_height = _template_design_size(template, (2048, 2048))
+    scale_x = size[0] / design_width
+    scale_y = size[1] / design_height
+
+    draw = ImageDraw.Draw(base)
+    for zone in sorted(template.zones, key=lambda candidate: candidate.layer):
+        if zone.name not in {"left_side_panel", "right_side_panel"}:
+            continue
+        left = round(zone.x * scale_x)
+        top = round(zone.y * scale_y)
+        right = round((zone.x + zone.width) * scale_x)
+        bottom = round((zone.y + zone.height) * scale_y)
+        draw.rectangle((left, top, right, bottom), fill=JERSEY_REGION_SIDE_PANEL_COLOR)
+
+    front = next((zone for zone in template.zones if zone.name == "front_wordmark"), None)
+    if front is not None and inputs.front_wordmark_image and inputs.front_wordmark_image.exists():
+        overlay = _prepared_overlay(inputs.front_wordmark_image, inputs, "front_wordmark")
+        overlay, x, y = _overlay_at_zone(overlay, front, inputs)
+        _paint_region_overlay(base, overlay, x, y, scale_x, scale_y)
+
+    logo_targets = {zone.name: zone for zone in logo_target_zones(template)}
+    for index, logo in enumerate(inputs.logo_placements):
+        target = logo_targets.get(logo.target_name)
+        if target is None or not logo.path.exists():
+            continue
+        logo_key = f"logo:{index}"
+        overlay = _prepared_overlay(logo.path, inputs, logo_key)
+        overlay, x, y = _overlay_at_zone(overlay, target, inputs, logo=logo)
+        _paint_region_overlay(base, overlay, x, y, scale_x, scale_y)
+
+    return base
+
+
+def _paint_region_overlay(base, overlay, x: int, y: int, scale_x: float, scale_y: float) -> None:
+    from PIL import Image
+
+    width = max(1, round(overlay.width * scale_x))
+    height = max(1, round(overlay.height * scale_y))
+    mask = overlay.getchannel("A").resize((width, height), Image.Resampling.LANCZOS)
+    mask = mask.point(lambda value: 255 if value >= 16 else 0)
+    region = Image.new("RGBA", (width, height), JERSEY_REGION_DECAL_COLOR)
+    region.putalpha(mask)
+    base.alpha_composite(region, (round(x * scale_x), round(y * scale_y)))
 
 
 def _fill_for_zone(zone: TemplateZone, inputs: GeneratorInputs) -> str | None:
