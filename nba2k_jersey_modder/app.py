@@ -235,6 +235,8 @@ class JerseyModderApp(tk.Tk):
         self.number_creator_nudge_y_var = tk.IntVar(value=0)
         self.number_recolor_light_var = tk.StringVar(value="#ffffff")
         self.number_recolor_dark_var = tk.StringVar(value="#000000")
+        self.number_recolor_no_light_var = tk.BooleanVar(value=False)
+        self.number_recolor_no_dark_var = tk.BooleanVar(value=False)
         self.tweak_file_path: Path | None = None
         self.tweak_info: FrontNumberTweak | None = None
         self.tweak_x_var = tk.DoubleVar(value=0.0)
@@ -1242,6 +1244,12 @@ class JerseyModderApp(tk.Tk):
         light_row = ttk.Frame(recolor)
         light_row.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         ttk.Label(light_row, text="Light / fill").pack(side=tk.LEFT)
+        ttk.Checkbutton(
+            light_row,
+            text="No color",
+            variable=self.number_recolor_no_light_var,
+            command=self._refresh_number_recolor_swatches,
+        ).pack(side=tk.LEFT, padx=(10, 0))
         self.number_recolor_light_swatch = tk.Label(light_row, width=3, background="#ffffff", relief=tk.SUNKEN)
         self.number_recolor_light_swatch.pack(side=tk.RIGHT)
         ttk.Button(
@@ -1253,6 +1261,12 @@ class JerseyModderApp(tk.Tk):
         dark_row = ttk.Frame(recolor)
         dark_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         ttk.Label(dark_row, text="Dark / outline").pack(side=tk.LEFT)
+        ttk.Checkbutton(
+            dark_row,
+            text="No color",
+            variable=self.number_recolor_no_dark_var,
+            command=self._refresh_number_recolor_swatches,
+        ).pack(side=tk.LEFT, padx=(10, 0))
         self.number_recolor_dark_swatch = tk.Label(dark_row, width=3, background="#000000", relief=tk.SUNKEN)
         self.number_recolor_dark_swatch.pack(side=tk.RIGHT)
         ttk.Button(
@@ -4291,6 +4305,10 @@ class JerseyModderApp(tk.Tk):
         if normalized is None:
             return
         variable.set(normalized)
+        if target == "light":
+            self.number_recolor_no_light_var.set(False)
+        else:
+            self.number_recolor_no_dark_var.set(False)
         self._refresh_number_recolor_swatches()
 
     def apply_number_font_recolor(self) -> None:
@@ -4336,7 +4354,11 @@ class JerseyModderApp(tk.Tk):
         self.refresh_number_creator_sheet_preview()
         self.number_creator_status.configure(text="Restored original font colors.")
 
-    def _number_recolor_rgb(self, target: str) -> tuple[int, int, int]:
+    def _number_recolor_rgb(self, target: str) -> tuple[int, int, int] | None:
+        if target == "light" and self.number_recolor_no_light_var.get():
+            return None
+        if target == "dark" and self.number_recolor_no_dark_var.get():
+            return None
         variable = (
             self.number_recolor_light_var
             if target == "light"
@@ -4352,11 +4374,15 @@ class JerseyModderApp(tk.Tk):
     def _refresh_number_recolor_swatches(self) -> None:
         if hasattr(self, "number_recolor_light_swatch"):
             light = self._normalize_hex_color(self.number_recolor_light_var.get())
-            if light:
+            if self.number_recolor_no_light_var.get():
+                self.number_recolor_light_swatch.configure(background="#d8dbe2")
+            elif light:
                 self.number_recolor_light_swatch.configure(background=light)
         if hasattr(self, "number_recolor_dark_swatch"):
             dark = self._normalize_hex_color(self.number_recolor_dark_var.get())
-            if dark:
+            if self.number_recolor_no_dark_var.get():
+                self.number_recolor_dark_swatch.configure(background="#d8dbe2")
+            elif dark:
                 self.number_recolor_dark_swatch.configure(background=dark)
 
     def save_number_creator_back_to_font_iff(self) -> None:
@@ -7465,10 +7491,12 @@ def _align_image_to_visible_center(image, target_center: tuple[float, float]):
 
 def _recolor_font_image(
     image,
-    dark_color: tuple[int, int, int],
-    light_color: tuple[int, int, int],
+    dark_color: tuple[int, int, int] | None,
+    light_color: tuple[int, int, int] | None,
 ):
     rgba = image.convert("RGBA")
+    if dark_color is None and light_color is None:
+        return rgba
     rgba_data = getattr(rgba, "get_flattened_data", rgba.getdata)
     pixels = list(rgba_data())
     distances = _font_alpha_edge_distances(rgba)
@@ -7497,16 +7525,24 @@ def _recolor_font_image(
             0.0,
             1.0,
         )
-        recolored.append(
-            (
-                round(dark_color[0] * (1 - mix) + light_color[0] * mix),
-                round(dark_color[1] * (1 - mix) + light_color[1] * mix),
-                round(dark_color[2] * (1 - mix) + light_color[2] * mix),
-                alpha,
-            )
-        )
+        original = (red, green, blue)
+        outline = dark_color if dark_color is not None else original
+        fill = light_color if light_color is not None else original
+        recolored.append((*_blend_rgb(outline, fill, mix), alpha))
     rgba.putdata(recolored)
     return rgba
+
+
+def _blend_rgb(
+    start: tuple[int, int, int],
+    end: tuple[int, int, int],
+    mix: float,
+) -> tuple[int, int, int]:
+    return (
+        round(start[0] * (1 - mix) + end[0] * mix),
+        round(start[1] * (1 - mix) + end[1] * mix),
+        round(start[2] * (1 - mix) + end[2] * mix),
+    )
 
 
 def _font_alpha_edge_distances(image) -> list[float]:

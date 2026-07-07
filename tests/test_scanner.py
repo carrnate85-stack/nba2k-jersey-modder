@@ -1692,6 +1692,35 @@ class GeneratorTests(unittest.TestCase):
         self.assertLess(center_blue, 80)
         self.assertEqual(recolored.getpixel((0, 0))[3], 0)
 
+    def test_recolor_font_image_can_leave_fill_or_outline_original(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        image = Image.new("RGBA", (9, 9), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((1, 1, 7, 7), fill=(120, 120, 120, 255))
+        draw.rectangle((3, 3, 5, 5), fill=(240, 240, 240, 255))
+
+        no_fill = _recolor_font_image(image, (0, 0, 255), None)
+        no_outline = _recolor_font_image(image, None, (255, 255, 0))
+
+        no_fill_edge = no_fill.getpixel((1, 4))[:3]
+        no_outline_center = no_outline.getpixel((4, 4))[:3]
+
+        self.assertLess(no_fill_edge[0], 20)
+        self.assertLess(no_fill_edge[1], 20)
+        self.assertGreater(no_fill_edge[2], 235)
+        self.assertEqual(no_fill.getpixel((4, 4))[:3], (240, 240, 240))
+        no_outline_edge = no_outline.getpixel((1, 4))[:3]
+        self.assertLess(abs(no_outline_edge[0] - 120), 10)
+        self.assertLess(abs(no_outline_edge[1] - 120), 10)
+        self.assertLess(abs(no_outline_edge[2] - 120), 10)
+        self.assertGreater(no_outline_center[0], 235)
+        self.assertGreater(no_outline_center[1], 235)
+        self.assertLess(no_outline_center[2], 20)
+
 
 if __name__ == "__main__":
     unittest.main()
