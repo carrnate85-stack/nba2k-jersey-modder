@@ -392,6 +392,8 @@ def render_jersey_region_map(
     for zone in sorted(template.zones, key=lambda candidate: candidate.layer):
         if zone.name not in {"left_side_panel", "right_side_panel"}:
             continue
+        if not _region_side_panel_is_active(zone.name, inputs):
+            continue
         left = round(zone.x * scale_x)
         top = round(zone.y * scale_y)
         right = round((zone.x + zone.width) * scale_x)
@@ -415,6 +417,33 @@ def render_jersey_region_map(
         _paint_region_overlay(base, overlay, x, y, scale_x, scale_y)
 
     return base
+
+
+def _region_side_panel_is_active(zone_name: str, inputs: GeneratorInputs) -> bool:
+    image_path = (
+        inputs.left_panel_image
+        if zone_name == "left_side_panel"
+        else inputs.right_panel_image
+    )
+    if image_path is not None and image_path.exists():
+        return True
+
+    panel_color = _active_color(
+        inputs.left_panel_color
+        if zone_name == "left_side_panel"
+        else inputs.right_panel_color
+    )
+    if panel_color is None:
+        return False
+
+    base_colors = [
+        color.lower()
+        for color in (_active_color(inputs.front_color), _active_color(inputs.back_color))
+        if color is not None
+    ]
+    if not base_colors:
+        return True
+    return all(panel_color.lower() != base_color for base_color in base_colors)
 
 
 def _paint_region_overlay(base, overlay, x: int, y: int, scale_x: float, scale_y: float) -> None:

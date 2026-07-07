@@ -6057,6 +6057,24 @@ class JerseyModderApp(tk.Tk):
         generate_jersey_texture(template, base_inputs, output_path)
         return output_path.read_bytes()
 
+    def _web_editor_region_png(self) -> bytes:
+        template = load_template(MASTER_TEMPLATE_ZONES)
+        output_path = (
+            Path(tempfile.gettempdir())
+            / "nba2k_jersey_modder"
+            / "web_editor"
+            / "jersey_region_preview.png"
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        image = render_jersey_region_map(
+            template,
+            self._generator_inputs(),
+            JERSEY_REGION_TEMPLATE_IMAGE,
+            size=(2048, 2048),
+        )
+        image.save(output_path)
+        return output_path.read_bytes()
+
     def _web_editor_image(self, key: str) -> tuple[bytes, str]:
         if key == "front_wordmark":
             path = self.generator_paths["front_wordmark_image"]

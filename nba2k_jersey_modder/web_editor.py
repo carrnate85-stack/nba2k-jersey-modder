@@ -47,6 +47,8 @@ INDEX_HTML = """<!doctype html>
     <strong>Jersey Web Editor</strong>
     <button id="refresh">Refresh from app</button>
     <button id="resetEditor" class="secondary">Reset edits</button>
+    <button id="viewTexture">Texture</button>
+    <button id="viewRegion" class="secondary">Region</button>
     <button id="editorZoomOut" class="secondary">Zoom -</button>
     <button id="editorFit" class="secondary">Fit</button>
     <button id="editorZoomIn" class="secondary">Zoom +</button>
@@ -113,11 +115,15 @@ INDEX_HTML = """<!doctype html>
     const applyTransparency = document.getElementById("applyTransparency");
     const resetTransparency = document.getElementById("resetTransparency");
     const resetEditor = document.getElementById("resetEditor");
+    const viewTexture = document.getElementById("viewTexture");
+    const viewRegion = document.getElementById("viewRegion");
     const editorZoomLabel = document.getElementById("editorZoomLabel");
     const loadStatus = document.getElementById("loadStatus");
     let editorZoom = 1;
+    let viewMode = "texture";
     let project = null;
     let baseImage = new Image();
+    let regionImage = new Image();
     let overlays = new Map();
     let activeKey = null;
     let drag = null;
@@ -140,6 +146,11 @@ INDEX_HTML = """<!doctype html>
           baseImage.onerror = resolve;
           baseImage.src = project.baseUrl + "?t=" + Date.now();
         });
+        await new Promise(resolve => {
+          regionImage.onload = resolve;
+          regionImage.onerror = resolve;
+          regionImage.src = "/api/region.png?t=" + Date.now();
+        });
         if (!project.overlays.some(item => item.key === activeKey)) {
           activeKey = project.overlays[project.overlays.length - 1]?.key || null;
         }
@@ -154,6 +165,13 @@ INDEX_HTML = """<!doctype html>
 
     function renderLayerList() {
       layers.innerHTML = "";
+      if (viewMode === "region") {
+        const node = document.createElement("div");
+        node.className = "layer";
+        node.innerHTML = "<strong>Region Preview</strong><span>Side panels, logos, and wordmark regions</span>";
+        layers.appendChild(node);
+        return;
+      }
       for (const item of [...project.overlays].reverse()) {
         const node = document.createElement("div");
         node.className = "layer" + (item.key === activeKey ? " active" : "");
@@ -169,6 +187,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     function activeItem() {
+      if (viewMode === "region") return null;
       return project?.overlays.find(item => item.key === activeKey) || null;
     }
 
@@ -186,7 +205,9 @@ INDEX_HTML = """<!doctype html>
       applyTransparency.disabled = disabled || !item.canCleanup;
       resetTransparency.disabled = disabled || !item.canCleanup || !item.cleanup?.isOverride;
       if (!item) {
-        selectedName.textContent = "Select an image.";
+        selectedName.textContent = viewMode === "region"
+          ? "Region preview only."
+          : "Select an image.";
         for (const input of [posX, posY, posW, posH]) input.value = "";
         autoBackground.checked = false;
         removeWhite.checked = false;
@@ -224,6 +245,11 @@ INDEX_HTML = """<!doctype html>
     function draw() {
       applyCanvasZoom();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (viewMode === "region") {
+        if (regionImage.complete) ctx.drawImage(regionImage, 0, 0, 2048, 2048);
+        renderInspector();
+        return;
+      }
       if (baseImage.complete) ctx.drawImage(baseImage, 0, 0, 2048, 2048);
       for (const item of project?.overlays || []) {
         const img = overlays.get(item.key);
@@ -241,6 +267,15 @@ INDEX_HTML = """<!doctype html>
       const active = project?.overlays.find(item => item.key === activeKey);
       if (active?.canTransform) drawBox(active);
       renderInspector();
+    }
+
+    function setViewMode(nextMode) {
+      viewMode = nextMode;
+      viewTexture.classList.toggle("secondary", viewMode !== "texture");
+      viewRegion.classList.toggle("secondary", viewMode !== "region");
+      renderLayerList();
+      renderInspector();
+      draw();
     }
 
     function canvasBlendMode(blendMode) {
@@ -287,6 +322,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     canvas.addEventListener("pointerdown", event => {
+      if (viewMode === "region") return;
       const point = canvasPoint(event);
       const hit = hitTest(point);
       if (!hit) {
@@ -318,6 +354,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     canvas.addEventListener("pointermove", event => {
+      if (viewMode === "region") return;
       if (!drag) return;
       const point = canvasPoint(event);
       const item = project.overlays.find(candidate => candidate.key === drag.key);
@@ -346,6 +383,7 @@ INDEX_HTML = """<!doctype html>
     });
 
     canvas.addEventListener("pointerup", async event => {
+      if (viewMode === "region") return;
       if (!drag) return;
       const item = project.overlays.find(candidate => candidate.key === drag.key);
       drag = null;
@@ -442,6 +480,8 @@ INDEX_HTML = """<!doctype html>
     };
 
     document.getElementById("refresh").onclick = loadProject;
+    viewTexture.onclick = () => setViewMode("texture");
+    viewRegion.onclick = () => setViewMode("region");
     window.addEventListener("resize", draw);
     loadProject();
   </script>
@@ -1097,6 +1137,9 @@ class WebEditorServer:
                     return
                 if self.path.startswith("/api/base.png"):
                     self._send(app._run_on_ui_thread(app._web_editor_base_png), "image/png")
+                    return
+                if self.path.startswith("/api/region.png"):
+                    self._send(app._run_on_ui_thread(app._web_editor_region_png), "image/png")
                     return
                 if self.path.startswith("/api/image/"):
                     key = unquote(self.path.split("/api/image/", 1)[1].split("?", 1)[0])

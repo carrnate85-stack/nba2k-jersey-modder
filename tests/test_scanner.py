@@ -1093,7 +1093,7 @@ class GeneratorTests(unittest.TestCase):
                 GeneratorInputs(
                     front_color="#ffffff",
                     back_color="#ffffff",
-                    left_panel_color="#ffffff",
+                    left_panel_color="#ff0000",
                     right_panel_color="#ffffff",
                     front_wordmark_image=wordmark,
                     logo_placements=(LogoPlacement(logo, "front_left_chest_logo"),),
@@ -1105,6 +1105,27 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(region.getpixel((60, 550)), (192, 0, 102, 255))
         self.assertEqual(region.getpixel((540, 340)), (132, 0, 216, 255))
         self.assertEqual(region.getpixel((10, 300)), (203, 0, 102, 255))
+
+    def test_render_jersey_region_map_skips_inactive_side_panels(self) -> None:
+        template = JerseyTemplate(
+            image_path="",
+            zones=(
+                TemplateZone("left_side_panel", "stripe", 100, 1000, 200, 600, "#0000ff", 10),
+            ),
+        )
+
+        region = render_jersey_region_map(
+            template,
+            GeneratorInputs(
+                front_color="#ffffff",
+                back_color="#ffffff",
+                left_panel_color="#ffffff",
+                right_panel_color="#ffffff",
+            ),
+            JERSEY_REGION_TEMPLATE_IMAGE,
+        )
+
+        self.assertEqual(region.getpixel((60, 550)), (203, 0, 102, 255))
 
     def test_wrap_logo_type_stretches_across_x_axis(self) -> None:
         try:
