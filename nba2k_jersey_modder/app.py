@@ -104,7 +104,6 @@ class JerseyModderApp(tk.Tk):
         self.ui_thread = threading.current_thread()
 
         self.scan_result: IffScanResult | None = None
-        self._resource_index: dict[str, ResourceHit] = {}
         self._pair_index: dict[str, TexturePair] = {}
         self._texture_row_index: dict[str, tuple[ResourceHit | None, ResourceHit | None]] = {}
         self._rdat_resource_index: dict[str, ResourceHit] = {}
@@ -328,7 +327,6 @@ class JerseyModderApp(tk.Tk):
         self.tabs = ttk.Notebook(root)
         self.tabs.pack(fill=tk.BOTH, expand=True)
 
-        self._build_explorer_tab()
         self._build_textures_tab()
         self._build_template_tab()
         self._build_trim_creator_tab()
@@ -339,34 +337,6 @@ class JerseyModderApp(tk.Tk):
         self._build_generator_tab()
         self._build_rdat_tab()
         self._build_details_tab()
-
-    def _build_explorer_tab(self) -> None:
-        tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(tab, text="File Explorer")
-
-        columns = ("kind", "offset", "size", "source")
-        self.explorer = ttk.Treeview(tab, columns=columns, show="tree headings")
-        self.explorer.heading("#0", text="Resource")
-        self.explorer.heading("kind", text="Type")
-        self.explorer.heading("offset", text="Offset")
-        self.explorer.heading("size", text="Size")
-        self.explorer.heading("source", text="Detected From")
-        self.explorer.column("#0", width=420, minwidth=260)
-        self.explorer.column("kind", width=90, anchor=tk.CENTER)
-        self.explorer.column("offset", width=120, anchor=tk.E)
-        self.explorer.column("size", width=110, anchor=tk.E)
-        self.explorer.column("source", width=180)
-        self.explorer.bind("<<TreeviewSelect>>", self._on_explorer_select)
-
-        y_scroll = ttk.Scrollbar(tab, orient=tk.VERTICAL, command=self.explorer.yview)
-        x_scroll = ttk.Scrollbar(tab, orient=tk.HORIZONTAL, command=self.explorer.xview)
-        self.explorer.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
-
-        self.explorer.grid(row=0, column=0, sticky="nsew")
-        y_scroll.grid(row=0, column=1, sticky="ns")
-        x_scroll.grid(row=1, column=0, sticky="ew")
-        tab.rowconfigure(0, weight=1)
-        tab.columnconfigure(0, weight=1)
 
     def _build_textures_tab(self) -> None:
         tab = ttk.Frame(self.tabs, padding=10)
@@ -3319,7 +3289,6 @@ class JerseyModderApp(tk.Tk):
                 f"{len(result.texture_pairs)} texture pair candidates"
             )
         )
-        self._populate_explorer(result)
         self._populate_textures(result)
         self._populate_rdat(result)
         self._show_details(_result_details(result))
@@ -3327,54 +3296,6 @@ class JerseyModderApp(tk.Tk):
     def _set_busy(self, busy: bool) -> None:
         self.configure(cursor="watch" if busy else "")
         self.update_idletasks()
-
-    def _populate_explorer(self, result: IffScanResult) -> None:
-        self.explorer.delete(*self.explorer.get_children())
-        self._resource_index.clear()
-
-        groups = {
-            "TEXTURES": self.explorer.insert("", tk.END, text="Texture resources", open=True),
-            "RDAT": self.explorer.insert("", tk.END, text="RDAT references", open=True),
-            "OTHER": self.explorer.insert("", tk.END, text="Other named resources", open=True),
-            "STRINGS": self.explorer.insert("", tk.END, text="Printable strings", open=False),
-        }
-
-        for resource in result.resources:
-            if resource.kind in {"DDS", "TXTR"}:
-                group_id = groups["TEXTURES"]
-            elif resource.kind == "RDAT":
-                group_id = groups["RDAT"]
-            else:
-                group_id = groups["OTHER"]
-            item_id = f"resource:{resource.kind}:{resource.offset}:{len(self._resource_index)}"
-            self._resource_index[item_id] = resource
-            self.explorer.insert(
-                group_id,
-                tk.END,
-                iid=item_id,
-                text=resource.name,
-                values=(
-                    resource.kind,
-                    hex_offset(resource.offset),
-                    format_bytes(resource.size) if resource.size else "",
-                    resource.source,
-                ),
-            )
-
-        for index, hit in enumerate(result.strings[:1000], start=1):
-            self.explorer.insert(
-                groups["STRINGS"],
-                tk.END,
-                text=hit.text[:180],
-                values=("STR", hex_offset(hit.offset), "", "printable string"),
-            )
-            if index == 1000 and len(result.strings) > 1000:
-                self.explorer.insert(
-                    groups["STRINGS"],
-                    tk.END,
-                    text=f"... {len(result.strings) - 1000} more strings hidden",
-                    values=("", "", "", ""),
-                )
 
     def _populate_textures(self, result: IffScanResult) -> None:
         self.textures.delete(*self.textures.get_children())
@@ -7282,14 +7203,6 @@ class JerseyModderApp(tk.Tk):
             item_id = f"zone:{selected_index}"
             self.zone_list.selection_set(item_id)
             self.zone_list.focus(item_id)
-
-    def _on_explorer_select(self, _event: tk.Event) -> None:
-        selected = self.explorer.selection()
-        if not selected:
-            return
-        resource = self._resource_index.get(selected[0])
-        if resource:
-            self._show_details(_resource_details(resource))
 
     def _on_texture_select(self, _event: tk.Event) -> None:
         selected = self.textures.selection()
