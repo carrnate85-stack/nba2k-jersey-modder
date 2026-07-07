@@ -1699,14 +1699,6 @@ class JerseyModderApp(tk.Tk):
             command=self.save_generated_dds_as,
         ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
         row += 1
-        self.generator_region_dds_button = ttk.Button(
-            controls,
-            text="Save Jersey Region DDS As",
-            command=self.save_jersey_region_dds_as,
-        )
-        self.generator_region_dds_button.grid(row=row, column=0, sticky="ew", pady=(8, 0))
-        self.generator_jersey_only_widgets.append(self.generator_region_dds_button)
-        row += 1
         ttk.Button(
             controls,
             text="Save Layered PSD As",
@@ -6659,60 +6651,6 @@ class JerseyModderApp(tk.Tk):
             self.generator_status.configure(text="DDS save failed.")
             return
         self.generator_status.configure(text=f"Saved BC1 DDS texture to {target}.")
-
-    def save_jersey_region_dds_as(self) -> None:
-        if self.generator_garment_var.get() != "Jersey":
-            messagebox.showinfo(
-                "Save Jersey Region DDS",
-                "Switch the generator template type to Jersey before exporting a jersey region.",
-            )
-            return
-        selected = filedialog.asksaveasfilename(
-            title="Save Jersey Region as DDS BC1",
-            defaultextension=".dds",
-            filetypes=(("DDS files", "*.dds"), ("All files", "*.*")),
-        )
-        if not selected:
-            return
-        target = Path(selected)
-        try:
-            template = load_template(MASTER_TEMPLATE_ZONES)
-            inputs = self._generator_inputs()
-        except Exception as exc:  # noqa: BLE001 - GUI boundary.
-            messagebox.showerror("Region DDS save failed", str(exc))
-            return
-        self.generator_status.configure(text=f"Saving jersey region DDS to {selected}...")
-        thread = threading.Thread(
-            target=self._save_jersey_region_dds_worker,
-            args=(template, inputs, target),
-            daemon=True,
-        )
-        thread.start()
-
-    def _save_jersey_region_dds_worker(
-        self,
-        template: JerseyTemplate,
-        inputs: GeneratorInputs,
-        target: Path,
-    ) -> None:
-        try:
-            image = render_jersey_region_map(
-                template,
-                inputs,
-                JERSEY_REGION_TEMPLATE_IMAGE,
-            )
-            save_bc1_dds(image, target)
-        except Exception as exc:  # noqa: BLE001 - background GUI boundary.
-            self.after(0, lambda: self._finish_jersey_region_dds_save(target, exc))
-            return
-        self.after(0, lambda: self._finish_jersey_region_dds_save(target, None))
-
-    def _finish_jersey_region_dds_save(self, target: Path, error: Exception | None) -> None:
-        if error is not None:
-            messagebox.showerror("Region DDS save failed", str(error))
-            self.generator_status.configure(text="Region DDS save failed.")
-            return
-        self.generator_status.configure(text=f"Saved jersey region DDS to {target}.")
 
     def save_layered_psd_as(self) -> None:
         selected = filedialog.asksaveasfilename(
