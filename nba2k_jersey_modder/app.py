@@ -359,11 +359,12 @@ class JerseyModderApp(tk.Tk):
         self.textures["displaycolumns"] = columns
         self.textures.bind("<Double-1>", self._open_texture_from_click)
 
-        texture_label = ttk.Label(tab, text="Texture file matches", style="Status.TLabel")
-        texture_label.grid(row=0, column=0, sticky=tk.W, pady=(0, 8))
+        header = ttk.Frame(tab)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(header, text="Import .iff", command=self.open_iff).pack(side=tk.LEFT)
 
-        toolbar = ttk.Frame(tab)
-        toolbar.grid(row=0, column=0, sticky=tk.E, pady=(0, 8))
+        toolbar = ttk.Frame(header)
+        toolbar.pack(side=tk.RIGHT)
         ttk.Button(toolbar, text="Open DDS", command=lambda: self.open_selected_texture("DDS")).pack(
             side=tk.LEFT
         )
