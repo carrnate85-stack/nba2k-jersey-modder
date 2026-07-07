@@ -1257,6 +1257,46 @@ class GeneratorTests(unittest.TestCase):
 
         self.assertEqual(normal.tobytes(), base.tobytes())
 
+    def test_render_jersey_normal_map_can_disable_logo_strength(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            normal_template = tmp_path / "normal.png"
+            wordmark = tmp_path / "wordmark.png"
+            base = Image.new("RGBA", (64, 64), (128, 128, 255, 255))
+            base.save(normal_template)
+            wordmark_image = Image.new("RGBA", (512, 256), (0, 0, 0, 0))
+            ImageDraw.Draw(wordmark_image).rectangle(
+                (48, 48, 464, 208),
+                fill=(255, 255, 255, 255),
+            )
+            wordmark_image.save(wordmark)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone("front_wordmark", "wordmark", 512, 512, 512, 256, "#000000", 10),
+                ),
+            )
+
+            normal = render_jersey_normal_map(
+                template,
+                GeneratorInputs(
+                    "#ffffff",
+                    "#ffffff",
+                    "#ffffff",
+                    "#ffffff",
+                    front_wordmark_image=wordmark,
+                ),
+                normal_template,
+                normal_strength=0,
+            )
+
+        self.assertEqual(normal.tobytes(), base.tobytes())
+
     def test_scaled_logo_uses_single_resize_from_original(self) -> None:
         try:
             from PIL import Image

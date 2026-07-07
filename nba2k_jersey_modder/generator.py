@@ -431,6 +431,7 @@ def render_jersey_normal_map(
     template: JerseyTemplate,
     inputs: GeneratorInputs,
     normal_template_path: Path,
+    normal_strength: float = 35.0,
 ):
     try:
         from PIL import Image, ImageFilter
@@ -442,6 +443,7 @@ def render_jersey_normal_map(
     design_width, design_height = _template_design_size(template, (2048, 2048))
     scale_x = size[0] / design_width
     scale_y = size[1] / design_height
+    patch_strength = max(0.0, min(100.0, float(normal_strength))) / 10.0
 
     def paste_logo_normal_patch(
         overlay,
@@ -449,8 +451,9 @@ def render_jersey_normal_map(
         y: int,
         *,
         blur_radius: float = 2.25,
-        strength: float = 3.5,
     ) -> None:
+        if patch_strength <= 0:
+            return
         width = max(1, round(overlay.width * scale_x))
         height = max(1, round(overlay.height * scale_y))
         alpha = overlay.getchannel("A").resize((width, height), Image.Resampling.LANCZOS)
@@ -473,8 +476,8 @@ def render_jersey_normal_map(
         normal_patch = _apply_height_mask_to_normal(
             base_patch,
             height_mask,
-            strength=strength * 0.35,
-            lift_strength=0.02,
+            strength=patch_strength * 0.35,
+            lift_strength=0.02 * (patch_strength / 3.5),
         )
         patch_alpha = height_mask.point(lambda pixel: 255 if pixel >= 2 else 0)
         output.paste(normal_patch, (left, top), patch_alpha)

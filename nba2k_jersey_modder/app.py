@@ -180,6 +180,8 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_garment_var = tk.StringVar(value="Jersey")
         self.texture_creator_texture_type_var = tk.StringVar(value="Color Texture")
         self.texture_creator_source_var = tk.StringVar(value="Current generator design")
+        self.texture_creator_normal_strength_var = tk.IntVar(value=35)
+        self.texture_creator_normal_strength_label_var = tk.StringVar(value="35%")
         self.generator_number_preview_image: tk.PhotoImage | None = None
         self.generator_number_preview_enabled_var = tk.BooleanVar(value=True)
         self.generator_number_preview_text_var = tk.StringVar(value="15")
@@ -1786,8 +1788,25 @@ class JerseyModderApp(tk.Tk):
         source.grid(row=2, column=1, sticky="ew", padx=(10, 0))
         options.columnconfigure(1, weight=1)
 
+        normal_options = ttk.LabelFrame(controls, text="Normal map", padding=10)
+        normal_options.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        ttk.Label(normal_options, text="Logo strength").pack(side=tk.LEFT)
+        ttk.Scale(
+            normal_options,
+            from_=0,
+            to=100,
+            variable=self.texture_creator_normal_strength_var,
+            command=self._on_texture_creator_normal_strength_changed,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 8))
+        ttk.Label(
+            normal_options,
+            textvariable=self.texture_creator_normal_strength_label_var,
+            style="Muted.TLabel",
+            width=5,
+        ).pack(side=tk.RIGHT)
+
         actions = ttk.Frame(controls)
-        actions.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        actions.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         ttk.Button(
             actions,
             text="Create From Generator",
@@ -1816,7 +1835,7 @@ class JerseyModderApp(tk.Tk):
             style="Muted.TLabel",
             wraplength=360,
         )
-        self.texture_creator_status.grid(row=4, column=0, sticky="ew", pady=(14, 0))
+        self.texture_creator_status.grid(row=5, column=0, sticky="ew", pady=(14, 0))
 
         preview_frame = ttk.Frame(tab)
         preview_frame.grid(row=0, column=1, sticky="nsew")
@@ -6426,6 +6445,7 @@ class JerseyModderApp(tk.Tk):
                     load_template(MASTER_TEMPLATE_ZONES),
                     self._generator_inputs(),
                     JERSEY_NORMAL_TEMPLATE_IMAGE,
+                    normal_strength=self._texture_creator_normal_strength(),
                 )
                 output_path = output_dir / "texture_creator_jersey_normal.png"
                 image.save(output_path)
@@ -6453,6 +6473,18 @@ class JerseyModderApp(tk.Tk):
             text=f"Created {garment.lower()} {texture_type.lower()} from the generator."
         )
         self.tabs.select(self.texture_creator_tab)
+
+    def _texture_creator_normal_strength(self) -> int:
+        try:
+            value = self.texture_creator_normal_strength_var.get()
+        except tk.TclError:
+            return 35
+        return max(0, min(100, int(value)))
+
+    def _on_texture_creator_normal_strength_changed(self, _value: str | None = None) -> None:
+        self.texture_creator_normal_strength_label_var.set(
+            f"{self._texture_creator_normal_strength()}%"
+        )
 
     def _texture_creator_template(self) -> JerseyTemplate:
         if self.texture_creator_garment_var.get() == "Shorts":
