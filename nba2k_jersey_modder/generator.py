@@ -433,26 +433,29 @@ def render_jersey_normal_map(
     normal_template_path: Path,
 ):
     try:
-        from PIL import Image, ImageChops, ImageDraw, ImageFilter
+        from PIL import Image, ImageFilter
     except ImportError as exc:
         raise RuntimeError("Jersey normal generation requires Pillow.") from exc
 
-    base = Image.open(normal_template_path).convert("RGBA")
-    size = base.size
-    height_mask = Image.new("L", size, 0)
+    output = Image.open(normal_template_path).convert("RGBA")
+    size = output.size
     design_width, design_height = _template_design_size(template, (2048, 2048))
     scale_x = size[0] / design_width
     scale_y = size[1] / design_height
 
-    def merge_detail(mask) -> None:
-        nonlocal height_mask
-        height_mask = ImageChops.lighter(height_mask, mask)
-
-    def paint_overlay(overlay, x: int, y: int, value: int) -> None:
+    def paste_logo_normal_patch(
+        overlay,
+        x: int,
+        y: int,
+        *,
+        blur_radius: float = 2.0,
+        strength: float = 6.0,
+    ) -> None:
         width = max(1, round(overlay.width * scale_x))
         height = max(1, round(overlay.height * scale_y))
         alpha = overlay.getchannel("A").resize((width, height), Image.Resampling.LANCZOS)
-        alpha = alpha.point(lambda pixel: value if pixel >= 16 else 0)
+        height_mask = alpha.point(lambda pixel: 255 if pixel >= 16 else 0)
+        height_mask = height_mask.filter(ImageFilter.GaussianBlur(radius=blur_radius))
         dest_x = round(x * scale_x)
         dest_y = round(y * scale_y)
         left = max(0, dest_x)
@@ -463,32 +466,24 @@ def render_jersey_normal_map(
             return
         crop_left = left - dest_x
         crop_top = top - dest_y
-        alpha = alpha.crop((crop_left, crop_top, crop_left + (right - left), crop_top + (bottom - top)))
-        layer = Image.new("L", size, 0)
-        layer.paste(alpha, (left, top))
-        merge_detail(layer)
-        edge = ImageChops.subtract(
-            layer.filter(ImageFilter.MaxFilter(7)),
-            layer.filter(ImageFilter.MinFilter(7)),
-        ).point(lambda pixel: 255 if pixel >= 8 else 0)
-        merge_detail(edge)
-
-    def paint_zone_rect(zone: TemplateZone, value: int) -> None:
-        layer = Image.new("L", size, 0)
-        draw = ImageDraw.Draw(layer)
-        left = round(zone.x * scale_x)
-        top = round(zone.y * scale_y)
-        right = round((zone.x + zone.width) * scale_x)
-        bottom = round((zone.y + zone.height) * scale_y)
-        stroke = max(2, round(10 * min(scale_x, scale_y)))
-        draw.rectangle((left, top, right, bottom), outline=value, width=stroke)
-        merge_detail(layer)
+        height_mask = height_mask.crop(
+            (crop_left, crop_top, crop_left + (right - left), crop_top + (bottom - top))
+        )
+        base_patch = output.crop((left, top, right, bottom))
+        normal_patch = _apply_height_mask_to_normal(
+            base_patch,
+            height_mask,
+            strength=strength * 0.28,
+            lift_strength=0.06,
+        )
+        patch_alpha = height_mask.point(lambda pixel: 255 if pixel >= 2 else 0)
+        output.paste(normal_patch, (left, top), patch_alpha)
 
     front = next((zone for zone in template.zones if zone.name == "front_wordmark"), None)
     if front is not None and inputs.front_wordmark_image and inputs.front_wordmark_image.exists():
         overlay = _prepared_overlay(inputs.front_wordmark_image, inputs, "front_wordmark")
         overlay, x, y = _overlay_at_zone(overlay, front, inputs)
-        paint_overlay(overlay, x, y, 235)
+        paste_logo_normal_patch(overlay, x, y, strength=6.0)
 
     logo_targets = {zone.name: zone for zone in logo_target_zones(template)}
     for index, logo in enumerate(inputs.logo_placements):
@@ -498,28 +493,18 @@ def render_jersey_normal_map(
         logo_key = f"logo:{index}"
         overlay = _prepared_overlay(logo.path, inputs, logo_key)
         overlay, x, y = _overlay_at_zone(overlay, target, inputs, logo=logo)
-        paint_overlay(overlay, x, y, 220)
+        paste_logo_normal_patch(overlay, x, y, strength=6.0)
 
-    for zone in sorted(template.zones, key=lambda candidate: candidate.layer):
-        if zone.name in {"left_arm_hole_trim", "right_arm_hole_trim", "collar_trim"}:
-            overlay_path = _overlay_for_zone(zone, inputs)
-            if overlay_path is not None and overlay_path.exists():
-                overlay = _prepared_overlay(overlay_path, inputs, zone.name)
-                overlay, x, y = _overlay_at_zone(overlay, zone, inputs)
-                paint_overlay(overlay, x, y, 200)
-            elif _fill_for_zone(zone, inputs):
-                paint_zone_rect(zone, 170)
-        elif zone.name in {"left_side_panel", "right_side_panel"} and _region_side_panel_is_active(
-            zone.name,
-            inputs,
-        ):
-            paint_zone_rect(zone, 150)
-
-    height_mask = height_mask.filter(ImageFilter.GaussianBlur(radius=0.65))
-    return _apply_height_mask_to_normal(base, height_mask)
+    return output
 
 
-def _apply_height_mask_to_normal(base, height_mask):
+def _apply_height_mask_to_normal(
+    base,
+    height_mask,
+    *,
+    strength: float,
+    lift_strength: float = 0.0,
+):
     width, height = base.size
     source = base.load()
     height_pixels = height_mask.load()
@@ -540,7 +525,7 @@ def _apply_height_mask_to_normal(base, height_mask):
             red, green, blue, alpha = source[x, y]
             red = max(0, min(255, round(red + dx * strength)))
             green = max(0, min(255, round(green - dy * strength)))
-            blue = max(0, min(255, round(blue + lift * 0.16)))
+            blue = max(0, min(255, round(blue + lift * lift_strength)))
             target[x, y] = (red, green, blue, alpha)
     return output
 
