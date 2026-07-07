@@ -176,6 +176,7 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_preview_path: Path | None = None
         self.texture_creator_source_path: Path | None = None
         self.texture_creator_preview_image: tk.PhotoImage | None = None
+        self.texture_creator_preview_info_var = tk.StringVar(value="No output generated.")
         self.texture_creator_garment_var = tk.StringVar(value="Jersey")
         self.texture_creator_texture_type_var = tk.StringVar(value="Color Texture")
         self.texture_creator_source_var = tk.StringVar(value="Current generator design")
@@ -1819,13 +1820,24 @@ class JerseyModderApp(tk.Tk):
 
         preview_frame = ttk.Frame(tab)
         preview_frame.grid(row=0, column=1, sticky="nsew")
+        ttk.Label(preview_frame, text="Output Preview", style="Status.TLabel").grid(
+            row=0,
+            column=0,
+            sticky=tk.W,
+            pady=(0, 4),
+        )
+        ttk.Label(
+            preview_frame,
+            textvariable=self.texture_creator_preview_info_var,
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
         self.texture_creator_preview = tk.Canvas(preview_frame, background="#20242b")
-        self.texture_creator_preview.grid(row=0, column=0, sticky="nsew")
+        self.texture_creator_preview.grid(row=2, column=0, sticky="nsew")
         self.texture_creator_preview.bind(
             "<Configure>",
             lambda _event: self._show_texture_creator_preview(),
         )
-        preview_frame.rowconfigure(0, weight=1)
+        preview_frame.rowconfigure(2, weight=1)
         preview_frame.columnconfigure(0, weight=1)
 
         controls.columnconfigure(0, weight=1)
@@ -6556,6 +6568,7 @@ class JerseyModderApp(tk.Tk):
         canvas_width = max(1, self.texture_creator_preview.winfo_width())
         canvas_height = max(1, self.texture_creator_preview.winfo_height())
         if path is None or not path.exists():
+            self.texture_creator_preview_info_var.set("No output generated.")
             self.texture_creator_preview.create_text(
                 canvas_width // 2,
                 canvas_height // 2,
@@ -6564,11 +6577,38 @@ class JerseyModderApp(tk.Tk):
                 anchor=tk.CENTER,
             )
             return
-        self.texture_creator_preview.update_idletasks()
-        canvas_width = max(1, self.texture_creator_preview.winfo_width())
-        canvas_height = max(1, self.texture_creator_preview.winfo_height())
-        size = min(max(1, canvas_width - 20), max(1, canvas_height - 20))
-        self.texture_creator_preview_image = load_scaled_photo_image(path, size, size)
+        try:
+            from PIL import Image, ImageTk
+        except ImportError:
+            self.texture_creator_preview_image = tk.PhotoImage(file=str(path))
+            self.texture_creator_preview.create_image(
+                canvas_width // 2,
+                canvas_height // 2,
+                image=self.texture_creator_preview_image,
+                anchor=tk.CENTER,
+            )
+            return
+
+        with Image.open(path) as opened:
+            image = opened.convert("RGBA")
+        original_width, original_height = image.size
+        max_width = max(1, canvas_width - 20)
+        max_height = max(1, canvas_height - 20)
+        scale = min(
+            max_width / max(1, original_width),
+            max_height / max(1, original_height),
+            1,
+        )
+        display_size = (
+            max(1, round(original_width * scale)),
+            max(1, round(original_height * scale)),
+        )
+        if image.size != display_size:
+            image = image.resize(display_size, Image.Resampling.LANCZOS)
+        self.texture_creator_preview_image = ImageTk.PhotoImage(image)
+        self.texture_creator_preview_info_var.set(
+            f"{path.name} - {original_width} x {original_height}"
+        )
         self.texture_creator_preview.create_image(
             canvas_width // 2,
             canvas_height // 2,

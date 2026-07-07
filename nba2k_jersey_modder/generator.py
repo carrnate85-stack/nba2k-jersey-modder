@@ -444,12 +444,15 @@ def render_jersey_normal_map(
     scale_x = size[0] / design_width
     scale_y = size[1] / design_height
 
-    def paint_overlay(overlay, x: int, y: int, value: int) -> None:
+    def merge_detail(mask) -> None:
         nonlocal height_mask
+        height_mask = ImageChops.lighter(height_mask, mask)
+
+    def paint_overlay(overlay, x: int, y: int, value: int) -> None:
         width = max(1, round(overlay.width * scale_x))
         height = max(1, round(overlay.height * scale_y))
         alpha = overlay.getchannel("A").resize((width, height), Image.Resampling.LANCZOS)
-        alpha = alpha.point(lambda pixel: round(pixel * value / 255))
+        alpha = alpha.point(lambda pixel: value if pixel >= 16 else 0)
         dest_x = round(x * scale_x)
         dest_y = round(y * scale_y)
         left = max(0, dest_x)
@@ -463,21 +466,29 @@ def render_jersey_normal_map(
         alpha = alpha.crop((crop_left, crop_top, crop_left + (right - left), crop_top + (bottom - top)))
         layer = Image.new("L", size, 0)
         layer.paste(alpha, (left, top))
-        height_mask = ImageChops.lighter(height_mask, layer)
+        merge_detail(layer)
+        edge = ImageChops.subtract(
+            layer.filter(ImageFilter.MaxFilter(7)),
+            layer.filter(ImageFilter.MinFilter(7)),
+        ).point(lambda pixel: 255 if pixel >= 8 else 0)
+        merge_detail(edge)
 
     def paint_zone_rect(zone: TemplateZone, value: int) -> None:
-        draw = ImageDraw.Draw(height_mask)
+        layer = Image.new("L", size, 0)
+        draw = ImageDraw.Draw(layer)
         left = round(zone.x * scale_x)
         top = round(zone.y * scale_y)
         right = round((zone.x + zone.width) * scale_x)
         bottom = round((zone.y + zone.height) * scale_y)
-        draw.rectangle((left, top, right, bottom), outline=value, width=max(1, round(4 * scale_x)))
+        stroke = max(2, round(10 * min(scale_x, scale_y)))
+        draw.rectangle((left, top, right, bottom), outline=value, width=stroke)
+        merge_detail(layer)
 
     front = next((zone for zone in template.zones if zone.name == "front_wordmark"), None)
     if front is not None and inputs.front_wordmark_image and inputs.front_wordmark_image.exists():
         overlay = _prepared_overlay(inputs.front_wordmark_image, inputs, "front_wordmark")
         overlay, x, y = _overlay_at_zone(overlay, front, inputs)
-        paint_overlay(overlay, x, y, 190)
+        paint_overlay(overlay, x, y, 235)
 
     logo_targets = {zone.name: zone for zone in logo_target_zones(template)}
     for index, logo in enumerate(inputs.logo_placements):
@@ -487,7 +498,7 @@ def render_jersey_normal_map(
         logo_key = f"logo:{index}"
         overlay = _prepared_overlay(logo.path, inputs, logo_key)
         overlay, x, y = _overlay_at_zone(overlay, target, inputs, logo=logo)
-        paint_overlay(overlay, x, y, 165)
+        paint_overlay(overlay, x, y, 220)
 
     for zone in sorted(template.zones, key=lambda candidate: candidate.layer):
         if zone.name in {"left_arm_hole_trim", "right_arm_hole_trim", "collar_trim"}:
@@ -495,16 +506,16 @@ def render_jersey_normal_map(
             if overlay_path is not None and overlay_path.exists():
                 overlay = _prepared_overlay(overlay_path, inputs, zone.name)
                 overlay, x, y = _overlay_at_zone(overlay, zone, inputs)
-                paint_overlay(overlay, x, y, 110)
+                paint_overlay(overlay, x, y, 200)
             elif _fill_for_zone(zone, inputs):
-                paint_zone_rect(zone, 80)
+                paint_zone_rect(zone, 170)
         elif zone.name in {"left_side_panel", "right_side_panel"} and _region_side_panel_is_active(
             zone.name,
             inputs,
         ):
-            paint_zone_rect(zone, 70)
+            paint_zone_rect(zone, 150)
 
-    height_mask = height_mask.filter(ImageFilter.GaussianBlur(radius=1.1))
+    height_mask = height_mask.filter(ImageFilter.GaussianBlur(radius=0.65))
     return _apply_height_mask_to_normal(base, height_mask)
 
 
@@ -514,20 +525,22 @@ def _apply_height_mask_to_normal(base, height_mask):
     height_pixels = height_mask.load()
     output = base.copy()
     target = output.load()
-    strength = 0.45
+    strength = 1.7
     for y in range(height):
         up = max(0, y - 1)
         down = min(height - 1, y + 1)
         for x in range(width):
             left = max(0, x - 1)
             right = min(width - 1, x + 1)
+            lift = height_pixels[x, y]
             dx = height_pixels[right, y] - height_pixels[left, y]
             dy = height_pixels[x, down] - height_pixels[x, up]
-            if dx == 0 and dy == 0:
+            if dx == 0 and dy == 0 and lift == 0:
                 continue
             red, green, blue, alpha = source[x, y]
             red = max(0, min(255, round(red + dx * strength)))
             green = max(0, min(255, round(green - dy * strength)))
+            blue = max(0, min(255, round(blue + lift * 0.16)))
             target[x, y] = (red, green, blue, alpha)
     return output
 
