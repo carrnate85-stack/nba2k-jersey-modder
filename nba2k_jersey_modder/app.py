@@ -48,6 +48,7 @@ from .template import (
     TemplateZone,
     detect_v1_color_zones,
     detect_v3_color_zones,
+    find_hex_color_zone_bbox,
     load_template,
     save_template,
 )
@@ -521,6 +522,15 @@ class JerseyModderApp(tk.Tk):
         ttk.Button(color_row, text="Choose Color", command=self.choose_zone_color).pack(
             side=tk.LEFT, padx=(8, 0)
         )
+        ttk.Entry(color_row, textvariable=self.zone_color_var, width=10).pack(
+            side=tk.LEFT,
+            padx=(8, 0),
+        )
+        ttk.Button(
+            color_row,
+            text="Create Zone From Hex",
+            command=self.create_template_zone_from_hex,
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         edit_frame = ttk.LabelFrame(controls, text="Selected zone", padding=8)
         edit_frame.grid(row=5, column=0, sticky="ew", pady=(0, 8))
@@ -557,19 +567,21 @@ class JerseyModderApp(tk.Tk):
 
         self.zone_list = ttk.Treeview(
             controls,
-            columns=("type", "layer", "x", "y", "w", "h"),
+            columns=("type", "color", "layer", "x", "y", "w", "h"),
             show="tree headings",
             height=12,
         )
         self.zone_list.heading("#0", text="Zone")
         self.zone_list.heading("type", text="Type")
+        self.zone_list.heading("color", text="Hex")
         self.zone_list.heading("layer", text="Layer")
         self.zone_list.heading("x", text="X")
         self.zone_list.heading("y", text="Y")
         self.zone_list.heading("w", text="W")
         self.zone_list.heading("h", text="H")
-        self.zone_list.column("#0", width=150)
-        self.zone_list.column("type", width=90)
+        self.zone_list.column("#0", width=130)
+        self.zone_list.column("type", width=80)
+        self.zone_list.column("color", width=76)
         self.zone_list.column("layer", width=55, anchor=tk.E)
         for column in ("x", "y", "w", "h"):
             self.zone_list.column(column, width=48, anchor=tk.E)
@@ -6633,8 +6645,53 @@ class JerseyModderApp(tk.Tk):
         color = colorchooser.askcolor(color=self.zone_color_var.get())[1]
         if not color:
             return
+        normalized = self._normalize_hex_color(color)
+        if normalized is None:
+            return
+        self.zone_color_var.set(normalized)
+        self.zone_color_swatch.configure(background=normalized)
+
+    def create_template_zone_from_hex(self) -> None:
+        if self.template_image_path is None:
+            messagebox.showinfo("Template Editor", "Load a template image first.")
+            return
+        color = self._normalize_hex_color(self.zone_color_var.get())
+        if color is None or not color:
+            messagebox.showinfo("Template Editor", "Enter a valid zone hex color.")
+            return
+        try:
+            bbox = find_hex_color_zone_bbox(self.template_image_path, color, tolerance=4)
+        except (RuntimeError, ValueError) as exc:
+            messagebox.showerror("Create Zone From Hex failed", str(exc))
+            return
+        if bbox is None:
+            messagebox.showinfo(
+                "Template Editor",
+                f"No pixels matching {color} were found in the template.",
+            )
+            return
+
+        x, y, width, height = bbox
+        zone = TemplateZone(
+            name=self.zone_name_var.get().strip() or f"zone_{len(self.template_zones) + 1}",
+            zone_type=self.zone_type_var.get(),
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            color=color,
+            layer=template_zone_layer(self.zone_type_var.get()),
+        )
+        self.template_zones.append(zone)
+        index = len(self.template_zones) - 1
         self.zone_color_var.set(color)
         self.zone_color_swatch.configure(background=color)
+        self._refresh_template_zone_list(selected_index=index)
+        self._load_template_zone_into_editor(index)
+        self._redraw_template_zones(refresh_list=False)
+        self.template_status.configure(
+            text=f"Created zone {zone.name} from {color}: X {x}, Y {y}, W {width}, H {height}."
+        )
 
     def _on_template_zone_select(self, _event: tk.Event | None = None) -> None:
         index = self._selected_template_zone_index()
@@ -7110,6 +7167,7 @@ class JerseyModderApp(tk.Tk):
                 text=zone.name,
                 values=(
                     zone.zone_type,
+                    zone.color,
                     zone.layer,
                     zone.x,
                     zone.y,

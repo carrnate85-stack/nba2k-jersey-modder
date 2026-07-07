@@ -46,6 +46,7 @@ from nba2k_jersey_modder.template import (
     TemplateZone,
     detect_v1_color_zones,
     detect_v3_color_zones,
+    find_hex_color_zone_bbox,
     load_template,
     save_template,
 )
@@ -320,6 +321,23 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(by_name["left_side_panel"].x, 10)
         self.assertEqual(by_name["left_side_panel"].width, 21)
         self.assertEqual(by_name["front_wordmark"].height, 21)
+
+    def test_find_hex_color_zone_bbox_detects_custom_zone(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "template.png"
+            image = Image.new("RGB", (80, 70), (240, 240, 240))
+            draw = ImageDraw.Draw(image)
+            draw.rectangle((12, 15, 30, 44), fill=(255, 51, 102))
+            image.save(path)
+
+            bbox = find_hex_color_zone_bbox(path, "#ff3366")
+
+        self.assertEqual(bbox, (12, 15, 19, 30))
 
     def test_detect_v3_color_zones_splits_back_components(self) -> None:
         try:

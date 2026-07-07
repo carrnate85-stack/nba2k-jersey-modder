@@ -164,6 +164,27 @@ def detect_v3_color_zones(image_path: Path) -> list[TemplateZone]:
     return _split_v3_back_around_front(zones)
 
 
+def find_hex_color_zone_bbox(
+    image_path: Path,
+    hex_color: str,
+    *,
+    tolerance: int = 4,
+) -> tuple[int, int, int, int] | None:
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError("Color detection requires Pillow.") from exc
+
+    rgb = _hex_to_rgb(hex_color)
+    image = Image.open(image_path).convert("RGB")
+    pixels = image.load()
+    bbox = _find_color_bbox(pixels, image.width, image.height, rgb, tolerance)
+    if bbox is None:
+        return None
+    left, top, right, bottom, _area = bbox
+    return left, top, right - left + 1, bottom - top + 1
+
+
 def _detect_color_zones(image_path: Path, profile: dict) -> list[TemplateZone]:
     try:
         from PIL import Image
@@ -391,3 +412,15 @@ def _pixel_matches(pixel, target, tolerance: int) -> bool:
         and abs(g - tg) <= tolerance
         and abs(b - tb) <= tolerance
     )
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    value = hex_color.strip().removeprefix("#")
+    if len(value) == 3:
+        value = "".join(character * 2 for character in value)
+    if len(value) != 6:
+        raise ValueError("Hex color must be 3 or 6 digits.")
+    try:
+        return int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+    except ValueError as exc:
+        raise ValueError("Hex color contains invalid characters.") from exc
