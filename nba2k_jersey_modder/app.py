@@ -174,6 +174,7 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_preview_path: Path | None = None
         self.texture_creator_source_path: Path | None = None
         self.texture_creator_preview_image: tk.PhotoImage | None = None
+        self.texture_creator_garment_var = tk.StringVar(value="Jersey")
         self.texture_creator_texture_type_var = tk.StringVar(value="Normal Texture")
         self.texture_creator_source_var = tk.StringVar(value="Current generator design")
         self.generator_number_preview_image: tk.PhotoImage | None = None
@@ -1753,7 +1754,16 @@ class JerseyModderApp(tk.Tk):
 
         options = ttk.LabelFrame(controls, text="Setup", padding=10)
         options.grid(row=2, column=0, sticky="ew")
-        ttk.Label(options, text="Texture").grid(row=0, column=0, sticky=tk.W, pady=(0, 8))
+        ttk.Label(options, text="Garment").grid(row=0, column=0, sticky=tk.W, pady=(0, 8))
+        garment = ttk.Combobox(
+            options,
+            textvariable=self.texture_creator_garment_var,
+            values=("Jersey", "Shorts"),
+            state="readonly",
+            width=22,
+        )
+        garment.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=(0, 8))
+        ttk.Label(options, text="Texture").grid(row=1, column=0, sticky=tk.W, pady=(0, 8))
         texture_type = ttk.Combobox(
             options,
             textvariable=self.texture_creator_texture_type_var,
@@ -1761,8 +1771,8 @@ class JerseyModderApp(tk.Tk):
             state="readonly",
             width=22,
         )
-        texture_type.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=(0, 8))
-        ttk.Label(options, text="Source").grid(row=1, column=0, sticky=tk.W)
+        texture_type.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(0, 8))
+        ttk.Label(options, text="Source").grid(row=2, column=0, sticky=tk.W)
         source = ttk.Combobox(
             options,
             textvariable=self.texture_creator_source_var,
@@ -1770,7 +1780,7 @@ class JerseyModderApp(tk.Tk):
             state="readonly",
             width=22,
         )
-        source.grid(row=1, column=1, sticky="ew", padx=(10, 0))
+        source.grid(row=2, column=1, sticky="ew", padx=(10, 0))
         options.columnconfigure(1, weight=1)
 
         actions = ttk.Frame(controls)
@@ -6374,13 +6384,14 @@ class JerseyModderApp(tk.Tk):
     def create_texture_from_generator(self) -> None:
         output_dir = Path(tempfile.gettempdir()) / "nba2k_jersey_modder" / "texture_creator"
         output_dir.mkdir(parents=True, exist_ok=True)
+        garment = self.texture_creator_garment_var.get()
         texture_type = self.texture_creator_texture_type_var.get()
         try:
             if texture_type == "Region Texture":
-                if self.generator_garment_var.get() != "Jersey":
+                if garment != "Jersey":
                     messagebox.showinfo(
                         "Texture Creator",
-                        "Region texture creation currently uses the jersey region template. Switch the generator to Jersey first.",
+                        "Region texture creation is currently built for jersey textures. Shorts region creation can be added next.",
                     )
                     return
                 image = render_jersey_region_map(
@@ -6393,12 +6404,12 @@ class JerseyModderApp(tk.Tk):
             else:
                 output_name = (
                     "texture_creator_shorts_color.png"
-                    if self.generator_garment_var.get() == "Shorts"
+                    if garment == "Shorts"
                     else "texture_creator_jersey_color.png"
                 )
                 output_path = output_dir / output_name
                 image = render_jersey_texture(
-                    self._current_generator_template(),
+                    self._texture_creator_template(),
                     self._generator_inputs(),
                 )
                 image.save(output_path)
@@ -6410,8 +6421,19 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_source_path = None
         self.texture_creator_preview_path = output_path
         self._show_texture_creator_preview()
-        self.texture_creator_status.configure(text=f"Created {texture_type.lower()} from the generator.")
+        self.texture_creator_status.configure(
+            text=f"Created {garment.lower()} {texture_type.lower()} from the generator."
+        )
         self.tabs.select(self.texture_creator_tab)
+
+    def _texture_creator_template(self) -> JerseyTemplate:
+        if self.texture_creator_garment_var.get() == "Shorts":
+            template_path = SHORTS_TEMPLATE_OPTIONS.get(
+                self.generator_shorts_template_var.get(),
+                next(iter(SHORTS_TEMPLATE_OPTIONS.values())),
+            )
+            return load_template(template_path)
+        return load_template(MASTER_TEMPLATE_ZONES)
 
     def upload_texture_creator_source(self) -> None:
         selected = filedialog.askopenfilename(
