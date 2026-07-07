@@ -7510,21 +7510,17 @@ def _recolor_font_image(
 
     max_distance = max(visible_distances)
     if max_distance <= 1:
-        threshold = 1.0
+        threshold = 1.25
     else:
-        threshold = max(1.25, min(6.0, max_distance * 0.42))
-    softness = max(0.75, threshold * 0.3)
+        threshold = max(1.75, min(7.0, max_distance * 0.5))
+    softness = max(1.0, threshold * 0.35)
 
     recolored = []
     for index, (red, green, blue, alpha) in enumerate(pixels):
         if alpha == 0:
             recolored.append((red, green, blue, alpha))
             continue
-        mix = _clamp(
-            (distances[index] - threshold + softness) / (softness * 2),
-            0.0,
-            1.0,
-        )
+        mix = _smoothstep(_clamp((distances[index] - threshold) / softness, 0.0, 1.0))
         original = (red, green, blue)
         outline = dark_color if dark_color is not None else original
         fill = light_color if light_color is not None else original
@@ -7585,6 +7581,10 @@ def _font_alpha_edge_distances(image) -> list[float]:
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
+
+
+def _smoothstep(value: float) -> float:
+    return value * value * (3 - (2 * value))
 
 
 def _pixel_luminance(red: int, green: int, blue: int) -> float:
