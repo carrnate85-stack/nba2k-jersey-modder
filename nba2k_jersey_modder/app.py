@@ -33,6 +33,7 @@ from .generator import (
     generate_layered_jersey_psd,
     image_placement_rects,
     logo_target_zones,
+    render_jersey_texture,
     render_jersey_region_map,
 )
 from .iff_patch import (
@@ -170,6 +171,11 @@ class JerseyModderApp(tk.Tk):
         self.custom_fabric_overlay_path: Path | None = None
         self.generated_texture_path: Path | None = None
         self.generated_preview_image: tk.PhotoImage | None = None
+        self.texture_creator_preview_path: Path | None = None
+        self.texture_creator_source_path: Path | None = None
+        self.texture_creator_preview_image: tk.PhotoImage | None = None
+        self.texture_creator_texture_type_var = tk.StringVar(value="Normal Texture")
+        self.texture_creator_source_var = tk.StringVar(value="Current generator design")
         self.generator_number_preview_image: tk.PhotoImage | None = None
         self.generator_number_preview_enabled_var = tk.BooleanVar(value=True)
         self.generator_number_preview_text_var = tk.StringVar(value="15")
@@ -358,6 +364,7 @@ class JerseyModderApp(tk.Tk):
         self._build_number_set_creator_tab()
         self._build_tweak_editor_tab()
         self._build_generator_tab()
+        self._build_texture_creator_tab()
         self._build_template_tab()
 
     def _build_textures_tab(self) -> None:
@@ -1733,6 +1740,94 @@ class JerseyModderApp(tk.Tk):
         tab.columnconfigure(1, weight=1)
         tab.rowconfigure(0, weight=1)
         self._sync_generator_template_controls(refresh_preview=False)
+
+    def _build_texture_creator_tab(self) -> None:
+        tab = ttk.Frame(self.tabs, padding=10)
+        self.texture_creator_tab = tab
+        self.tabs.add(tab, text="Texture Creator")
+
+        controls = ttk.Frame(tab)
+        controls.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+
+        ttk.Label(controls, text="Texture Creator", style="Title.TLabel").grid(
+            row=0, column=0, sticky=tk.W, pady=(0, 6)
+        )
+        ttk.Label(
+            controls,
+            text="Build a normal texture or region texture from the generator, or bring an edited file back from Photoshop.",
+            style="Muted.TLabel",
+            wraplength=360,
+        ).grid(row=1, column=0, sticky="ew", pady=(0, 14))
+
+        options = ttk.LabelFrame(controls, text="Setup", padding=10)
+        options.grid(row=2, column=0, sticky="ew")
+        ttk.Label(options, text="Texture").grid(row=0, column=0, sticky=tk.W, pady=(0, 8))
+        texture_type = ttk.Combobox(
+            options,
+            textvariable=self.texture_creator_texture_type_var,
+            values=("Normal Texture", "Region Texture"),
+            state="readonly",
+            width=22,
+        )
+        texture_type.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=(0, 8))
+        ttk.Label(options, text="Source").grid(row=1, column=0, sticky=tk.W)
+        source = ttk.Combobox(
+            options,
+            textvariable=self.texture_creator_source_var,
+            values=("Current generator design", "Uploaded file"),
+            state="readonly",
+            width=22,
+        )
+        source.grid(row=1, column=1, sticky="ew", padx=(10, 0))
+        options.columnconfigure(1, weight=1)
+
+        actions = ttk.Frame(controls)
+        actions.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        ttk.Button(
+            actions,
+            text="Create From Generator",
+            command=self.create_texture_from_generator,
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            actions,
+            text="Upload PNG / DDS / PSD / PDS",
+            command=self.upload_texture_creator_source,
+        ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            actions,
+            text="Save PNG As",
+            command=self.save_texture_creator_png_as,
+        ).grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            actions,
+            text="Save DDS BC1 As",
+            command=self.save_texture_creator_dds_as,
+        ).grid(row=3, column=0, sticky="ew")
+        actions.columnconfigure(0, weight=1)
+
+        self.texture_creator_status = ttk.Label(
+            controls,
+            text="Create from the generator or upload an edited texture to preview and export.",
+            style="Muted.TLabel",
+            wraplength=360,
+        )
+        self.texture_creator_status.grid(row=4, column=0, sticky="ew", pady=(14, 0))
+
+        preview_frame = ttk.Frame(tab)
+        preview_frame.grid(row=0, column=1, sticky="nsew")
+        self.texture_creator_preview = tk.Canvas(preview_frame, background="#20242b")
+        self.texture_creator_preview.grid(row=0, column=0, sticky="nsew")
+        self.texture_creator_preview.bind(
+            "<Configure>",
+            lambda _event: self._show_texture_creator_preview(),
+        )
+        preview_frame.rowconfigure(0, weight=1)
+        preview_frame.columnconfigure(0, weight=1)
+
+        controls.columnconfigure(0, weight=1)
+        tab.columnconfigure(0, minsize=390)
+        tab.columnconfigure(1, weight=1)
+        tab.rowconfigure(0, weight=1)
 
     def _make_vertical_scroller(
         self,
@@ -6283,6 +6378,173 @@ class JerseyModderApp(tk.Tk):
         self._refresh_generator_logo_list()
         self._schedule_generator_preview_refresh()
         self.generator_status.configure(text="Web editor edits reset.")
+
+    def create_texture_from_generator(self) -> None:
+        output_dir = Path(tempfile.gettempdir()) / "nba2k_jersey_modder" / "texture_creator"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        texture_type = self.texture_creator_texture_type_var.get()
+        try:
+            if texture_type == "Region Texture":
+                if self.generator_garment_var.get() != "Jersey":
+                    messagebox.showinfo(
+                        "Texture Creator",
+                        "Region texture creation currently uses the jersey region template. Switch the generator to Jersey first.",
+                    )
+                    return
+                image = render_jersey_region_map(
+                    load_template(MASTER_TEMPLATE_ZONES),
+                    self._generator_inputs(),
+                    JERSEY_REGION_TEMPLATE_IMAGE,
+                )
+                output_path = output_dir / "texture_creator_jersey_region.png"
+                image.save(output_path)
+            else:
+                output_name = (
+                    "texture_creator_shorts_color.png"
+                    if self.generator_garment_var.get() == "Shorts"
+                    else "texture_creator_jersey_color.png"
+                )
+                output_path = output_dir / output_name
+                image = render_jersey_texture(
+                    self._current_generator_template(),
+                    self._generator_inputs(),
+                )
+                image.save(output_path)
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror("Texture creation failed", str(exc))
+            return
+
+        self.texture_creator_source_var.set("Current generator design")
+        self.texture_creator_source_path = None
+        self.texture_creator_preview_path = output_path
+        self._show_texture_creator_preview()
+        self.texture_creator_status.configure(text=f"Created {texture_type.lower()} from the generator.")
+        self.tabs.select(self.texture_creator_tab)
+
+    def upload_texture_creator_source(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="Upload Texture",
+            filetypes=(
+                ("Texture files", "*.png *.dds *.psd *.pds"),
+                ("PNG files", "*.png"),
+                ("DDS files", "*.dds"),
+                ("Photoshop files", "*.psd *.pds"),
+                ("All files", "*.*"),
+            ),
+        )
+        if not selected:
+            return
+        source = Path(selected)
+        try:
+            normalized = self._normalize_texture_creator_source(source)
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror(
+                "Upload failed",
+                f"Could not read this texture. Try exporting a flat PNG from Photoshop first.\n\n{exc}",
+            )
+            return
+        self.texture_creator_source_var.set("Uploaded file")
+        self.texture_creator_source_path = source
+        self.texture_creator_preview_path = normalized
+        self._show_texture_creator_preview()
+        self.texture_creator_status.configure(text=f"Loaded {source.name}.")
+        self.tabs.select(self.texture_creator_tab)
+
+    def _normalize_texture_creator_source(self, source: Path) -> Path:
+        try:
+            from PIL import Image
+        except ImportError as exc:
+            raise RuntimeError("Texture Creator uploads require Pillow.") from exc
+
+        output_dir = Path(tempfile.gettempdir()) / "nba2k_jersey_modder" / "texture_creator"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / "uploaded_texture_preview.png"
+        with Image.open(source) as opened:
+            image = opened.convert("RGBA")
+            image.save(output_path)
+        return output_path
+
+    def save_texture_creator_png_as(self) -> None:
+        if self.texture_creator_preview_path is None or not self.texture_creator_preview_path.exists():
+            messagebox.showinfo("Save PNG", "Create or upload a texture first.")
+            return
+        selected = filedialog.asksaveasfilename(
+            title="Save Texture as PNG",
+            defaultextension=".png",
+            filetypes=(("PNG files", "*.png"), ("All files", "*.*")),
+        )
+        if not selected:
+            return
+        try:
+            Path(selected).write_bytes(self.texture_creator_preview_path.read_bytes())
+        except OSError as exc:
+            messagebox.showerror("Save failed", str(exc))
+            return
+        self.texture_creator_status.configure(text=f"Saved PNG texture to {selected}.")
+
+    def save_texture_creator_dds_as(self) -> None:
+        if self.texture_creator_preview_path is None or not self.texture_creator_preview_path.exists():
+            messagebox.showinfo("Save DDS BC1", "Create or upload a texture first.")
+            return
+        selected = filedialog.asksaveasfilename(
+            title="Save Texture as DDS BC1",
+            defaultextension=".dds",
+            filetypes=(("DDS files", "*.dds"), ("All files", "*.*")),
+        )
+        if not selected:
+            return
+        source = self.texture_creator_preview_path
+        target = Path(selected)
+        self.texture_creator_status.configure(text=f"Saving BC1 DDS texture to {selected}...")
+        thread = threading.Thread(
+            target=self._save_texture_creator_dds_worker,
+            args=(source, target),
+            daemon=True,
+        )
+        thread.start()
+
+    def _save_texture_creator_dds_worker(self, source: Path, target: Path) -> None:
+        try:
+            save_bc1_dds(source, target)
+        except Exception as exc:  # noqa: BLE001 - background GUI boundary.
+            self.after(0, lambda: self._finish_texture_creator_dds_save(target, exc))
+            return
+        self.after(0, lambda: self._finish_texture_creator_dds_save(target, None))
+
+    def _finish_texture_creator_dds_save(self, target: Path, error: Exception | None) -> None:
+        if error is not None:
+            messagebox.showerror("DDS save failed", str(error))
+            self.texture_creator_status.configure(text="DDS save failed.")
+            return
+        self.texture_creator_status.configure(text=f"Saved BC1 DDS texture to {target}.")
+
+    def _show_texture_creator_preview(self) -> None:
+        if not hasattr(self, "texture_creator_preview"):
+            return
+        self.texture_creator_preview.delete("all")
+        path = self.texture_creator_preview_path
+        canvas_width = max(1, self.texture_creator_preview.winfo_width())
+        canvas_height = max(1, self.texture_creator_preview.winfo_height())
+        if path is None or not path.exists():
+            self.texture_creator_preview.create_text(
+                canvas_width // 2,
+                canvas_height // 2,
+                text="Create or upload a texture to preview it here.",
+                fill="#9aa4b5",
+                anchor=tk.CENTER,
+            )
+            return
+        self.texture_creator_preview.update_idletasks()
+        canvas_width = max(1, self.texture_creator_preview.winfo_width())
+        canvas_height = max(1, self.texture_creator_preview.winfo_height())
+        size = min(max(1, canvas_width - 20), max(1, canvas_height - 20))
+        self.texture_creator_preview_image = load_scaled_photo_image(path, size, size)
+        self.texture_creator_preview.create_image(
+            canvas_width // 2,
+            canvas_height // 2,
+            image=self.texture_creator_preview_image,
+            anchor=tk.CENTER,
+        )
 
     def generate_jersey_preview(
         self,
