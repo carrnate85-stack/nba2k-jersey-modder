@@ -121,6 +121,7 @@ class JerseyModderApp(tk.Tk):
         self.template_zones: list[TemplateZone] = []
         self.template_drag_start: tuple[int, int] | None = None
         self.template_preview_id: int | None = None
+        self.template_mouse_coord_var = tk.StringVar(value="Mouse: --")
         self.zone_x_var = tk.IntVar(value=0)
         self.zone_y_var = tk.IntVar(value=0)
         self.zone_width_var = tk.IntVar(value=0)
@@ -577,10 +578,19 @@ class JerseyModderApp(tk.Tk):
 
         canvas_frame = ttk.Frame(tab)
         canvas_frame.grid(row=1, column=1, sticky="nsew")
+        canvas_header = ttk.Frame(canvas_frame)
+        canvas_header.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+        ttk.Label(
+            canvas_header,
+            textvariable=self.template_mouse_coord_var,
+            style="Status.TLabel",
+        ).pack(side=tk.LEFT)
         self.template_canvas = tk.Canvas(canvas_frame, background="#20242b")
         self.template_canvas.bind("<ButtonPress-1>", self._template_drag_start)
         self.template_canvas.bind("<B1-Motion>", self._template_drag_move)
         self.template_canvas.bind("<ButtonRelease-1>", self._template_drag_end)
+        self.template_canvas.bind("<Motion>", self._update_template_mouse_coordinates)
+        self.template_canvas.bind("<Leave>", self._clear_template_mouse_coordinates)
         self.template_canvas.bind("<Configure>", self._template_canvas_configured)
         y_scroll = ttk.Scrollbar(
             canvas_frame, orient=tk.VERTICAL, command=self.template_canvas.yview
@@ -592,10 +602,10 @@ class JerseyModderApp(tk.Tk):
             yscrollcommand=y_scroll.set,
             xscrollcommand=x_scroll.set,
         )
-        self.template_canvas.grid(row=0, column=0, sticky="nsew")
-        y_scroll.grid(row=0, column=1, sticky="ns")
-        x_scroll.grid(row=1, column=0, sticky="ew")
-        canvas_frame.rowconfigure(0, weight=1)
+        self.template_canvas.grid(row=1, column=0, sticky="nsew")
+        y_scroll.grid(row=1, column=1, sticky="ns")
+        x_scroll.grid(row=2, column=0, sticky="ew")
+        canvas_frame.rowconfigure(1, weight=1)
         canvas_frame.columnconfigure(0, weight=1)
 
         tab.columnconfigure(0, minsize=380)
@@ -6950,9 +6960,28 @@ class JerseyModderApp(tk.Tk):
     def _template_image_to_canvas_coords(self, x: int, y: int) -> tuple[int, int]:
         return int(x * self.template_zoom), int(y * self.template_zoom)
 
+    def _update_template_mouse_coordinates(self, event: tk.Event) -> None:
+        if self.template_image_path is None:
+            self.template_mouse_coord_var.set("Mouse: --")
+            return
+        canvas_x = self.template_canvas.canvasx(event.x)
+        canvas_y = self.template_canvas.canvasy(event.y)
+        width, height = self._template_source_size()
+        x = int(canvas_x / self.template_zoom)
+        y = int(canvas_y / self.template_zoom)
+        inside = 0 <= x < width and 0 <= y < height
+        x = max(0, min(width - 1, x))
+        y = max(0, min(height - 1, y))
+        suffix = "" if inside else " (edge)"
+        self.template_mouse_coord_var.set(f"Mouse: X {x}  Y {y}{suffix}")
+
+    def _clear_template_mouse_coordinates(self, _event: tk.Event | None = None) -> None:
+        self.template_mouse_coord_var.set("Mouse: --")
+
     def _template_drag_start(self, event: tk.Event) -> None:
         if self.template_image_path is None:
             return
+        self._update_template_mouse_coordinates(event)
         x, y = self._template_event_to_image_coords(event)
         self.template_drag_start = (x, y)
         if self.template_preview_id:
@@ -6962,6 +6991,7 @@ class JerseyModderApp(tk.Tk):
     def _template_drag_move(self, event: tk.Event) -> None:
         if self.template_drag_start is None:
             return
+        self._update_template_mouse_coordinates(event)
         x0, y0 = self.template_drag_start
         x1, y1 = self._template_event_to_image_coords(event)
         sx0, sy0 = self._template_image_to_canvas_coords(x0, y0)
@@ -6982,6 +7012,7 @@ class JerseyModderApp(tk.Tk):
     def _template_drag_end(self, event: tk.Event) -> None:
         if self.template_drag_start is None:
             return
+        self._update_template_mouse_coordinates(event)
         x0, y0 = self.template_drag_start
         x1, y1 = self._template_event_to_image_coords(event)
         self.template_drag_start = None
