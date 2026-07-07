@@ -54,7 +54,6 @@ from .trim_creator import (
     TrimStrip,
     correct_trim_strip,
     create_trim_strip_from_line,
-    create_trim_strips_from_mockup,
 )
 from .tweak_iff import (
     FrontNumberTweak,
@@ -631,11 +630,6 @@ class JerseyModderApp(tk.Tk):
             text="Upload Jersey Mockup",
             command=self.load_trim_creator_mockup,
         ).pack(side=tk.LEFT)
-        ttk.Button(
-            toolbar,
-            text="Detect Trim Strips",
-            command=self.detect_trim_creator_strips,
-        ).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(
             toolbar,
             text="Generate From Line",
@@ -1936,31 +1930,6 @@ class JerseyModderApp(tk.Tk):
         self._show_trim_creator_preview()
         self.trim_creator_status.configure(text=f"Loaded mockup: {Path(selected).name}")
         self.tabs.select(self.trim_creator_tab)
-
-    def detect_trim_creator_strips(self) -> None:
-        if self.trim_creator_image_path is None:
-            messagebox.showinfo("Trim Creator", "Upload a jersey mockup first.")
-            return
-        output_dir = (
-            Path(tempfile.gettempdir())
-            / "nba2k_jersey_modder"
-            / "trim_creator"
-            / self.trim_creator_image_path.stem
-        )
-        try:
-            self.trim_creator_results = create_trim_strips_from_mockup(
-                self.trim_creator_image_path,
-                output_dir,
-            )
-        except Exception as exc:  # noqa: BLE001 - GUI boundary.
-            messagebox.showerror("Trim detection failed", str(exc))
-            return
-        self._populate_trim_creator_results()
-        self._show_trim_creator_preview()
-        self.trim_creator_status.configure(
-            text=f"Detected {len(self.trim_creator_results)} trim strip"
-            f"{'' if len(self.trim_creator_results) == 1 else 's'}."
-        )
 
     def generate_trim_creator_line_strip(self) -> None:
         if self.trim_creator_image_path is None:
