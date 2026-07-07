@@ -1721,6 +1721,36 @@ class GeneratorTests(unittest.TestCase):
         self.assertGreater(no_outline_center[1], 235)
         self.assertLess(no_outline_center[2], 20)
 
+    def test_recolor_font_image_fill_strength_softens_fill_color(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        image = Image.new("RGBA", (9, 9), (0, 0, 0, 0))
+        ImageDraw.Draw(image).rectangle((1, 1, 7, 7), fill=(120, 120, 120, 255))
+        ImageDraw.Draw(image).rectangle((3, 3, 5, 5), fill=(240, 240, 240, 255))
+
+        strong = _recolor_font_image(
+            image,
+            (0, 0, 255),
+            (255, 255, 0),
+            fill_strength=1.0,
+        )
+        soft = _recolor_font_image(
+            image,
+            (0, 0, 255),
+            (255, 255, 0),
+            fill_strength=0.35,
+        )
+
+        strong_center = strong.getpixel((4, 4))[:3]
+        soft_center = soft.getpixel((4, 4))[:3]
+
+        self.assertGreater(strong_center[1], soft_center[1])
+        self.assertGreater(soft_center[2], strong_center[2])
+        self.assertGreater(soft_center[0], 240)
+
 
 if __name__ == "__main__":
     unittest.main()
