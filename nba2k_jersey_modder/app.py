@@ -11,6 +11,7 @@ import threading
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 import webbrowser
+import zipfile
 
 from . import __app_name__, __version__
 from .dds import save_bc1_dds
@@ -112,6 +113,7 @@ class JerseyModderApp(tk.Tk):
         self.pending_replacements: dict[int, Replacement] = {}
         self.texture_file_overrides: dict[tuple[str, int, str], Path] = {}
         self.rdat_path: Path | None = None
+        self.rdat_archive_entry: str | None = None
         self.rdat_encoding = "utf-8"
         self.rdat_dirty = False
         self.template_image_path: Path | None = None
@@ -7396,7 +7398,13 @@ class JerseyModderApp(tk.Tk):
     def open_rdat(self) -> None:
         selected = filedialog.askopenfilename(
             title="Open RDAT file",
-            filetypes=(("RDAT files", "*.rdat"), ("Text files", "*.txt"), ("All files", "*.*")),
+            filetypes=(
+                ("RDAT / IFF files", "*.rdat *.iff"),
+                ("RDAT files", "*.rdat"),
+                ("IFF files", "*.iff"),
+                ("Text files", "*.txt"),
+                ("All files", "*.*"),
+            ),
         )
         if selected:
             self._load_rdat_file(Path(selected))
@@ -7411,7 +7419,13 @@ class JerseyModderApp(tk.Tk):
         selected = filedialog.asksaveasfilename(
             title="Save RDAT file",
             defaultextension=".rdat",
-            filetypes=(("RDAT files", "*.rdat"), ("Text files", "*.txt"), ("All files", "*.*")),
+            filetypes=(
+                ("RDAT / IFF files", "*.rdat *.iff"),
+                ("RDAT files", "*.rdat"),
+                ("IFF files", "*.iff"),
+                ("Text files", "*.txt"),
+                ("All files", "*.*"),
+            ),
         )
         if selected:
             self._write_rdat_file(Path(selected))
@@ -7423,6 +7437,9 @@ class JerseyModderApp(tk.Tk):
             return
         resource = self._rdat_resource_index.get(selected[0])
         if resource is None:
+            return
+        if resource.archive_path and self.scan_result is not None:
+            self._load_rdat_file(self.scan_result.path, archive_entry=resource.archive_path)
             return
         path = self._resolve_rdat_reference(resource)
         if path is None:
@@ -7440,38 +7457,52 @@ class JerseyModderApp(tk.Tk):
     def _open_selected_rdat_reference(self, _event: tk.Event) -> None:
         self.load_selected_rdat_reference()
 
-    def _load_rdat_file(self, path: Path) -> None:
+    def _load_rdat_file(self, path: Path, archive_entry: str | None = None) -> None:
         try:
-            data = path.read_bytes()
-        except OSError as exc:
+            entry_name, data = self._read_rdat_data(path, archive_entry)
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
             messagebox.showerror("Open RDAT failed", str(exc))
             return
 
         text, encoding = decode_text_file(data)
         self.rdat_path = path
+        self.rdat_archive_entry = entry_name
         self.rdat_encoding = encoding
         self.rdat_editor.delete("1.0", tk.END)
         self.rdat_editor.insert("1.0", text)
         self.rdat_editor.edit_modified(False)
         self.rdat_dirty = False
-        self.rdat_status.configure(text=f"Loaded {path} ({encoding}).")
+        if entry_name:
+            self.rdat_status.configure(text=f"Loaded {entry_name} from {path.name} ({encoding}).")
+        else:
+            self.rdat_status.configure(text=f"Loaded {path} ({encoding}).")
         self.tabs.select(self.rdat_tab)
 
     def _write_rdat_file(self, path: Path) -> None:
         text = self.rdat_editor.get("1.0", "end-1c")
         try:
-            path.write_text(text, encoding=self.rdat_encoding, newline="")
-        except OSError as exc:
+            if self.rdat_archive_entry and path.suffix.lower() == ".iff":
+                self._write_rdat_archive_entry(path, text)
+            else:
+                path.write_text(text, encoding=self.rdat_encoding, newline="")
+                if path.suffix.lower() != ".iff":
+                    self.rdat_archive_entry = None
+        except (OSError, zipfile.BadZipFile) as exc:
             messagebox.showerror("Save RDAT failed", str(exc))
             return
         self.rdat_path = path
         self.rdat_dirty = False
         self.rdat_editor.edit_modified(False)
-        self.rdat_status.configure(text=f"Saved {path}.")
+        if self.rdat_archive_entry and path.suffix.lower() == ".iff":
+            self.rdat_status.configure(text=f"Saved {self.rdat_archive_entry} inside {path}.")
+        else:
+            self.rdat_status.configure(text=f"Saved {path}.")
 
     def _resolve_rdat_reference(self, resource: ResourceHit) -> Path | None:
         if self.scan_result is None:
             return None
+        if resource.archive_path:
+            return self.scan_result.path
         base_dir = self.scan_result.path.parent
         candidate = base_dir / resource.name.replace("/", "\\")
         if candidate.exists():
@@ -7480,6 +7511,108 @@ class JerseyModderApp(tk.Tk):
         if candidate.exists():
             return candidate
         return None
+
+    def _read_rdat_data(self, path: Path, archive_entry: str | None = None) -> tuple[str | None, bytes]:
+        if archive_entry is not None:
+            with zipfile.ZipFile(path, "r") as archive:
+                return archive_entry, archive.read(archive_entry)
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path, "r") as archive:
+                entries = [
+                    info.filename
+                    for info in archive.infolist()
+                    if not info.is_dir() and info.filename.lower().endswith(".rdat")
+                ]
+                if not entries:
+                    raise ValueError("No .rdat file was found inside this IFF.")
+                entry = self._choose_rdat_archive_entry(entries)
+                if entry is None:
+                    raise ValueError("No RDAT entry selected.")
+                return entry, archive.read(entry)
+        if path.suffix.lower() == ".iff":
+            raise ValueError(
+                "This IFF is not a readable archive-style RDAT container. "
+                "Import it first and use an RDAT reference, or open a loose .rdat file."
+            )
+        return None, path.read_bytes()
+
+    def _choose_rdat_archive_entry(self, entries: list[str]) -> str | None:
+        if len(entries) == 1:
+            return entries[0]
+
+        dialog = tk.Toplevel(self)
+        dialog.title("Choose RDAT")
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        ttk.Label(dialog, text="Choose the RDAT file to edit:").grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=12,
+            pady=(12, 6),
+        )
+        listbox = tk.Listbox(dialog, width=64, height=min(10, len(entries)))
+        listbox.grid(row=1, column=0, sticky="nsew", padx=12)
+        for entry in entries:
+            listbox.insert(tk.END, entry)
+        listbox.selection_set(0)
+        selected: dict[str, str | None] = {"value": None}
+
+        def accept() -> None:
+            selection = listbox.curselection()
+            if selection:
+                selected["value"] = entries[selection[0]]
+            dialog.destroy()
+
+        def cancel() -> None:
+            dialog.destroy()
+
+        buttons = ttk.Frame(dialog)
+        buttons.grid(row=2, column=0, sticky="e", padx=12, pady=12)
+        ttk.Button(buttons, text="Cancel", command=cancel).pack(side=tk.RIGHT)
+        ttk.Button(buttons, text="Open", command=accept).pack(side=tk.RIGHT, padx=(0, 8))
+        listbox.bind("<Double-1>", lambda _event: accept())
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        dialog.wait_window()
+        return selected["value"]
+
+    def _write_rdat_archive_entry(self, output_path: Path, text: str) -> None:
+        if self.rdat_path is None or self.rdat_archive_entry is None:
+            raise OSError("No source IFF RDAT entry is loaded.")
+        replacement_data = text.encode(self.rdat_encoding)
+        same_path = self.rdat_path.resolve() == output_path.resolve()
+        target_path = output_path
+        temp_output: Path | None = None
+        if same_path:
+            handle = tempfile.NamedTemporaryFile(
+                prefix=f"{output_path.stem}_",
+                suffix=output_path.suffix,
+                dir=output_path.parent,
+                delete=False,
+            )
+            temp_output = Path(handle.name)
+            handle.close()
+            target_path = temp_output
+
+        with zipfile.ZipFile(self.rdat_path, "r") as source:
+            with zipfile.ZipFile(target_path, "w") as target:
+                for info in source.infolist():
+                    data = (
+                        replacement_data
+                        if info.filename == self.rdat_archive_entry
+                        else source.read(info.filename)
+                    )
+                    new_info = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+                    new_info.compress_type = info.compress_type
+                    new_info.comment = info.comment
+                    new_info.extra = info.extra
+                    new_info.internal_attr = info.internal_attr
+                    new_info.external_attr = info.external_attr
+                    target.writestr(new_info, data)
+        if temp_output is not None:
+            temp_output.replace(output_path)
 
     def _on_rdat_modified(self, _event: tk.Event) -> None:
         if not self.rdat_editor.edit_modified():
