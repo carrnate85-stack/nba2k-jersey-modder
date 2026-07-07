@@ -448,8 +448,8 @@ def render_jersey_normal_map(
         x: int,
         y: int,
         *,
-        blur_radius: float = 2.0,
-        strength: float = 6.0,
+        blur_radius: float = 2.25,
+        strength: float = 3.5,
     ) -> None:
         width = max(1, round(overlay.width * scale_x))
         height = max(1, round(overlay.height * scale_y))
@@ -473,8 +473,8 @@ def render_jersey_normal_map(
         normal_patch = _apply_height_mask_to_normal(
             base_patch,
             height_mask,
-            strength=strength * 0.28,
-            lift_strength=0.06,
+            strength=strength * 0.35,
+            lift_strength=0.02,
         )
         patch_alpha = height_mask.point(lambda pixel: 255 if pixel >= 2 else 0)
         output.paste(normal_patch, (left, top), patch_alpha)
@@ -483,7 +483,7 @@ def render_jersey_normal_map(
     if front is not None and inputs.front_wordmark_image and inputs.front_wordmark_image.exists():
         overlay = _prepared_overlay(inputs.front_wordmark_image, inputs, "front_wordmark")
         overlay, x, y = _overlay_at_zone(overlay, front, inputs)
-        paste_logo_normal_patch(overlay, x, y, strength=6.0)
+        paste_logo_normal_patch(overlay, x, y)
 
     logo_targets = {zone.name: zone for zone in logo_target_zones(template)}
     for index, logo in enumerate(inputs.logo_placements):
@@ -493,7 +493,7 @@ def render_jersey_normal_map(
         logo_key = f"logo:{index}"
         overlay = _prepared_overlay(logo.path, inputs, logo_key)
         overlay, x, y = _overlay_at_zone(overlay, target, inputs, logo=logo)
-        paste_logo_normal_patch(overlay, x, y, strength=6.0)
+        paste_logo_normal_patch(overlay, x, y)
 
     return output
 
@@ -510,7 +510,6 @@ def _apply_height_mask_to_normal(
     height_pixels = height_mask.load()
     output = base.copy()
     target = output.load()
-    strength = 1.7
     for y in range(height):
         up = max(0, y - 1)
         down = min(height - 1, y + 1)
