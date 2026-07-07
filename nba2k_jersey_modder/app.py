@@ -180,8 +180,8 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_garment_var = tk.StringVar(value="Jersey")
         self.texture_creator_texture_type_var = tk.StringVar(value="Color Texture")
         self.texture_creator_source_var = tk.StringVar(value="Current generator design")
-        self.texture_creator_normal_strength_var = tk.IntVar(value=35)
-        self.texture_creator_normal_strength_label_var = tk.StringVar(value="35%")
+        self.texture_creator_normal_strength_var = tk.IntVar(value=15)
+        self.texture_creator_normal_strength_label_var = tk.StringVar(value="15%")
         self.generator_number_preview_image: tk.PhotoImage | None = None
         self.generator_number_preview_enabled_var = tk.BooleanVar(value=True)
         self.generator_number_preview_text_var = tk.StringVar(value="15")
@@ -6478,7 +6478,7 @@ class JerseyModderApp(tk.Tk):
         try:
             value = self.texture_creator_normal_strength_var.get()
         except tk.TclError:
-            return 35
+            return 15
         return max(0, min(100, int(value)))
 
     def _on_texture_creator_normal_strength_changed(self, _value: str | None = None) -> None:

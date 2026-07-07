@@ -431,7 +431,7 @@ def render_jersey_normal_map(
     template: JerseyTemplate,
     inputs: GeneratorInputs,
     normal_template_path: Path,
-    normal_strength: float = 35.0,
+    normal_strength: float = 15.0,
 ):
     try:
         from PIL import Image, ImageFilter
