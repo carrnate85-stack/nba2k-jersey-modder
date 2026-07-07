@@ -7621,14 +7621,27 @@ class JerseyModderApp(tk.Tk):
                     dash=(5, 3),
                     tags=("zone",),
                 )
-            self.template_canvas.create_text(
+            label_id = self.template_canvas.create_text(
                 sx0 + 4,
                 sy0 + 4,
                 text=zone.name,
-                fill=zone.color,
+                fill="#ffffff",
                 anchor=tk.NW,
                 tags=("zone",),
             )
+            label_box = self.template_canvas.bbox(label_id)
+            if label_box is not None:
+                bx0, by0, bx1, by1 = label_box
+                background_id = self.template_canvas.create_rectangle(
+                    bx0 - 3,
+                    by0 - 2,
+                    bx1 + 3,
+                    by1 + 2,
+                    fill="#111827",
+                    outline="#ffffff" if is_selected else "",
+                    tags=("zone",),
+                )
+                self.template_canvas.tag_lower(background_id, label_id)
         if refresh_list:
             self._refresh_template_zone_list()
 
