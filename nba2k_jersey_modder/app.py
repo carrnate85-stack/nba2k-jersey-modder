@@ -345,13 +345,13 @@ class JerseyModderApp(tk.Tk):
         self.tabs.pack(fill=tk.BOTH, expand=True)
 
         self._build_textures_tab()
+        self._build_rdat_tab()
         self._build_trim_creator_tab()
         self._build_trim_library_tab()
         self._build_logo_creator_tab()
         self._build_number_set_creator_tab()
         self._build_tweak_editor_tab()
         self._build_generator_tab()
-        self._build_rdat_tab()
         self._build_template_tab()
 
     def _build_textures_tab(self) -> None:
