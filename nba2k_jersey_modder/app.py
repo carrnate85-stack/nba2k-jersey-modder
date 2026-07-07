@@ -153,6 +153,7 @@ class JerseyModderApp(tk.Tk):
         self.custom_fabric_overlay_path: Path | None = None
         self.generated_texture_path: Path | None = None
         self.generated_preview_image: tk.PhotoImage | None = None
+        self.generator_font_preview_image: tk.PhotoImage | None = None
         self.generator_preview_rect: tuple[int, int, int, int] | None = None
         self.generator_preview_scale = 1.0
         self.generator_image_rects: dict[str, tuple[int, int, int, int]] = {}
@@ -1672,8 +1673,28 @@ class JerseyModderApp(tk.Tk):
         self.generator_preview.bind("<B1-Motion>", self._generator_preview_drag)
         self.generator_preview.bind("<ButtonRelease-1>", self._generator_preview_release)
         self.generator_preview.grid(row=1, column=0, sticky="nsew")
+        font_preview_frame = ttk.Frame(preview_frame)
+        font_preview_frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(
+            font_preview_frame,
+            text="Font preview",
+            style="Status.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        self.generator_font_preview = tk.Canvas(
+            font_preview_frame,
+            background="#20242b",
+            height=130,
+            highlightthickness=0,
+        )
+        self.generator_font_preview.grid(row=1, column=0, sticky="ew")
+        self.generator_font_preview.bind(
+            "<Configure>",
+            lambda _event: self._show_generator_font_preview(self.number_creator_sheet_path),
+        )
+        font_preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(1, weight=1)
         preview_frame.columnconfigure(0, weight=1)
+        self._show_generator_font_preview(self.number_creator_sheet_path)
 
         tab.columnconfigure(0, minsize=430)
         tab.columnconfigure(1, weight=1)
@@ -4991,6 +5012,8 @@ class JerseyModderApp(tk.Tk):
         if not self.number_creator_digit_paths:
             if hasattr(self, "number_creator_preview"):
                 self.number_creator_preview.delete("all")
+            self.number_creator_sheet_path = None
+            self._show_generator_font_preview(None)
             self.number_creator_status.configure(text="Upload at least one digit first.")
             return
         output_path = (
@@ -5011,6 +5034,7 @@ class JerseyModderApp(tk.Tk):
             return
         self.number_creator_sheet_path = output_path
         self._show_number_creator_sheet_preview(output_path)
+        self._show_generator_font_preview(output_path)
         self.number_creator_status.configure(text=f"Preview built with {len(self.number_creator_digit_paths)} digit(s).")
 
     def save_number_creator_sheet_as(self) -> None:
@@ -5403,6 +5427,57 @@ class JerseyModderApp(tk.Tk):
             max(10, (canvas_width - preview_size[0]) // 2),
             max(10, (canvas_height - preview_size[1]) // 2),
             image=self.number_creator_preview_image,
+            anchor=tk.NW,
+        )
+
+    def _show_generator_font_preview(self, path: Path | None) -> None:
+        if not hasattr(self, "generator_font_preview"):
+            return
+        self.generator_font_preview.delete("all")
+        if path is None or not path.exists():
+            self.generator_font_preview.create_text(
+                14,
+                14,
+                text="No font preview",
+                fill="#d8dbe2",
+                anchor=tk.NW,
+                font=("Segoe UI", 10),
+            )
+            self.generator_font_preview_image = None
+            return
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+        except ImportError:
+            return
+        self.generator_font_preview.update_idletasks()
+        width = max(1, self.generator_font_preview.winfo_width() - 20)
+        height = max(1, self.generator_font_preview.winfo_height() - 20)
+        with Image.open(path) as opened:
+            sheet = opened.convert("RGBA")
+        scale = min(width / sheet.width, height / sheet.height, 1.0)
+        preview_size = (
+            max(1, round(sheet.width * scale)),
+            max(1, round(sheet.height * scale)),
+        )
+        sheet = sheet.resize(preview_size, Image.Resampling.LANCZOS)
+        background = Image.new("RGBA", preview_size, (238, 238, 238, 255))
+        draw = ImageDraw.Draw(background)
+        square = 14
+        for y in range(0, preview_size[1], square):
+            for x in range(0, preview_size[0], square):
+                if (x // square + y // square) % 2:
+                    draw.rectangle(
+                        (x, y, x + square - 1, y + square - 1),
+                        fill=(205, 205, 205, 255),
+                    )
+        background.alpha_composite(sheet)
+        self.generator_font_preview_image = ImageTk.PhotoImage(background)
+        canvas_width = self.generator_font_preview.winfo_width()
+        canvas_height = self.generator_font_preview.winfo_height()
+        self.generator_font_preview.create_image(
+            max(10, (canvas_width - preview_size[0]) // 2),
+            max(10, (canvas_height - preview_size[1]) // 2),
+            image=self.generator_font_preview_image,
             anchor=tk.NW,
         )
 
