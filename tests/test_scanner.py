@@ -1772,6 +1772,33 @@ class GeneratorTests(unittest.TestCase):
         self.assertGreater(high_center[0], 175)
         self.assertGreater(high_center[1], 175)
 
+    def test_recolor_font_image_preserves_antialiased_alpha(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        image = Image.new("RGBA", (11, 11), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((2, 2, 8, 8), fill=(90, 90, 90, 180))
+        draw.rectangle((3, 3, 7, 7), fill=(240, 240, 240, 255))
+        draw.rectangle((4, 4, 6, 6), fill=(250, 250, 250, 255))
+
+        recolored = _recolor_font_image(
+            image,
+            (10, 20, 220),
+            (245, 210, 40),
+            edge_protection=0.9,
+        )
+
+        self.assertEqual(recolored.getpixel((2, 5))[3], 180)
+        self.assertEqual(recolored.getpixel((5, 5))[3], 255)
+        edge = recolored.getpixel((2, 5))[:3]
+        center = recolored.getpixel((5, 5))[:3]
+        self.assertGreater(edge[2], edge[0])
+        self.assertGreater(center[0], center[2])
+        self.assertGreater(center[1], center[2])
+
 
 if __name__ == "__main__":
     unittest.main()

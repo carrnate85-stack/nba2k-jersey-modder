@@ -7740,31 +7740,47 @@ def _recolor_font_image(
     rgba_data = getattr(rgba, "get_flattened_data", rgba.getdata)
     pixels = list(rgba_data())
     distances = _font_alpha_edge_distances(rgba)
-    visible_distances = [
-        distances[index]
-        for index, (_red, _green, _blue, alpha) in enumerate(pixels)
+    visible_pixels = [
+        (red, green, blue, alpha, distances[index])
+        for index, (red, green, blue, alpha) in enumerate(pixels)
         if alpha > 0
     ]
-    if not visible_distances:
+    if not visible_pixels:
         return rgba
 
-    max_distance = max(visible_distances)
-    if max_distance <= 1:
-        threshold = 1.0 + (edge_protection * 1.25)
-    else:
-        threshold_ratio = 0.38 + (edge_protection * 0.36)
-        minimum_threshold = 1.25 + (edge_protection * 2.0)
-        maximum_threshold = 6.0 + (edge_protection * 4.0)
-        threshold = max(minimum_threshold, min(maximum_threshold, max_distance * threshold_ratio))
-    softness_factor = 0.45 - (edge_protection * 0.28)
-    softness = max(0.75, threshold * softness_factor)
+    luminances = sorted(
+        _pixel_luminance(red, green, blue)
+        for red, green, blue, _alpha, _distance in visible_pixels
+    )
+    low_luminance = _percentile(luminances, 0.08)
+    high_luminance = _percentile(luminances, 0.92)
+    luminance_range = high_luminance - low_luminance
+    has_tone_split = luminance_range >= 18
+
+    edge_threshold = 0.75 + (edge_protection * 2.75)
+    edge_softness = max(0.65, 2.2 - (edge_protection * 1.25))
+    distance_influence = 0.48 * (1.0 - edge_protection)
 
     recolored = []
     for index, (red, green, blue, alpha) in enumerate(pixels):
         if alpha == 0:
             recolored.append((red, green, blue, alpha))
             continue
-        mix = _smoothstep(_clamp((distances[index] - threshold) / softness, 0.0, 1.0))
+        distance_mix = _smoothstep(
+            _clamp((distances[index] - edge_threshold) / edge_softness, 0.0, 1.0)
+        )
+        if has_tone_split:
+            tone_mix = _smoothstep(
+                _clamp(
+                    (_pixel_luminance(red, green, blue) - low_luminance)
+                    / max(1.0, luminance_range),
+                    0.0,
+                    1.0,
+                )
+            )
+            mix = max(tone_mix, distance_mix * distance_influence)
+        else:
+            mix = distance_mix
         original = (red, green, blue)
         outline = dark_color if dark_color is not None else original
         fill = light_color if light_color is not None else original
@@ -7829,6 +7845,17 @@ def _clamp(value: float, minimum: float, maximum: float) -> float:
 
 def _smoothstep(value: float) -> float:
     return value * value * (3 - (2 * value))
+
+
+def _percentile(values: list[float], ratio: float) -> float:
+    if not values:
+        return 0.0
+    ratio = _clamp(ratio, 0.0, 1.0)
+    position = ratio * (len(values) - 1)
+    lower_index = int(position)
+    upper_index = min(len(values) - 1, lower_index + 1)
+    mix = position - lower_index
+    return values[lower_index] * (1.0 - mix) + values[upper_index] * mix
 
 
 def _pixel_luminance(red: int, green: int, blue: int) -> float:
