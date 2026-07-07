@@ -1064,6 +1064,47 @@ class GeneratorTests(unittest.TestCase):
             {"shorts_belt_buckle_logo"},
         )
 
+    def test_side_panel_image_is_web_editable_with_rotation(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            image_path = Path(tmp_dir) / "panel.png"
+            Image.new("RGBA", (20, 10), (255, 0, 0, 255)).save(image_path)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone("left_side_panel", "stripe", 100, 200, 100, 80, "#0000ff", 10),
+                ),
+            )
+            placements = image_placement_rects(
+                template,
+                GeneratorInputs(
+                    front_color="#ffffff",
+                    back_color="#ffffff",
+                    left_panel_color="#ffffff",
+                    right_panel_color="#ffffff",
+                    left_panel_image=image_path,
+                    trim_placements={
+                        "left_side_panel": TrimPlacementSettings(
+                            offset_x=7,
+                            offset_y=-3,
+                            scale_percent=150,
+                            rotation_degrees=25,
+                        )
+                    },
+                ),
+            )
+
+        self.assertEqual(len(placements), 1)
+        self.assertEqual(placements[0].key, "left_side_panel")
+        self.assertEqual(placements[0].clip_x, 100)
+        self.assertEqual(placements[0].clip_y, 200)
+        self.assertEqual(placements[0].rotation_degrees, 25)
+        self.assertEqual(placements[0].width, 30)
+
     def test_render_jersey_region_map_marks_panels_and_decals(self) -> None:
         try:
             from PIL import Image, ImageDraw

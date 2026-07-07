@@ -69,6 +69,7 @@ INDEX_HTML = """<!doctype html>
           <div><label for="posY">Y</label><input id="posY" type="number" step="1"></div>
           <div><label for="posW">Width</label><input id="posW" type="number" step="1" min="1"></div>
           <div><label for="posH">Height</label><input id="posH" type="number" step="1" min="1"></div>
+          <div><label for="rotation">Rotation</label><input id="rotation" type="number" step="1"></div>
         </div>
         <div class="buttons"><button id="applyPosition">Apply</button></div>
         <div class="buttons">
@@ -103,6 +104,7 @@ INDEX_HTML = """<!doctype html>
     const posY = document.getElementById("posY");
     const posW = document.getElementById("posW");
     const posH = document.getElementById("posH");
+    const rotation = document.getElementById("rotation");
     const applyPosition = document.getElementById("applyPosition");
     const layerUp = document.getElementById("layerUp");
     const layerDown = document.getElementById("layerDown");
@@ -195,6 +197,7 @@ INDEX_HTML = """<!doctype html>
       const item = activeItem();
       const disabled = !item;
       for (const input of [posX, posY, posW, posH]) input.disabled = disabled || !item.canTransform;
+      rotation.disabled = disabled || !item.canRotate;
       applyPosition.disabled = disabled || !item.canTransform;
       layerUp.disabled = disabled || !item.canReorder;
       layerDown.disabled = disabled || !item.canReorder;
@@ -209,6 +212,7 @@ INDEX_HTML = """<!doctype html>
           ? "Region preview only."
           : "Select an image.";
         for (const input of [posX, posY, posW, posH]) input.value = "";
+        rotation.value = "";
         autoBackground.checked = false;
         removeWhite.checked = false;
         removeBlack.checked = false;
@@ -221,6 +225,7 @@ INDEX_HTML = """<!doctype html>
       posY.value = Math.round(item.y);
       posW.value = Math.round(item.width);
       posH.value = Math.round(item.height);
+      rotation.value = Math.round(item.rotation || 0);
       posX.disabled = !item.canTransform || item.lockX;
       posW.disabled = !item.canTransform || item.lockX;
       autoBackground.checked = Boolean(item.cleanup?.autoBackground);
@@ -261,7 +266,7 @@ INDEX_HTML = """<!doctype html>
           ctx.rect(item.clipBox.x, item.clipBox.y, item.clipBox.width, item.clipBox.height);
           ctx.clip();
         }
-        ctx.drawImage(img, item.x, item.y, item.width, item.height);
+        drawOverlayImage(img, item);
         ctx.restore();
       }
       const active = project?.overlays.find(item => item.key === activeKey);
@@ -284,19 +289,43 @@ INDEX_HTML = """<!doctype html>
       return "source-over";
     }
 
+    function drawOverlayImage(img, item) {
+      const angle = (item.rotation || 0) * Math.PI / 180;
+      if (!angle) {
+        ctx.drawImage(img, item.x, item.y, item.width, item.height);
+        return;
+      }
+      const cx = item.x + item.width / 2;
+      const cy = item.y + item.height / 2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      ctx.drawImage(img, -item.width / 2, -item.height / 2, item.width, item.height);
+      ctx.restore();
+    }
+
     function drawBox(item) {
       ctx.save();
       ctx.strokeStyle = "#ffcc33";
       ctx.lineWidth = 5;
-      ctx.strokeRect(item.x, item.y, item.width, item.height);
+      const angle = (item.rotation || 0) * Math.PI / 180;
+      const cx = item.x + item.width / 2;
+      const cy = item.y + item.height / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      ctx.strokeRect(-item.width / 2, -item.height / 2, item.width, item.height);
       if (item.clipBox) {
+        ctx.restore();
+        ctx.save();
         ctx.setLineDash([16, 10]);
         ctx.strokeStyle = "#31d0ff";
         ctx.strokeRect(item.clipBox.x, item.clipBox.y, item.clipBox.width, item.clipBox.height);
         ctx.setLineDash([]);
+        ctx.translate(cx, cy);
+        ctx.rotate(angle);
       }
       ctx.fillStyle = "#ffcc33";
-      ctx.fillRect(item.x + item.width - 24, item.y + item.height - 24, 48, 48);
+      ctx.fillRect(item.width / 2 - 24, item.height / 2 - 24, 48, 48);
       ctx.restore();
     }
 
@@ -349,7 +378,14 @@ INDEX_HTML = """<!doctype html>
       await fetch("/api/update", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({key: item.key, x: item.x, y: item.y, width: item.width, height: item.height}),
+        body: JSON.stringify({
+          key: item.key,
+          x: item.x,
+          y: item.y,
+          width: item.width,
+          height: item.height,
+          rotation: item.rotation || 0,
+        }),
       });
     }
 
@@ -400,6 +436,7 @@ INDEX_HTML = """<!doctype html>
       }
       item.y = Number(posY.value || 0);
       item.height = Math.max(1, Number(posH.value || 1));
+      item.rotation = Number(rotation.value || 0);
       await sendUpdate(item);
       await loadProject();
     };

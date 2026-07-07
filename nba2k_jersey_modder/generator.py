@@ -82,6 +82,12 @@ FABRIC_OVERLAY_EXCLUDED_ZONE_NAMES = {
 
 JERSEY_REGION_SIDE_PANEL_COLOR = (192, 0, 102, 255)
 JERSEY_REGION_DECAL_COLOR = (132, 0, 216, 255)
+SIDE_PANEL_ZONE_NAMES = {
+    "left_side_panel",
+    "right_side_panel",
+    "shorts_left_panel",
+    "shorts_right_panel",
+}
 
 
 @dataclass(frozen=True)
@@ -116,6 +122,7 @@ class TrimPlacementSettings:
     offset_y: int = 0
     scale_percent: int = 100
     flip_x: bool = False
+    rotation_degrees: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -130,6 +137,7 @@ class ImagePlacement:
     clip_y: int | None = None
     clip_width: int | None = None
     clip_height: int | None = None
+    rotation_degrees: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -549,23 +557,29 @@ def image_placement_rects(
             zone.name == "front_wordmark"
             or overlay_path is None
             or not overlay_path.exists()
-            or not _zone_image_stretches(zone)
+            or not _zone_image_is_web_editable(zone)
         ):
             continue
-        overlay = _prepared_overlay(overlay_path, inputs, zone.name)
-        overlay, x, y = _overlay_at_zone(overlay, zone, inputs)
+        if _zone_image_is_side_panel(zone):
+            overlay = _prepared_overlay(overlay_path, inputs, zone.name)
+            x, y, width, height, rotation = _editable_panel_rect(zone, overlay, inputs)
+        else:
+            overlay = _prepared_overlay(overlay_path, inputs, zone.name)
+            overlay, x, y = _overlay_at_zone(overlay, zone, inputs)
+            width, height, rotation = overlay.width, overlay.height, 0.0
         placements.append(
             ImagePlacement(
                 zone.name,
                 _human_zone_name(zone.name),
                 x,
                 y,
-                overlay.width,
-                overlay.height,
+                width,
+                height,
                 zone.x,
                 zone.y,
                 zone.width,
                 zone.height,
+                rotation,
             )
         )
 
@@ -600,7 +614,7 @@ def _paste_image_fit(
 ) -> None:
     overlay = _prepared_overlay(overlay_path, inputs, cleanup_key)
     overlay, x, y = _overlay_at_zone(overlay, zone, inputs, logo=logo)
-    clip_box = _zone_box(zone) if _zone_image_stretches(zone) else None
+    clip_box = _zone_box(zone) if _zone_image_clips_to_zone(zone) else None
     _alpha_composite_at(base, overlay, x, y, clip_box=clip_box)
 
 
@@ -657,6 +671,17 @@ def _overlay_at_zone(
             zone.y + trim.offset_y,
         )
 
+    if _zone_image_is_side_panel(zone):
+        x, y, width, height, rotation = _editable_panel_rect(zone, overlay, inputs)
+        overlay = overlay.resize((width, height), Image.Resampling.LANCZOS)
+        if rotation:
+            center_x = x + overlay.width / 2
+            center_y = y + overlay.height / 2
+            overlay = overlay.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
+            x = round(center_x - overlay.width / 2)
+            y = round(center_y - overlay.height / 2)
+        return overlay, x, y
+
     if logo is not None and logo.stretch_x:
         ratio = zone.width / max(1, overlay.width)
         scale = max(1, int(logo.scale_percent)) / 100
@@ -707,12 +732,44 @@ def _transform_stretched_zone_image(overlay, zone: TemplateZone, trim: TrimPlace
     return overlay
 
 
+def _editable_panel_rect(
+    zone: TemplateZone,
+    overlay,
+    inputs: GeneratorInputs,
+) -> tuple[int, int, int, int, float]:
+    settings = inputs.trim_placements.get(zone.name, TrimPlacementSettings())
+    fit_width, fit_height = _contained_image_size(
+        overlay.width,
+        overlay.height,
+        zone.width,
+        zone.height,
+    )
+    scale = max(1, int(settings.scale_percent)) / 100
+    width = max(1, round(fit_width * scale))
+    height = max(1, round(fit_height * scale))
+    x = zone.x + (zone.width - width) // 2 + settings.offset_x
+    y = zone.y + (zone.height - height) // 2 + settings.offset_y
+    return x, y, width, height, float(settings.rotation_degrees)
+
+
 def _zone_image_stretches(zone: TemplateZone) -> bool:
     return zone.name in {
         "left_arm_hole_trim",
         "right_arm_hole_trim",
         "collar_trim",
     }
+
+
+def _zone_image_is_side_panel(zone: TemplateZone) -> bool:
+    return zone.name in SIDE_PANEL_ZONE_NAMES
+
+
+def _zone_image_is_web_editable(zone: TemplateZone) -> bool:
+    return _zone_image_stretches(zone) or _zone_image_is_side_panel(zone)
+
+
+def _zone_image_clips_to_zone(zone: TemplateZone) -> bool:
+    return _zone_image_stretches(zone) or _zone_image_is_side_panel(zone)
 
 
 def _zone_image_offset(

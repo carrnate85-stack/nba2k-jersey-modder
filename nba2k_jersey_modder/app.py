@@ -74,6 +74,12 @@ TRIM_GENERATOR_KEYS = {
     "right_arm_hole_trim": "right_arm_hole_trim_image",
     "collar_trim": "collar_trim_image",
 }
+SIDE_PANEL_GENERATOR_KEYS = {
+    "left_side_panel": "left_panel_image",
+    "right_side_panel": "right_panel_image",
+    "shorts_left_panel": "left_panel_image",
+    "shorts_right_panel": "right_panel_image",
+}
 FABRIC_OVERLAY_PRESETS = {
     "None": None,
     "Light mesh": FABRIC_OVERLAY_DIR / "light_mesh.png",
@@ -5807,6 +5813,7 @@ class JerseyModderApp(tk.Tk):
         overlays = []
         for placement in image_placement_rects(template, inputs):
             is_trim = placement.key in TRIM_GENERATOR_KEYS
+            is_side_panel = placement.key in SIDE_PANEL_GENERATOR_KEYS
             logo_index = (
                 int(placement.key.split(":")[1])
                 if placement.key.startswith("logo:")
@@ -5824,6 +5831,8 @@ class JerseyModderApp(tk.Tk):
                     "blendMode": "normal",
                     "lockX": self._web_editor_overlay_locks_x(placement.key),
                     "canTransform": True,
+                    "canRotate": is_side_panel,
+                    "rotation": placement.rotation_degrees,
                     "canFlip": is_trim,
                     "flipX": self.generator_trim_placements.get(
                         placement.key,
@@ -5845,6 +5854,8 @@ class JerseyModderApp(tk.Tk):
                     "layerLabel": (
                         "Top layer"
                         if placement.key == "front_wordmark"
+                        else "Side panel layer"
+                        if is_side_panel
                         else "Trim layer"
                         if is_trim
                         else f"Logo layer {logo_index + 1}"
@@ -5996,6 +6007,8 @@ class JerseyModderApp(tk.Tk):
         inputs = self._generator_inputs()
         base_inputs = replace(
             inputs,
+            left_panel_image=None,
+            right_panel_image=None,
             front_wordmark_image=None,
             left_arm_hole_trim_image=None,
             right_arm_hole_trim_image=None,
@@ -6049,6 +6062,8 @@ class JerseyModderApp(tk.Tk):
             return output_path.read_bytes(), "image/png"
         elif key in TRIM_GENERATOR_KEYS:
             path = self.generator_paths[TRIM_GENERATOR_KEYS[key]]
+        elif key in SIDE_PANEL_GENERATOR_KEYS:
+            path = self.generator_paths[SIDE_PANEL_GENERATOR_KEYS[key]]
         elif key == "fabric_overlay":
             template = self._current_generator_template()
             layer = fabric_overlay_layer(template, self._generator_inputs(), (2048, 2048))
@@ -6121,6 +6136,7 @@ class JerseyModderApp(tk.Tk):
         y = float(payload.get("y", 0))
         width = max(1.0, float(payload.get("width", 1)))
         height = max(1.0, float(payload.get("height", 1)))
+        rotation = float(payload.get("rotation", 0))
         if key == "preview_number":
             image = self._build_generator_number_preview_image()
             if image is None:
@@ -6137,7 +6153,7 @@ class JerseyModderApp(tk.Tk):
         current = placements.get(key)
         if current is None:
             return
-        if key in TRIM_GENERATOR_KEYS and current.clip_x is not None:
+        if key in {*TRIM_GENERATOR_KEYS, *SIDE_PANEL_GENERATOR_KEYS} and current.clip_x is not None:
             x, y, width, height = _clamp_overlay_to_clip(
                 x,
                 y,
@@ -6189,6 +6205,16 @@ class JerseyModderApp(tk.Tk):
                 offset_x=trim.offset_x + delta_x,
                 offset_y=trim.offset_y + delta_y,
                 scale_percent=max(1, min(500, scale)),
+            )
+        elif key in SIDE_PANEL_GENERATOR_KEYS:
+            panel = self.generator_trim_placements.get(key, TrimPlacementSettings())
+            scale = round(panel.scale_percent * width / max(1, current.width))
+            self.generator_trim_placements[key] = replace(
+                panel,
+                offset_x=panel.offset_x + delta_x,
+                offset_y=panel.offset_y + delta_y,
+                scale_percent=max(1, min(500, scale)),
+                rotation_degrees=rotation,
             )
         self._schedule_generator_preview_refresh()
 
