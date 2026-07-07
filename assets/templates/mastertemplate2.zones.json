@@ -1,0 +1,105 @@
+{
+  "image_path": "C:\\Users\\carrn\\OneDrive\\Documents\\NBA 2k Jersey Modder\\assets\\templates\\mastertemplate2.png",
+  "zones": [
+    {
+      "name": "front_jersey_base",
+      "zone_type": "base",
+      "x": 884,
+      "y": 392,
+      "width": 937,
+      "height": 1656,
+      "color": "#05ff05",
+      "layer": 0
+    },
+    {
+      "name": "back_jersey_base_left",
+      "zone_type": "base",
+      "x": 0,
+      "y": 392,
+      "width": 884,
+      "height": 1656,
+      "color": "#05f0ff",
+      "layer": 0
+    },
+    {
+      "name": "back_jersey_base_right",
+      "zone_type": "base",
+      "x": 1821,
+      "y": 392,
+      "width": 227,
+      "height": 1656,
+      "color": "#05f0ff",
+      "layer": 0
+    },
+    {
+      "name": "front_wordmark",
+      "zone_type": "wordmark",
+      "x": 1039,
+      "y": 817,
+      "width": 632,
+      "height": 389,
+      "color": "#000000",
+      "layer": 40
+    },
+    {
+      "name": "left_side_panel",
+      "zone_type": "stripe",
+      "x": 761,
+      "y": 1008,
+      "width": 246,
+      "height": 1040,
+      "color": "#1820c9",
+      "layer": 20
+    },
+    {
+      "name": "right_side_panel",
+      "zone_type": "stripe",
+      "x": 1699,
+      "y": 1010,
+      "width": 244,
+      "height": 1038,
+      "color": "#c92918",
+      "layer": 20
+    },
+    {
+      "name": "collar_background",
+      "zone_type": "trim",
+      "x": 0,
+      "y": 0,
+      "width": 2048,
+      "height": 392,
+      "color": "#efad1e",
+      "layer": 30
+    },
+    {
+      "name": "left_arm_hole_trim",
+      "zone_type": "trim",
+      "x": 363,
+      "y": 50,
+      "width": 1323,
+      "height": 66,
+      "color": "#12d7e3",
+      "layer": 30
+    },
+    {
+      "name": "right_arm_hole_trim",
+      "zone_type": "trim",
+      "x": 363,
+      "y": 177,
+      "width": 1323,
+      "height": 66,
+      "color": "#12e32f",
+      "layer": 30
+    },
+    {
+      "name": "collar_trim",
+      "zone_type": "trim",
+      "x": 349,
+      "y": 311,
+      "width": 1360,
+      "height": 66,
+      "color": "#cd12e3",
+      "layer": 30
+    }
+  ]
+}
