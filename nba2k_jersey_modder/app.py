@@ -4236,7 +4236,7 @@ class JerseyModderApp(tk.Tk):
     def import_number_font_iff(self) -> None:
         selected = filedialog.askopenfilename(
             title="Import Font IFF",
-            filetypes=(("IFF files", "*.iff"), ("All files", "*.*")),
+            filetypes=(("Font IFF files", "*font*.iff"), ("All files", "*.*")),
         )
         if not selected:
             return
@@ -4366,7 +4366,7 @@ class JerseyModderApp(tk.Tk):
         if self.number_creator_font_info is None:
             selected_template = filedialog.askopenfilename(
                 title="Choose source font IFF",
-                filetypes=(("IFF files", "*.iff"), ("All files", "*.*")),
+                filetypes=(("Font IFF files", "*font*.iff"), ("All files", "*.*")),
             )
             if not selected_template:
                 return
