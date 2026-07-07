@@ -129,6 +129,8 @@ INDEX_HTML = """<!doctype html>
     let overlays = new Map();
     let activeKey = null;
     let drag = null;
+    const HANDLE_SIZE = 56;
+    const HANDLE_HIT_RADIUS = 58;
 
     async function loadProject() {
       try {
@@ -325,8 +327,50 @@ INDEX_HTML = """<!doctype html>
         ctx.rotate(angle);
       }
       ctx.fillStyle = "#ffcc33";
-      ctx.fillRect(item.width / 2 - 24, item.height / 2 - 24, 48, 48);
+      for (const handle of localHandles(item)) {
+        ctx.fillRect(handle.x - HANDLE_SIZE / 2, handle.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+      }
       ctx.restore();
+    }
+
+    function localHandles(item) {
+      if (item.lockX) return [{x: item.width / 2, y: item.height / 2, sx: 0, sy: 1}];
+      return [
+        {x: -item.width / 2, y: -item.height / 2, sx: -1, sy: -1},
+        {x: item.width / 2, y: -item.height / 2, sx: 1, sy: -1},
+        {x: -item.width / 2, y: item.height / 2, sx: -1, sy: 1},
+        {x: item.width / 2, y: item.height / 2, sx: 1, sy: 1},
+      ];
+    }
+
+    function rotatedPoint(item, localX, localY) {
+      const angle = (item.rotation || 0) * Math.PI / 180;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const cx = item.x + item.width / 2;
+      const cy = item.y + item.height / 2;
+      return {
+        x: cx + localX * cos - localY * sin,
+        y: cy + localX * sin + localY * cos,
+      };
+    }
+
+    function localPoint(point, item) {
+      const angle = (item.rotation || 0) * Math.PI / 180;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const cx = item.x + item.width / 2;
+      const cy = item.y + item.height / 2;
+      const dx = point.x - cx;
+      const dy = point.y - cy;
+      return {
+        x: dx * cos + dy * sin,
+        y: -dx * sin + dy * cos,
+      };
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
     function canvasPoint(event) {
@@ -340,11 +384,15 @@ INDEX_HTML = """<!doctype html>
     function hitTest(point) {
       for (const item of [...project.overlays].reverse()) {
         if (!item.canTransform) continue;
-        const inHandle = point.x >= item.x + item.width - 36 && point.x <= item.x + item.width + 36 &&
-                         point.y >= item.y + item.height - 36 && point.y <= item.y + item.height + 36;
-        if (inHandle) return {item, mode: "resize"};
-        const inBody = point.x >= item.x && point.x <= item.x + item.width &&
-                       point.y >= item.y && point.y <= item.y + item.height;
+        for (const handle of localHandles(item)) {
+          const handlePoint = rotatedPoint(item, handle.x, handle.y);
+          if (distance(point, handlePoint) <= HANDLE_HIT_RADIUS) {
+            return {item, mode: "resize", handle};
+          }
+        }
+        const local = localPoint(point, item);
+        const inBody = local.x >= -item.width / 2 && local.x <= item.width / 2 &&
+                       local.y >= -item.height / 2 && local.y <= item.height / 2;
         if (inBody) return {item, mode: "move"};
       }
       return null;
@@ -369,6 +417,7 @@ INDEX_HTML = """<!doctype html>
         key: hit.item.key,
         start: point,
         original: {...hit.item},
+        handle: hit.handle,
       };
       canvas.setPointerCapture(event.pointerId);
       draw();
@@ -411,8 +460,27 @@ INDEX_HTML = """<!doctype html>
           item.height = Math.max(1, drag.original.height + dy);
         } else {
           const ratio = drag.original.height / Math.max(1, drag.original.width);
-          item.width = Math.max(1, drag.original.width + dx);
+          const handle = drag.handle || {sx: 1, sy: 1};
+          const currentLocal = localPoint(point, drag.original);
+          const opposite = {
+            x: -handle.sx * drag.original.width / 2,
+            y: -handle.sy * drag.original.height / 2,
+          };
+          const widthFromX = Math.max(1, (currentLocal.x - opposite.x) * handle.sx);
+          const heightFromY = Math.max(1, (currentLocal.y - opposite.y) * handle.sy);
+          item.width = Math.max(widthFromX, heightFromY / ratio);
           item.height = Math.max(1, item.width * ratio);
+          const active = {
+            x: opposite.x + handle.sx * item.width,
+            y: opposite.y + handle.sy * item.height,
+          };
+          const centerLocal = {
+            x: (opposite.x + active.x) / 2,
+            y: (opposite.y + active.y) / 2,
+          };
+          const centerWorld = rotatedPoint(drag.original, centerLocal.x, centerLocal.y);
+          item.x = centerWorld.x - item.width / 2;
+          item.y = centerWorld.y - item.height / 2;
         }
       }
       draw();
