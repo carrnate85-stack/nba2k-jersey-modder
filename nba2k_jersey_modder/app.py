@@ -237,8 +237,8 @@ class JerseyModderApp(tk.Tk):
         self.number_recolor_dark_var = tk.StringVar(value="#000000")
         self.number_recolor_no_light_var = tk.BooleanVar(value=False)
         self.number_recolor_no_dark_var = tk.BooleanVar(value=False)
-        self.number_recolor_light_strength_var = tk.IntVar(value=100)
-        self.number_recolor_light_strength_label_var = tk.StringVar(value="100%")
+        self.number_recolor_edge_protection_var = tk.IntVar(value=75)
+        self.number_recolor_edge_protection_label_var = tk.StringVar(value="75%")
         self.tweak_file_path: Path | None = None
         self.tweak_info: FrontNumberTweak | None = None
         self.tweak_x_var = tk.DoubleVar(value=0.0)
@@ -1261,21 +1261,21 @@ class JerseyModderApp(tk.Tk):
         ).pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Entry(light_row, textvariable=self.number_recolor_light_var, width=10).pack(side=tk.RIGHT)
 
-        fill_strength_row = ttk.Frame(recolor)
-        fill_strength_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        ttk.Label(fill_strength_row, text="Fill strength").pack(side=tk.LEFT)
+        edge_protection_row = ttk.Frame(recolor)
+        edge_protection_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(edge_protection_row, text="Edge protection").pack(side=tk.LEFT)
         ttk.Label(
-            fill_strength_row,
-            textvariable=self.number_recolor_light_strength_label_var,
+            edge_protection_row,
+            textvariable=self.number_recolor_edge_protection_label_var,
             style="Muted.TLabel",
             width=5,
         ).pack(side=tk.RIGHT)
         ttk.Scale(
-            fill_strength_row,
+            edge_protection_row,
             from_=0,
             to=100,
-            variable=self.number_recolor_light_strength_var,
-            command=self._on_number_recolor_strength_changed,
+            variable=self.number_recolor_edge_protection_var,
+            command=self._on_number_recolor_edge_protection_changed,
         ).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 8))
 
         dark_row = ttk.Frame(recolor)
@@ -4338,7 +4338,7 @@ class JerseyModderApp(tk.Tk):
         try:
             light = self._number_recolor_rgb("light")
             dark = self._number_recolor_rgb("dark")
-            fill_strength = self._number_recolor_light_strength()
+            edge_protection = self._number_recolor_edge_protection()
             recolored_paths: dict[str, Path] = {}
             from PIL import Image
 
@@ -4350,7 +4350,7 @@ class JerseyModderApp(tk.Tk):
                         opened.convert("RGBA"),
                         dark,
                         light,
-                        fill_strength=fill_strength,
+                        edge_protection=edge_protection,
                     )
                 output_path = self._number_creator_digit_output_path(
                     digit,
@@ -4368,16 +4368,16 @@ class JerseyModderApp(tk.Tk):
             return
         self.number_creator_status.configure(text="Applied font recolor preview.")
 
-    def _on_number_recolor_strength_changed(self, _value: str | None = None) -> None:
-        self.number_recolor_light_strength_label_var.set(
-            f"{self.number_recolor_light_strength_var.get()}%"
+    def _on_number_recolor_edge_protection_changed(self, _value: str | None = None) -> None:
+        self.number_recolor_edge_protection_label_var.set(
+            f"{self.number_recolor_edge_protection_var.get()}%"
         )
 
-    def _number_recolor_light_strength(self) -> float:
-        value = self.number_recolor_light_strength_var.get()
+    def _number_recolor_edge_protection(self) -> float:
+        value = self.number_recolor_edge_protection_var.get()
         value = min(100, max(0, value))
-        self.number_recolor_light_strength_var.set(value)
-        self._on_number_recolor_strength_changed()
+        self.number_recolor_edge_protection_var.set(value)
+        self._on_number_recolor_edge_protection_changed()
         return value / 100
 
     def restore_number_font_original_colors(self) -> None:
@@ -7532,12 +7532,12 @@ def _recolor_font_image(
     dark_color: tuple[int, int, int] | None,
     light_color: tuple[int, int, int] | None,
     *,
-    fill_strength: float = 1.0,
+    edge_protection: float = 0.75,
 ):
     rgba = image.convert("RGBA")
     if dark_color is None and light_color is None:
         return rgba
-    fill_strength = _clamp(fill_strength, 0.0, 1.0)
+    edge_protection = _clamp(edge_protection, 0.0, 1.0)
     rgba_data = getattr(rgba, "get_flattened_data", rgba.getdata)
     pixels = list(rgba_data())
     distances = _font_alpha_edge_distances(rgba)
@@ -7551,10 +7551,14 @@ def _recolor_font_image(
 
     max_distance = max(visible_distances)
     if max_distance <= 1:
-        threshold = 1.75
+        threshold = 1.0 + (edge_protection * 1.25)
     else:
-        threshold = max(2.5, min(8.5, max_distance * 0.62))
-    softness = max(0.75, threshold * 0.22)
+        threshold_ratio = 0.38 + (edge_protection * 0.36)
+        minimum_threshold = 1.25 + (edge_protection * 2.0)
+        maximum_threshold = 6.0 + (edge_protection * 4.0)
+        threshold = max(minimum_threshold, min(maximum_threshold, max_distance * threshold_ratio))
+    softness_factor = 0.45 - (edge_protection * 0.28)
+    softness = max(0.75, threshold * softness_factor)
 
     recolored = []
     for index, (red, green, blue, alpha) in enumerate(pixels):
@@ -7564,11 +7568,7 @@ def _recolor_font_image(
         mix = _smoothstep(_clamp((distances[index] - threshold) / softness, 0.0, 1.0))
         original = (red, green, blue)
         outline = dark_color if dark_color is not None else original
-        fill = (
-            _blend_rgb(original, light_color, fill_strength)
-            if light_color is not None
-            else original
-        )
+        fill = light_color if light_color is not None else original
         recolored.append((*_blend_rgb(outline, fill, mix), alpha))
     rgba.putdata(recolored)
     return rgba

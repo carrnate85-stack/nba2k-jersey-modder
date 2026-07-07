@@ -1721,7 +1721,7 @@ class GeneratorTests(unittest.TestCase):
         self.assertGreater(no_outline_center[1], 235)
         self.assertLess(no_outline_center[2], 20)
 
-    def test_recolor_font_image_fill_strength_softens_fill_color(self) -> None:
+    def test_recolor_font_image_edge_protection_keeps_fill_from_edges(self) -> None:
         try:
             from PIL import Image, ImageDraw
         except ImportError:
@@ -1731,25 +1731,28 @@ class GeneratorTests(unittest.TestCase):
         ImageDraw.Draw(image).rectangle((1, 1, 7, 7), fill=(120, 120, 120, 255))
         ImageDraw.Draw(image).rectangle((3, 3, 5, 5), fill=(240, 240, 240, 255))
 
-        strong = _recolor_font_image(
+        low_protection = _recolor_font_image(
             image,
             (0, 0, 255),
             (255, 255, 0),
-            fill_strength=1.0,
+            edge_protection=0.0,
         )
-        soft = _recolor_font_image(
+        high_protection = _recolor_font_image(
             image,
             (0, 0, 255),
             (255, 255, 0),
-            fill_strength=0.35,
+            edge_protection=1.0,
         )
 
-        strong_center = strong.getpixel((4, 4))[:3]
-        soft_center = soft.getpixel((4, 4))[:3]
+        low_edge = low_protection.getpixel((2, 4))[:3]
+        high_edge = high_protection.getpixel((2, 4))[:3]
+        high_center = high_protection.getpixel((4, 4))[:3]
 
-        self.assertGreater(strong_center[1], soft_center[1])
-        self.assertGreater(soft_center[2], strong_center[2])
-        self.assertGreater(soft_center[0], 240)
+        self.assertGreater(low_edge[0], high_edge[0])
+        self.assertGreater(low_edge[1], high_edge[1])
+        self.assertGreater(high_edge[2], low_edge[2])
+        self.assertGreater(high_center[0], 175)
+        self.assertGreater(high_center[1], 175)
 
 
 if __name__ == "__main__":
