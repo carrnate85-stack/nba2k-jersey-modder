@@ -43,6 +43,8 @@ from nba2k_jersey_modder.template import (
     JerseyTemplate,
     MASTER_TEMPLATE_IMAGE,
     MASTER_TEMPLATE_ZONES,
+    SHORTS_TEMPLATE_RETRO_IMAGE,
+    SHORTS_TEMPLATE_RETRO_ZONES,
     TemplateZone,
     detect_v1_color_zones,
     detect_v3_color_zones,
@@ -376,6 +378,19 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("left_side_panel", by_name)
         self.assertIn("right_side_panel", by_name)
         self.assertGreater(by_name["left_side_panel"].layer, by_name["front_jersey_base"].layer)
+
+    def test_bundled_retro_shorts_template_exists_and_loads(self) -> None:
+        self.assertTrue(SHORTS_TEMPLATE_RETRO_IMAGE.exists())
+        self.assertTrue(SHORTS_TEMPLATE_RETRO_ZONES.exists())
+
+        template = load_template(SHORTS_TEMPLATE_RETRO_ZONES)
+        by_name = {zone.name: zone for zone in template.zones}
+
+        self.assertIn("shorts_waistband_top", by_name)
+        self.assertIn("shorts_waistband_bottom", by_name)
+        self.assertIn("shorts_left_panel", by_name)
+        self.assertIn("shorts_right_panel", by_name)
+        self.assertIn("shorts_belt_buckle_logo", by_name)
 
 
 class TrimCreatorTests(unittest.TestCase):
@@ -1002,6 +1017,37 @@ class GeneratorTests(unittest.TestCase):
         targets = logo_target_zones(template)
 
         self.assertIn("front_left_chest_logo", {zone.name for zone in targets})
+
+    def test_generate_retro_shorts_template_fills_panels_and_logo_target(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output = Path(tmp_dir) / "shorts.png"
+            template = load_template(SHORTS_TEMPLATE_RETRO_ZONES)
+            generate_jersey_texture(
+                template,
+                GeneratorInputs(
+                    front_color="",
+                    back_color="",
+                    left_panel_color="#ff0000",
+                    right_panel_color="#00ff00",
+                    collar_background_color="#0000ff",
+                ),
+                output,
+            )
+            image = Image.open(output).convert("RGBA")
+
+        self.assertEqual(image.getpixel((10, 10)), (0, 0, 255, 255))
+        self.assertEqual(image.getpixel((10, 200)), (255, 0, 0, 255))
+        self.assertEqual(image.getpixel((10, 1200)), (0, 255, 0, 255))
+        self.assertEqual(image.getpixel((1450, 1500)), (0, 0, 0, 0))
+        self.assertEqual(
+            {zone.name for zone in logo_target_zones(template)},
+            {"shorts_belt_buckle_logo"},
+        )
 
     def test_wrap_logo_type_stretches_across_x_axis(self) -> None:
         try:

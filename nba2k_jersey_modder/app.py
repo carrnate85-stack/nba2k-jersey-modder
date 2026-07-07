@@ -45,6 +45,7 @@ from .template import (
     JerseyTemplate,
     MASTER_TEMPLATE_IMAGE,
     MASTER_TEMPLATE_ZONES,
+    SHORTS_TEMPLATE_OPTIONS,
     TemplateZone,
     find_hex_color_zone_bbox,
     load_template,
@@ -91,6 +92,7 @@ def _logo_type_label(name: str) -> str:
         "front_wordmark": "Front Wordmark",
         "back_neck_logo": "Back Neck Logo",
         "back_center_logo": "Back Center Logo",
+        "shorts_belt_buckle_logo": "Belt Buckle Logo",
     }
     return labels.get(name, _human_label(name))
 
@@ -134,6 +136,8 @@ class JerseyModderApp(tk.Tk):
             "right_arm_hole_trim_image": None,
             "collar_trim_image": None,
         }
+        self.generator_garment_var = tk.StringVar(value="Jersey")
+        self.generator_shorts_template_var = tk.StringVar(value="Retro shorts")
         self.generator_remove_white_var = tk.BooleanVar(value=False)
         self.generator_remove_black_var = tk.BooleanVar(value=False)
         self.generator_outside_only_var = tk.BooleanVar(value=True)
@@ -145,6 +149,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_trim_placements: dict[str, TrimPlacementSettings] = {}
         self.generator_logo_target_names: dict[str, str] = {}
         self.generator_logo_type_var = tk.StringVar(value="")
+        self.generator_color_labels: dict[str, ttk.Label] = {}
         self.fabric_overlay_var = tk.StringVar(value="None")
         self.fabric_overlay_blend_var = tk.StringVar(value="multiply")
         self.fabric_overlay_opacity_var = tk.IntVar(value=0)
@@ -1487,6 +1492,41 @@ class JerseyModderApp(tk.Tk):
         self.generator_file_labels: dict[str, ttk.Label] = {}
 
         row = 0
+        ttk.Label(controls, text="Template", style="Status.TLabel").grid(
+            row=row, column=0, sticky=tk.W, pady=(0, 8)
+        )
+        row += 1
+        template_frame = ttk.Frame(controls)
+        template_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(template_frame, text="Type").grid(row=0, column=0, sticky=tk.W)
+        self.generator_garment_box = ttk.Combobox(
+            template_frame,
+            textvariable=self.generator_garment_var,
+            values=("Jersey", "Shorts"),
+            state="readonly",
+            width=12,
+        )
+        self.generator_garment_box.grid(row=0, column=1, sticky="ew", padx=(8, 12))
+        ttk.Label(template_frame, text="Shorts").grid(row=0, column=2, sticky=tk.W)
+        self.generator_shorts_template_box = ttk.Combobox(
+            template_frame,
+            textvariable=self.generator_shorts_template_var,
+            values=tuple(SHORTS_TEMPLATE_OPTIONS),
+            state="readonly",
+            width=16,
+        )
+        self.generator_shorts_template_box.grid(row=0, column=3, sticky="ew", padx=(8, 0))
+        self.generator_garment_box.bind("<<ComboboxSelected>>", self._on_generator_template_changed)
+        self.generator_shorts_template_box.bind(
+            "<<ComboboxSelected>>",
+            self._on_generator_template_changed,
+        )
+        template_frame.columnconfigure(1, weight=1)
+        template_frame.columnconfigure(3, weight=1)
+        row += 1
+
+        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
+        row += 1
         ttk.Label(controls, text="Base colors", style="Status.TLabel").grid(
             row=row, column=0, sticky=tk.W, pady=(0, 8)
         )
@@ -1693,6 +1733,7 @@ class JerseyModderApp(tk.Tk):
         tab.columnconfigure(0, minsize=430)
         tab.columnconfigure(1, weight=1)
         tab.rowconfigure(0, weight=1)
+        self._sync_generator_template_controls(refresh_preview=False)
 
     def _make_vertical_scroller(
         self,
@@ -1735,7 +1776,9 @@ class JerseyModderApp(tk.Tk):
     ) -> None:
         frame = ttk.Frame(parent)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-        ttk.Label(frame, text=label).pack(side=tk.LEFT)
+        label_widget = ttk.Label(frame, text=label)
+        label_widget.pack(side=tk.LEFT)
+        self.generator_color_labels[key] = label_widget
         swatch = tk.Label(
             frame,
             text="",
@@ -1793,8 +1836,62 @@ class JerseyModderApp(tk.Tk):
         file_label.pack(side=tk.LEFT, padx=(8, 0), fill=tk.X, expand=True)
         self.generator_file_labels[key] = file_label
 
+    def _current_generator_template_path(self) -> Path:
+        if self.generator_garment_var.get() == "Shorts":
+            _image_path, zones_path = SHORTS_TEMPLATE_OPTIONS.get(
+                self.generator_shorts_template_var.get(),
+                SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
+            )
+            return zones_path
+        return MASTER_TEMPLATE_ZONES
+
+    def _current_generator_template(self) -> JerseyTemplate:
+        return load_template(self._current_generator_template_path())
+
+    def _on_generator_template_changed(self, _event: tk.Event | None = None) -> None:
+        self._sync_generator_template_controls(refresh_preview=True)
+
+    def _sync_generator_template_controls(self, *, refresh_preview: bool) -> None:
+        is_shorts = self.generator_garment_var.get() == "Shorts"
+        self.generator_shorts_template_box.configure(state="readonly" if is_shorts else "disabled")
+        labels = {
+            "front_color": "Front",
+            "back_color": "Back",
+            "left_panel_color": "Left side panel",
+            "right_panel_color": "Right side panel",
+            "collar_background_color": "Collar background",
+            "left_arm_hole_trim_color": "Left arm hole",
+            "right_arm_hole_trim_color": "Right arm hole",
+            "collar_trim_color": "Collar trim",
+        }
+        if is_shorts:
+            labels.update(
+                {
+                    "front_color": "Front (jersey only)",
+                    "back_color": "Back (jersey only)",
+                    "left_panel_color": "Left shorts panel",
+                    "right_panel_color": "Right shorts panel",
+                    "collar_background_color": "Waistband",
+                }
+            )
+        for key, text in labels.items():
+            label = self.generator_color_labels.get(key)
+            if label is not None:
+                label.configure(text=text)
+        self._refresh_generator_logo_targets()
+        if refresh_preview:
+            self._schedule_generator_preview_refresh()
+
+    def _refresh_generator_logo_targets(self) -> None:
+        if not hasattr(self, "generator_logo_location_box"):
+            return
+        labels = self._logo_target_labels()
+        self.generator_logo_location_box.configure(values=labels)
+        if labels and self.generator_logo_type_var.get() not in labels:
+            self.generator_logo_type_var.set(labels[0])
+
     def _logo_target_labels(self, *, include_front_wordmark: bool = False) -> list[str]:
-        template = load_template(MASTER_TEMPLATE_ZONES)
+        template = self._current_generator_template()
         targets = logo_target_zones(template)
         labels_by_target = {_logo_type_label(zone.name): zone.name for zone in targets}
         if include_front_wordmark:
@@ -5703,7 +5800,7 @@ class JerseyModderApp(tk.Tk):
         return result.get("value")
 
     def _web_editor_project(self) -> dict:
-        template = load_template(MASTER_TEMPLATE_ZONES)
+        template = self._current_generator_template()
         inputs = self._generator_inputs()
         overlays = []
         for placement in image_placement_rects(template, inputs):
@@ -5893,7 +5990,7 @@ class JerseyModderApp(tk.Tk):
         )
 
     def _web_editor_base_png(self) -> bytes:
-        template = load_template(MASTER_TEMPLATE_ZONES)
+        template = self._current_generator_template()
         inputs = self._generator_inputs()
         base_inputs = replace(
             inputs,
@@ -5933,7 +6030,7 @@ class JerseyModderApp(tk.Tk):
         elif key in TRIM_GENERATOR_KEYS:
             path = self.generator_paths[TRIM_GENERATOR_KEYS[key]]
         elif key == "fabric_overlay":
-            template = load_template(MASTER_TEMPLATE_ZONES)
+            template = self._current_generator_template()
             layer = fabric_overlay_layer(template, self._generator_inputs(), (2048, 2048))
             if layer is None:
                 raise FileNotFoundError("No fabric overlay is active.")
@@ -6014,7 +6111,7 @@ class JerseyModderApp(tk.Tk):
             self.generator_number_preview_scale_var.set(max(5, min(500, scale)))
             self._redraw_generator_preview_overlays()
             return
-        template = load_template(MASTER_TEMPLATE_ZONES)
+        template = self._current_generator_template()
         inputs = self._generator_inputs()
         placements = {placement.key: placement for placement in image_placement_rects(template, inputs)}
         current = placements.get(key)
@@ -6148,12 +6245,17 @@ class JerseyModderApp(tk.Tk):
         update_status: bool = True,
     ) -> None:
         try:
-            template = load_template(MASTER_TEMPLATE_ZONES)
+            template = self._current_generator_template()
+            output_name = (
+                "generated_shorts_color.png"
+                if self.generator_garment_var.get() == "Shorts"
+                else "generated_jersey_color.png"
+            )
             output_path = (
                 Path(tempfile.gettempdir())
                 / "nba2k_jersey_modder"
                 / "generated"
-                / "generated_jersey_color.png"
+                / output_name
             )
             generate_jersey_texture(
                 template,
@@ -6259,7 +6361,7 @@ class JerseyModderApp(tk.Tk):
         if not selected:
             return
         try:
-            template = load_template(MASTER_TEMPLATE_ZONES)
+            template = self._current_generator_template()
             generate_layered_jersey_psd(
                 template,
                 self._generator_inputs(),
@@ -6396,7 +6498,7 @@ class JerseyModderApp(tk.Tk):
             return
         left, top, _width, _height = self.generator_preview_rect
         try:
-            template = load_template(MASTER_TEMPLATE_ZONES)
+            template = self._current_generator_template()
             placements = image_placement_rects(template, self._generator_inputs())
         except Exception:
             return

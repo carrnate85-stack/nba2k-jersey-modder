@@ -8,6 +8,13 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 MASTER_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "mastertemplate2.png"
 MASTER_TEMPLATE_ZONES = PACKAGE_ROOT / "assets" / "templates" / "mastertemplate2.zones.json"
+SHORTS_TEMPLATE_RETRO_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "shortstemplate1.png"
+SHORTS_TEMPLATE_RETRO_ZONES = PACKAGE_ROOT / "assets" / "templates" / "shortstemplate1.zones.json"
+SHORTS_TEMPLATE_OPTIONS = {
+    "Retro shorts": (SHORTS_TEMPLATE_RETRO_IMAGE, SHORTS_TEMPLATE_RETRO_ZONES),
+    "Classic shorts": (SHORTS_TEMPLATE_RETRO_IMAGE, SHORTS_TEMPLATE_RETRO_ZONES),
+    "Modern shorts": (SHORTS_TEMPLATE_RETRO_IMAGE, SHORTS_TEMPLATE_RETRO_ZONES),
+}
 
 
 V1_COLOR_ZONE_PROFILE = {

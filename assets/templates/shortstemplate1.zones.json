@@ -1,0 +1,55 @@
+{
+  "image_path": "assets/templates/shortstemplate1.png",
+  "zones": [
+    {
+      "name": "shorts_waistband_top",
+      "zone_type": "base",
+      "x": 0,
+      "y": 0,
+      "width": 1267,
+      "height": 119,
+      "color": "#5f61be",
+      "layer": 0
+    },
+    {
+      "name": "shorts_left_panel",
+      "zone_type": "stripe",
+      "x": 0,
+      "y": 119,
+      "width": 1309,
+      "height": 680,
+      "color": "#de2c45",
+      "layer": 5
+    },
+    {
+      "name": "shorts_waistband_bottom",
+      "zone_type": "base",
+      "x": 0,
+      "y": 1024,
+      "width": 1222,
+      "height": 117,
+      "color": "#5f61be",
+      "layer": 0
+    },
+    {
+      "name": "shorts_right_panel",
+      "zone_type": "stripe",
+      "x": 0,
+      "y": 1141,
+      "width": 1309,
+      "height": 686,
+      "color": "#45de2c",
+      "layer": 5
+    },
+    {
+      "name": "shorts_belt_buckle_logo",
+      "zone_type": "logo",
+      "x": 1398,
+      "y": 1459,
+      "width": 617,
+      "height": 319,
+      "color": "#000000",
+      "layer": 50
+    }
+  ]
+}

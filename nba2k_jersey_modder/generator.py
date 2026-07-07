@@ -76,6 +76,8 @@ FABRIC_OVERLAY_EXCLUDED_ZONE_NAMES = {
     "left_arm_hole_trim",
     "right_arm_hole_trim",
     "collar_trim",
+    "shorts_waistband_top",
+    "shorts_waistband_bottom",
 }
 
 
@@ -362,6 +364,12 @@ def generate_layered_jersey_psd(
 
 
 def _fill_for_zone(zone: TemplateZone, inputs: GeneratorInputs) -> str | None:
+    if zone.name.startswith("shorts_waistband"):
+        return _active_color(inputs.collar_background_color)
+    if zone.name == "shorts_left_panel":
+        return _active_color(inputs.left_panel_color)
+    if zone.name == "shorts_right_panel":
+        return _active_color(inputs.right_panel_color)
     if zone.name == "front_jersey_base":
         return _active_color(inputs.front_color)
     if zone.name.startswith("back_jersey_base"):
@@ -387,9 +395,9 @@ def _active_color(color: str) -> str | None:
 
 
 def _overlay_for_zone(zone: TemplateZone, inputs: GeneratorInputs) -> Path | None:
-    if zone.name == "left_side_panel":
+    if zone.name in {"left_side_panel", "shorts_left_panel"}:
         return inputs.left_panel_image
-    if zone.name == "right_side_panel":
+    if zone.name in {"right_side_panel", "shorts_right_panel"}:
         return inputs.right_panel_image
     if zone.name == "front_wordmark":
         return inputs.front_wordmark_image
@@ -415,14 +423,15 @@ def _human_zone_name(name: str) -> str:
 
 
 def logo_target_zones(template: JerseyTemplate) -> tuple[TemplateZone, ...]:
+    template_targets = {
+        zone.name: zone
+        for zone in template.zones
+        if zone.zone_type.lower() in {"logo", "patch"}
+    }
+    if any(zone.name.startswith("shorts_") for zone in template.zones):
+        return tuple(template_targets.values())
     targets = {zone.name: zone for zone in DEFAULT_LOGO_TARGETS}
-    targets.update(
-        {
-            zone.name: zone
-            for zone in template.zones
-            if zone.zone_type.lower() in {"logo", "patch"}
-        }
-    )
+    targets.update(template_targets)
     return tuple(targets.values())
 
 
