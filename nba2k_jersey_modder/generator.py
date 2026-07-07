@@ -670,8 +670,19 @@ def _overlay_at_zone(
             zone.y + (zone.height - overlay.height) // 2 + logo.offset_y,
         )
 
-    overlay.thumbnail((zone.width, zone.height), Image.Resampling.LANCZOS)
-    overlay = _scale_zone_image(zone, overlay, inputs, logo=logo)
+    scale = _zone_image_scale(zone, inputs, logo=logo)
+    fit_width, fit_height = _contained_image_size(
+        overlay.width,
+        overlay.height,
+        zone.width,
+        zone.height,
+    )
+    final_size = (
+        max(1, round(fit_width * scale)),
+        max(1, round(fit_height * scale)),
+    )
+    if overlay.size != final_size:
+        overlay = overlay.resize(final_size, Image.Resampling.LANCZOS)
     offset_x, offset_y = _zone_image_offset(zone, inputs, logo=logo)
     x = zone.x + (zone.width - overlay.width) // 2 + offset_x
     y = zone.y + (zone.height - overlay.height) // 2 + offset_y
@@ -718,25 +729,30 @@ def _zone_image_offset(
     return 0, 0
 
 
-def _scale_zone_image(
+def _zone_image_scale(
     zone: TemplateZone,
-    image,
     inputs: GeneratorInputs,
     logo: LogoPlacement | None = None,
-):
+) -> float:
     if logo is not None:
-        scale = max(1, int(logo.scale_percent)) / 100
+        return max(1, int(logo.scale_percent)) / 100
     elif zone.name == "front_wordmark":
-        scale = max(1, int(inputs.front_wordmark_scale_percent)) / 100
-    else:
-        return image
-    if scale == 1:
-        return image
-    from PIL import Image
+        return max(1, int(inputs.front_wordmark_scale_percent)) / 100
+    return 1.0
 
-    width = max(1, round(image.width * scale))
-    height = max(1, round(image.height * scale))
-    return image.resize((width, height), Image.Resampling.LANCZOS)
+
+def _contained_image_size(
+    image_width: int,
+    image_height: int,
+    max_width: int,
+    max_height: int,
+) -> tuple[int, int]:
+    ratio = min(
+        max_width / max(1, image_width),
+        max_height / max(1, image_height),
+        1,
+    )
+    return max(1, round(image_width * ratio)), max(1, round(image_height * ratio))
 
 
 def _alpha_composite_at(

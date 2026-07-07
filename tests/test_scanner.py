@@ -37,6 +37,7 @@ from nba2k_jersey_modder.generator import (
     remove_image_background,
     render_jersey_region_map,
     upscale_logo_image,
+    _overlay_at_zone,
 )
 from nba2k_jersey_modder.scanner import ResourceHit
 from nba2k_jersey_modder.scanner import scan_iff
@@ -1126,6 +1127,35 @@ class GeneratorTests(unittest.TestCase):
         )
 
         self.assertEqual(region.getpixel((60, 550)), (203, 0, 102, 255))
+
+    def test_scaled_logo_uses_single_resize_from_original(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        original = Image.new("RGBA", (400, 200), (0, 0, 0, 0))
+        pixels = original.load()
+        for y in range(original.height):
+            for x in range(original.width):
+                pixels[x, y] = ((x * 7) % 256, (y * 11) % 256, (x + y) % 256, 255)
+        expected = original.copy()
+        expected.thumbnail((200, 200), Image.Resampling.LANCZOS)
+
+        rendered, _x, _y = _overlay_at_zone(
+            original.copy(),
+            TemplateZone("front_left_chest_logo", "logo", 0, 0, 100, 100, "#ffffff", 50),
+            GeneratorInputs(
+                front_color="#ffffff",
+                back_color="#ffffff",
+                left_panel_color="#ffffff",
+                right_panel_color="#ffffff",
+            ),
+            logo=LogoPlacement(Path("logo.png"), "front_left_chest_logo", scale_percent=200),
+        )
+
+        self.assertEqual(rendered.size, expected.size)
+        self.assertEqual(rendered.tobytes(), expected.tobytes())
 
     def test_wrap_logo_type_stretches_across_x_axis(self) -> None:
         try:
