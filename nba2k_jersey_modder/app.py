@@ -4460,7 +4460,7 @@ class JerseyModderApp(tk.Tk):
             title="Save Modded Font IFF",
             defaultextension=".iff",
             initialfile=f"{info.source_path.stem}_modded.iff",
-            filetypes=(("IFF files", "*.iff"), ("All files", "*.*")),
+            filetypes=(("Font IFF files", "*font*.iff"), ("All files", "*.*")),
         )
         if not selected:
             return
