@@ -335,7 +335,6 @@ class JerseyModderApp(tk.Tk):
         self._build_tweak_editor_tab()
         self._build_generator_tab()
         self._build_rdat_tab()
-        self._build_details_tab()
         self._build_template_tab()
 
     def _build_textures_tab(self) -> None:
@@ -358,7 +357,6 @@ class JerseyModderApp(tk.Tk):
         self.textures.column("source", width=180)
 
         self.textures["displaycolumns"] = columns
-        self.textures.bind("<<TreeviewSelect>>", self._on_texture_select)
         self.textures.bind("<Double-1>", self._open_texture_from_click)
 
         texture_label = ttk.Label(tab, text="Texture file matches", style="Status.TLabel")
@@ -3234,20 +3232,6 @@ class JerseyModderApp(tk.Tk):
         tab.columnconfigure(1, weight=1)
         tab.rowconfigure(1, weight=1)
 
-    def _build_details_tab(self) -> None:
-        tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(tab, text="Details")
-
-        self.details = tk.Text(tab, wrap=tk.WORD, height=12, font=("Consolas", 10))
-        self.details.configure(state=tk.DISABLED)
-        scroll = ttk.Scrollbar(tab, orient=tk.VERTICAL, command=self.details.yview)
-        self.details.configure(yscrollcommand=scroll.set)
-
-        self.details.grid(row=0, column=0, sticky="nsew")
-        scroll.grid(row=0, column=1, sticky="ns")
-        tab.rowconfigure(0, weight=1)
-        tab.columnconfigure(0, weight=1)
-
     def open_iff(self) -> None:
         selected = filedialog.askopenfilename(
             title="Import NBA 2K Jersey .iff",
@@ -3291,7 +3275,6 @@ class JerseyModderApp(tk.Tk):
         )
         self._populate_textures(result)
         self._populate_rdat(result)
-        self._show_details(_result_details(result))
 
     def _set_busy(self, busy: bool) -> None:
         self.configure(cursor="watch" if busy else "")
@@ -7204,15 +7187,6 @@ class JerseyModderApp(tk.Tk):
             self.zone_list.selection_set(item_id)
             self.zone_list.focus(item_id)
 
-    def _on_texture_select(self, _event: tk.Event) -> None:
-        selected = self.textures.selection()
-        if not selected:
-            return
-        dds_hit, txtr_hit = self._texture_row_index.get(selected[0], (None, None))
-        if dds_hit or txtr_hit:
-            self._show_details(_texture_row_details(dds_hit, txtr_hit))
-            return
-
     def open_selected_texture(self, kind: str | None = None) -> None:
         resource = self._selected_texture_resource(kind)
         if resource is None:
@@ -7288,14 +7262,11 @@ class JerseyModderApp(tk.Tk):
             return
 
         self.pending_replacements[resource.offset] = Replacement(resource, replacement_path)
-        self._show_details(
-            _resource_details(resource)
-            + "\n\nReplacement staged:\n"
-            + f"{replacement_path}\n"
-            + "Use Save Modified .iff As to write a patched copy."
-        )
         self.summary.configure(
-            text=f"{len(self.pending_replacements)} replacement staged for modified .iff export."
+            text=(
+                f"{len(self.pending_replacements)} replacement staged for modified .iff export: "
+                f"{replacement_path.name}"
+            )
         )
         if messagebox.askyesno(
             "Replacement staged",
@@ -7443,11 +7414,7 @@ class JerseyModderApp(tk.Tk):
             return None
         path = Path(selected)
         self.texture_file_overrides[_resource_key(resource)] = path
-        self._show_details(
-            _resource_details(resource)
-            + "\n\nManual file linked for this session:\n"
-            + str(path)
-        )
+        self.summary.configure(text=f"Linked {resource.name} to {path.name} for this session.")
         return path
 
     def _open_texture_path(
@@ -7696,13 +7663,6 @@ class JerseyModderApp(tk.Tk):
         self.rdat_status.configure(text=f"Editing {label} - unsaved changes.")
         self.rdat_editor.edit_modified(False)
 
-    def _show_details(self, text: str) -> None:
-        self.details.configure(state=tk.NORMAL)
-        self.details.delete("1.0", tk.END)
-        self.details.insert(tk.END, text)
-        self.details.configure(state=tk.DISABLED)
-
-
 def _nudge_image(image, offset_x: int, offset_y: int):
     from PIL import Image
 
@@ -7872,74 +7832,6 @@ def _smoothstep(value: float) -> float:
 
 def _pixel_luminance(red: int, green: int, blue: int) -> float:
     return 0.2126 * red + 0.7152 * green + 0.0722 * blue
-
-
-def _result_details(result: IffScanResult) -> str:
-    dds_count = sum(1 for item in result.resources if item.kind == "DDS")
-    txtr_count = sum(1 for item in result.resources if item.kind == "TXTR")
-    rdat_count = sum(1 for item in result.resources if item.kind == "RDAT")
-    matched_count = sum(1 for item in result.texture_pairs if item.status == "Matched")
-
-    return "\n".join(
-        [
-            f"File: {result.path}",
-            f"Size: {format_bytes(result.size)}",
-            f"Resources detected: {len(result.resources)}",
-            f"DDS hits: {dds_count}",
-            f"TXTR hits: {txtr_count}",
-            f"RDAT references: {rdat_count}",
-            f"Matched texture candidates: {matched_count}",
-            f"Printable strings: {len(result.strings)}",
-            "",
-            "This first scanner uses filename references plus real DDS headers.",
-            "Unknown NBA 2K container chunks are still shown as raw offsets for now.",
-        ]
-    )
-
-
-def _resource_details(resource: ResourceHit) -> str:
-    lines = [
-        f"Name: {resource.name}",
-        f"Type: {resource.kind}",
-        f"Offset: {hex_offset(resource.offset)} ({resource.offset})",
-        f"Detected from: {resource.source}",
-    ]
-    if resource.size:
-        lines.append(f"Estimated size: {format_bytes(resource.size)}")
-    if resource.kind == "DDS":
-        lines.append(
-            "IFF replacement: "
-            + ("available" if can_replace_resource(resource) else "not available yet")
-        )
-    return "\n".join(lines)
-
-
-def _texture_details(pair: TexturePair) -> str:
-    lines = [
-        f"Texture: {pair.key}",
-        f"Status: {pair.status}",
-        "",
-        ".dds hits:",
-    ]
-    lines.extend(_hit_lines(pair.dds_hits))
-    lines.extend(["", ".txtr hits:"])
-    lines.extend(_hit_lines(pair.txtr_hits))
-    return "\n".join(lines)
-
-
-def _texture_row_details(
-    dds_hit: ResourceHit | None,
-    txtr_hit: ResourceHit | None,
-) -> str:
-    lines = [
-        f"Match: {texture_row_status(dds_hit, txtr_hit)}",
-        "",
-        ".dds:",
-    ]
-    lines.extend(_hit_lines((dds_hit,) if dds_hit else ()))
-    lines.extend(["", ".txtr:"])
-    lines.extend(_hit_lines((txtr_hit,) if txtr_hit else ()))
-    return "\n".join(lines)
 
 
 def _crop_trim_image(image, crop_top: int, crop_bottom: int):
@@ -8212,17 +8104,6 @@ def texture_row_source(
     if txtr_hit:
         sources.append(txtr_hit.source)
     return " / ".join(dict.fromkeys(sources))
-
-
-def _hit_lines(hits: tuple[ResourceHit, ...]) -> list[str]:
-    if not hits:
-        return ["  none"]
-    return [
-        f"  {hit.name} at {hex_offset(hit.offset)}"
-        + (f" ({format_bytes(hit.size)})" if hit.size else "")
-        + f" [{hit.source}]"
-        for hit in hits
-    ]
 
 
 def offsets_summary(hits: tuple[ResourceHit, ...]) -> str:
