@@ -5775,6 +5775,9 @@ class JerseyModderApp(tk.Tk):
                 }
             )
         overlays = self._web_editor_order_layers(overlays)
+        preview_number = self._web_editor_preview_number_overlay()
+        if preview_number is not None:
+            overlays.append(preview_number)
         return {
             "textureSize": 2048,
             "baseUrl": "/api/base.png",
@@ -5782,16 +5785,17 @@ class JerseyModderApp(tk.Tk):
         }
 
     def _web_editor_order_layers(self, overlays: list[dict]) -> list[dict]:
+        preview_layers = [item for item in overlays if item["key"] == "preview_number"]
         top_layers = [item for item in overlays if item["key"] == "front_wordmark"]
         reorderable = [
             item
             for item in overlays
-            if item["key"] != "front_wordmark" and item.get("canReorder")
+            if item["key"] not in {"front_wordmark", "preview_number"} and item.get("canReorder")
         ]
         fixed = [
             item
             for item in overlays
-            if item["key"] != "front_wordmark" and not item.get("canReorder")
+            if item["key"] not in {"front_wordmark", "preview_number"} and not item.get("canReorder")
         ]
         ordered_keys = self._active_dynamic_layer_order(
             [item["key"] for item in reorderable]
@@ -5805,7 +5809,42 @@ class JerseyModderApp(tk.Tk):
             if item["key"].startswith("logo:") or item["key"] == "fabric_overlay":
                 item["layerLabel"] = f"Layer {index}"
         ordered.extend(top_layers)
+        ordered.extend(preview_layers)
         return ordered
+
+    def _web_editor_preview_number_overlay(self) -> dict | None:
+        if not self._generator_number_preview_available():
+            return None
+        image = self._build_generator_number_preview_image()
+        if image is None:
+            return None
+        scale = self._generator_number_preview_scale()
+        try:
+            x = max(0, min(2048, int(self.generator_number_preview_x_var.get())))
+            y = max(0, min(2048, int(self.generator_number_preview_y_var.get())))
+        except tk.TclError:
+            x, y = 1160, 780
+        self.generator_number_preview_x_var.set(x)
+        self.generator_number_preview_y_var.set(y)
+        return {
+            "key": "preview_number",
+            "label": "Preview Number",
+            "x": x,
+            "y": y,
+            "width": max(1, round(image.width * scale / 100)),
+            "height": max(1, round(image.height * scale / 100)),
+            "imageUrl": "/api/image/preview_number?",
+            "blendMode": "normal",
+            "lockX": False,
+            "canTransform": True,
+            "canFlip": False,
+            "flipX": False,
+            "clipBox": None,
+            "canCleanup": False,
+            "cleanup": self._web_editor_cleanup_payload("preview_number"),
+            "canReorder": False,
+            "layerLabel": "Preview only - not exported",
+        }
 
     def _active_dynamic_layer_order(self, current_keys: list[str] | None = None) -> tuple[str, ...]:
         if current_keys is None:
@@ -5878,6 +5917,19 @@ class JerseyModderApp(tk.Tk):
     def _web_editor_image(self, key: str) -> tuple[bytes, str]:
         if key == "front_wordmark":
             path = self.generator_paths["front_wordmark_image"]
+        elif key == "preview_number":
+            image = self._build_generator_number_preview_image()
+            if image is None:
+                raise FileNotFoundError("No preview number is available.")
+            output_path = (
+                Path(tempfile.gettempdir())
+                / "nba2k_jersey_modder"
+                / "web_editor"
+                / "preview_number.png"
+            )
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            image.save(output_path)
+            return output_path.read_bytes(), "image/png"
         elif key in TRIM_GENERATOR_KEYS:
             path = self.generator_paths[TRIM_GENERATOR_KEYS[key]]
         elif key == "fabric_overlay":
@@ -5952,6 +6004,16 @@ class JerseyModderApp(tk.Tk):
         y = float(payload.get("y", 0))
         width = max(1.0, float(payload.get("width", 1)))
         height = max(1.0, float(payload.get("height", 1)))
+        if key == "preview_number":
+            image = self._build_generator_number_preview_image()
+            if image is None:
+                return
+            self.generator_number_preview_x_var.set(max(0, min(2048, round(x))))
+            self.generator_number_preview_y_var.set(max(0, min(2048, round(y))))
+            scale = round(100 * width / max(1, image.width))
+            self.generator_number_preview_scale_var.set(max(5, min(500, scale)))
+            self._redraw_generator_preview_overlays()
+            return
         template = load_template(MASTER_TEMPLATE_ZONES)
         inputs = self._generator_inputs()
         placements = {placement.key: placement for placement in image_placement_rects(template, inputs)}
@@ -6072,6 +6134,7 @@ class JerseyModderApp(tk.Tk):
             for placement in self.generator_logo_placements
         ]
         self.generator_trim_placements.clear()
+        self.reset_generator_number_preview()
         self.web_editor_layer_order.clear()
         self.web_editor_layer_cleanup.clear()
         self._refresh_generator_logo_list()
