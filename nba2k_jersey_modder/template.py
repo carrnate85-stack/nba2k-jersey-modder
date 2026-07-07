@@ -10,9 +10,11 @@ MASTER_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "mastertemplate2
 MASTER_TEMPLATE_ZONES = PACKAGE_ROOT / "assets" / "templates" / "mastertemplate2.zones.json"
 JERSEY_REGION_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "jersey_region.template.png"
 JERSEY_REGION_TEMPLATE_ZONES = PACKAGE_ROOT / "assets" / "templates" / "jersey_region.template.zones.json"
+JERSEY_NORMAL_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "jersey_normal.template.png"
 JERSEY_TEMPLATE_OPTIONS = {
     "Jersey color": (MASTER_TEMPLATE_IMAGE, MASTER_TEMPLATE_ZONES),
     "Jersey region": (JERSEY_REGION_TEMPLATE_IMAGE, JERSEY_REGION_TEMPLATE_ZONES),
+    "Jersey normal": (JERSEY_NORMAL_TEMPLATE_IMAGE, MASTER_TEMPLATE_ZONES),
 }
 SHORTS_TEMPLATE_RETRO_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "shortstemplate1.png"
 SHORTS_TEMPLATE_RETRO_ZONES = PACKAGE_ROOT / "assets" / "templates" / "shortstemplate1.zones.json"

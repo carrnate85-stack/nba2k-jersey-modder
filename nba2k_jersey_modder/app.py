@@ -33,6 +33,7 @@ from .generator import (
     generate_layered_jersey_psd,
     image_placement_rects,
     logo_target_zones,
+    render_jersey_normal_map,
     render_jersey_texture,
     render_jersey_region_map,
 )
@@ -45,6 +46,7 @@ from .iff_patch import (
 from .scanner import IffScanResult, ResourceHit, TexturePair, scan_iff
 from .template import (
     JERSEY_REGION_TEMPLATE_IMAGE,
+    JERSEY_NORMAL_TEMPLATE_IMAGE,
     JERSEY_TEMPLATE_OPTIONS,
     JerseyTemplate,
     MASTER_TEMPLATE_IMAGE,
@@ -175,7 +177,7 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_source_path: Path | None = None
         self.texture_creator_preview_image: tk.PhotoImage | None = None
         self.texture_creator_garment_var = tk.StringVar(value="Jersey")
-        self.texture_creator_texture_type_var = tk.StringVar(value="Normal Texture")
+        self.texture_creator_texture_type_var = tk.StringVar(value="Color Texture")
         self.texture_creator_source_var = tk.StringVar(value="Current generator design")
         self.generator_number_preview_image: tk.PhotoImage | None = None
         self.generator_number_preview_enabled_var = tk.BooleanVar(value=True)
@@ -1767,7 +1769,7 @@ class JerseyModderApp(tk.Tk):
         texture_type = ttk.Combobox(
             options,
             textvariable=self.texture_creator_texture_type_var,
-            values=("Normal Texture", "Region Texture"),
+            values=("Color Texture", "Region Texture", "Normal Map"),
             state="readonly",
             width=22,
         )
@@ -6400,6 +6402,20 @@ class JerseyModderApp(tk.Tk):
                     JERSEY_REGION_TEMPLATE_IMAGE,
                 )
                 output_path = output_dir / "texture_creator_jersey_region.png"
+                image.save(output_path)
+            elif texture_type == "Normal Map":
+                if garment != "Jersey":
+                    messagebox.showinfo(
+                        "Texture Creator",
+                        "Normal map creation is currently built for jersey textures. Shorts normal maps can be added next.",
+                    )
+                    return
+                image = render_jersey_normal_map(
+                    load_template(MASTER_TEMPLATE_ZONES),
+                    self._generator_inputs(),
+                    JERSEY_NORMAL_TEMPLATE_IMAGE,
+                )
+                output_path = output_dir / "texture_creator_jersey_normal.png"
                 image.save(output_path)
             else:
                 output_name = (

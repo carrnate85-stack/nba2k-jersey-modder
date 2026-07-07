@@ -35,6 +35,7 @@ from nba2k_jersey_modder.generator import (
     logo_target_zones,
     remove_detected_background,
     remove_image_background,
+    render_jersey_normal_map,
     render_jersey_region_map,
     upscale_logo_image,
     _overlay_at_zone,
@@ -42,6 +43,7 @@ from nba2k_jersey_modder.generator import (
 from nba2k_jersey_modder.scanner import ResourceHit
 from nba2k_jersey_modder.scanner import scan_iff
 from nba2k_jersey_modder.template import (
+    JERSEY_NORMAL_TEMPLATE_IMAGE,
     JERSEY_REGION_TEMPLATE_IMAGE,
     JERSEY_REGION_TEMPLATE_ZONES,
     JERSEY_TEMPLATE_OPTIONS,
@@ -394,6 +396,14 @@ class TemplateTests(unittest.TestCase):
 
         self.assertIn("jersey_region_main_cloth", by_name)
         self.assertIn("jersey_region_dark_band", by_name)
+
+    def test_bundled_normal_template_is_available_for_jerseys(self) -> None:
+        self.assertTrue(JERSEY_NORMAL_TEMPLATE_IMAGE.exists())
+        self.assertIn("Jersey normal", JERSEY_TEMPLATE_OPTIONS)
+        image_path, zones_path = JERSEY_TEMPLATE_OPTIONS["Jersey normal"]
+
+        self.assertEqual(image_path, JERSEY_NORMAL_TEMPLATE_IMAGE)
+        self.assertEqual(zones_path, MASTER_TEMPLATE_ZONES)
 
     def test_bundled_retro_shorts_template_exists_and_loads(self) -> None:
         self.assertTrue(SHORTS_TEMPLATE_RETRO_IMAGE.exists())
@@ -1168,6 +1178,48 @@ class GeneratorTests(unittest.TestCase):
         )
 
         self.assertEqual(region.getpixel((60, 550)), (203, 0, 102, 255))
+
+    def test_render_jersey_normal_map_adds_artwork_detail(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            normal_template = tmp_path / "normal.png"
+            wordmark = tmp_path / "wordmark.png"
+            Image.new("RGBA", (64, 64), (128, 128, 255, 255)).save(normal_template)
+            wordmark_image = Image.new("RGBA", (24, 12), (0, 0, 0, 0))
+            ImageDraw.Draw(wordmark_image).rectangle((3, 3, 20, 8), fill=(255, 255, 255, 255))
+            wordmark_image.save(wordmark)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone("front_wordmark", "wordmark", 512, 512, 512, 256, "#000000", 10),
+                ),
+            )
+
+            normal = render_jersey_normal_map(
+                template,
+                GeneratorInputs(
+                    "#ffffff",
+                    "#ffffff",
+                    "#ffffff",
+                    "#ffffff",
+                    front_wordmark_image=wordmark,
+                ),
+                normal_template,
+            )
+
+        self.assertEqual(normal.size, (64, 64))
+        self.assertTrue(
+            any(
+                normal.getpixel((x, y)) != (128, 128, 255, 255)
+                for y in range(64)
+                for x in range(64)
+            )
+        )
 
     def test_scaled_logo_uses_single_resize_from_original(self) -> None:
         try:

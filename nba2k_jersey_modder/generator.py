@@ -427,6 +427,111 @@ def render_jersey_region_map(
     return base
 
 
+def render_jersey_normal_map(
+    template: JerseyTemplate,
+    inputs: GeneratorInputs,
+    normal_template_path: Path,
+):
+    try:
+        from PIL import Image, ImageChops, ImageDraw, ImageFilter
+    except ImportError as exc:
+        raise RuntimeError("Jersey normal generation requires Pillow.") from exc
+
+    base = Image.open(normal_template_path).convert("RGBA")
+    size = base.size
+    height_mask = Image.new("L", size, 0)
+    design_width, design_height = _template_design_size(template, (2048, 2048))
+    scale_x = size[0] / design_width
+    scale_y = size[1] / design_height
+
+    def paint_overlay(overlay, x: int, y: int, value: int) -> None:
+        nonlocal height_mask
+        width = max(1, round(overlay.width * scale_x))
+        height = max(1, round(overlay.height * scale_y))
+        alpha = overlay.getchannel("A").resize((width, height), Image.Resampling.LANCZOS)
+        alpha = alpha.point(lambda pixel: round(pixel * value / 255))
+        dest_x = round(x * scale_x)
+        dest_y = round(y * scale_y)
+        left = max(0, dest_x)
+        top = max(0, dest_y)
+        right = min(size[0], dest_x + width)
+        bottom = min(size[1], dest_y + height)
+        if left >= right or top >= bottom:
+            return
+        crop_left = left - dest_x
+        crop_top = top - dest_y
+        alpha = alpha.crop((crop_left, crop_top, crop_left + (right - left), crop_top + (bottom - top)))
+        layer = Image.new("L", size, 0)
+        layer.paste(alpha, (left, top))
+        height_mask = ImageChops.lighter(height_mask, layer)
+
+    def paint_zone_rect(zone: TemplateZone, value: int) -> None:
+        draw = ImageDraw.Draw(height_mask)
+        left = round(zone.x * scale_x)
+        top = round(zone.y * scale_y)
+        right = round((zone.x + zone.width) * scale_x)
+        bottom = round((zone.y + zone.height) * scale_y)
+        draw.rectangle((left, top, right, bottom), outline=value, width=max(1, round(4 * scale_x)))
+
+    front = next((zone for zone in template.zones if zone.name == "front_wordmark"), None)
+    if front is not None and inputs.front_wordmark_image and inputs.front_wordmark_image.exists():
+        overlay = _prepared_overlay(inputs.front_wordmark_image, inputs, "front_wordmark")
+        overlay, x, y = _overlay_at_zone(overlay, front, inputs)
+        paint_overlay(overlay, x, y, 190)
+
+    logo_targets = {zone.name: zone for zone in logo_target_zones(template)}
+    for index, logo in enumerate(inputs.logo_placements):
+        target = logo_targets.get(logo.target_name)
+        if target is None or not logo.path.exists():
+            continue
+        logo_key = f"logo:{index}"
+        overlay = _prepared_overlay(logo.path, inputs, logo_key)
+        overlay, x, y = _overlay_at_zone(overlay, target, inputs, logo=logo)
+        paint_overlay(overlay, x, y, 165)
+
+    for zone in sorted(template.zones, key=lambda candidate: candidate.layer):
+        if zone.name in {"left_arm_hole_trim", "right_arm_hole_trim", "collar_trim"}:
+            overlay_path = _overlay_for_zone(zone, inputs)
+            if overlay_path is not None and overlay_path.exists():
+                overlay = _prepared_overlay(overlay_path, inputs, zone.name)
+                overlay, x, y = _overlay_at_zone(overlay, zone, inputs)
+                paint_overlay(overlay, x, y, 110)
+            elif _fill_for_zone(zone, inputs):
+                paint_zone_rect(zone, 80)
+        elif zone.name in {"left_side_panel", "right_side_panel"} and _region_side_panel_is_active(
+            zone.name,
+            inputs,
+        ):
+            paint_zone_rect(zone, 70)
+
+    height_mask = height_mask.filter(ImageFilter.GaussianBlur(radius=1.1))
+    return _apply_height_mask_to_normal(base, height_mask)
+
+
+def _apply_height_mask_to_normal(base, height_mask):
+    width, height = base.size
+    source = base.load()
+    height_pixels = height_mask.load()
+    output = base.copy()
+    target = output.load()
+    strength = 0.45
+    for y in range(height):
+        up = max(0, y - 1)
+        down = min(height - 1, y + 1)
+        for x in range(width):
+            left = max(0, x - 1)
+            right = min(width - 1, x + 1)
+            dx = height_pixels[right, y] - height_pixels[left, y]
+            dy = height_pixels[x, down] - height_pixels[x, up]
+            if dx == 0 and dy == 0:
+                continue
+            red, green, blue, alpha = source[x, y]
+            red = max(0, min(255, round(red + dx * strength)))
+            green = max(0, min(255, round(green - dy * strength)))
+            target[x, y] = (red, green, blue, alpha)
+    return output
+
+
 def _region_side_panel_is_active(zone_name: str, inputs: GeneratorInputs) -> bool:
     image_path = (
         inputs.left_panel_image
