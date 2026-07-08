@@ -767,8 +767,27 @@ class JerseyModderApp(tk.Tk):
 
         left = ttk.Frame(tab)
         left.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
+        ttk.Label(left, text="Trim type", style="Status.TLabel").grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=(0, 4),
+        )
+        ttk.Combobox(
+            left,
+            textvariable=self.trim_creator_target_var,
+            values=("collar_trim", "left_arm_hole_trim", "right_arm_hole_trim"),
+            state="readonly",
+            width=18,
+        ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            left,
+            text="Stage Current Trim",
+            command=self.generate_trim_creator_line_strip,
+        ).grid(row=2, column=0, sticky="ew", pady=(0, 12))
+
         trim_preview_panel = ttk.LabelFrame(left, text="Trim preview", padding=8)
-        trim_preview_panel.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        trim_preview_panel.grid(row=3, column=0, sticky="ew", pady=(0, 10))
         preview_controls = ttk.Frame(trim_preview_panel)
         preview_controls.grid(row=0, column=0, sticky="ew", pady=(0, 4))
         ttk.Button(
@@ -807,24 +826,8 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_strip_preview.grid(row=1, column=0, sticky="ew")
         trim_preview_panel.columnconfigure(0, weight=1)
 
-        target_panel = ttk.LabelFrame(left, text="Target", padding=8)
-        target_panel.grid(row=1, column=0, sticky="ew", pady=(0, 10))
-        ttk.Combobox(
-            target_panel,
-            textvariable=self.trim_creator_target_var,
-            values=("collar_trim", "left_arm_hole_trim", "right_arm_hole_trim"),
-            state="readonly",
-            width=18,
-        ).grid(row=0, column=0, sticky="ew")
-        ttk.Button(
-            target_panel,
-            text="Stage Current Trim",
-            command=self.generate_trim_creator_line_strip,
-        ).grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        target_panel.columnconfigure(0, weight=1)
-
         staged_trims = ttk.LabelFrame(left, text="Staged Trims", padding=8)
-        staged_trims.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
+        staged_trims.grid(row=4, column=0, sticky="nsew", pady=(0, 10))
         self.trim_creator_list = ttk.Treeview(
             staged_trims,
             columns=("bbox", "file"),
@@ -845,7 +848,7 @@ class JerseyModderApp(tk.Tk):
         staged_trims.columnconfigure(0, weight=1)
 
         selected_actions = ttk.LabelFrame(left, text="Selected strip", padding=8)
-        selected_actions.grid(row=3, column=0, sticky="ew")
+        selected_actions.grid(row=5, column=0, sticky="ew")
         strip_actions = (
             ("Remove", self.remove_selected_trim_strips),
             ("Preview / Crop", self.open_selected_trim_crop_editor),
@@ -868,7 +871,7 @@ class JerseyModderApp(tk.Tk):
         selected_actions.columnconfigure(0, weight=1)
         selected_actions.columnconfigure(1, weight=1)
 
-        left.rowconfigure(2, weight=1)
+        left.rowconfigure(4, weight=1)
         left.columnconfigure(0, weight=1)
 
         preview_frame = ttk.Frame(tab)
