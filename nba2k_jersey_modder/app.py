@@ -190,6 +190,7 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_source_var = tk.StringVar(value="Current generator design")
         self.texture_creator_normal_strength_var = tk.IntVar(value=15)
         self.texture_creator_normal_strength_label_var = tk.StringVar(value="15%")
+        self.texture_creator_blender_normal_var = tk.BooleanVar(value=False)
         self.generator_number_preview_image: tk.PhotoImage | None = None
         self.generator_number_preview_enabled_var = tk.BooleanVar(value=True)
         self.generator_number_preview_text_var = tk.StringVar(value="15")
@@ -1841,6 +1842,11 @@ class JerseyModderApp(tk.Tk):
             style="Muted.TLabel",
             width=5,
         ).pack(side=tk.RIGHT)
+        ttk.Checkbutton(
+            normal_options,
+            text="Use in Blender preview",
+            variable=self.texture_creator_blender_normal_var,
+        ).pack(side=tk.LEFT, padx=(12, 0))
 
         actions = ttk.Frame(controls)
         actions.grid(row=4, column=0, sticky="ew", pady=(12, 0))
@@ -6641,6 +6647,9 @@ class JerseyModderApp(tk.Tk):
             )
             color_image.save(color_path)
             normal_image.save(normal_path)
+            blender_normal_strength = (
+                "0.35" if self.texture_creator_blender_normal_var.get() else "0"
+            )
             subprocess.Popen(
                 [
                     str(blender_path),
@@ -6650,7 +6659,7 @@ class JerseyModderApp(tk.Tk):
                     "--",
                     str(color_path),
                     str(normal_path),
-                    "0",
+                    blender_normal_strength,
                 ],
                 cwd=str(PROJECT_ROOT),
             )
@@ -6662,8 +6671,13 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_preview_path = color_path
         self.texture_creator_source_path = None
         self._show_texture_creator_preview()
+        preview_mode = (
+            "with the normal map"
+            if self.texture_creator_blender_normal_var.get()
+            else "color only"
+        )
         self.texture_creator_status.configure(
-            text=f"Opened Blender preview with {color_path.name} and {normal_path.name}."
+            text=f"Opened Blender preview {preview_mode}."
         )
         self.tabs.select(self.texture_creator_tab)
 
