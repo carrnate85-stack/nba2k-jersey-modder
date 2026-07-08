@@ -2379,7 +2379,7 @@ class JerseyModderApp(tk.Tk):
         ).grid(row=2, column=0, columnspan=6, sticky="ew", pady=(8, 0))
         ttk.Label(
             frame,
-            text="Preview only - not exported",
+            text="Preview only - shown in Blender, not exported",
             style="Muted.TLabel",
         ).grid(row=3, column=0, columnspan=6, sticky="w", pady=(4, 0))
         frame.columnconfigure(5, weight=1)
@@ -6941,6 +6941,7 @@ class JerseyModderApp(tk.Tk):
         template = self._texture_creator_template()
         inputs = self._generator_inputs()
         color_image = render_jersey_texture(template, inputs)
+        color_image = self._apply_blender_number_preview(color_image)
         normal_image = render_jersey_normal_map(
             template,
             inputs,
@@ -6961,6 +6962,33 @@ class JerseyModderApp(tk.Tk):
             encoding="utf-8",
         )
         return color_path, normal_path, settings_path
+
+    def _apply_blender_number_preview(self, color_image):
+        if not self._generator_number_preview_available():
+            return color_image
+        try:
+            from PIL import Image
+        except ImportError:
+            return color_image
+        number = self._build_generator_number_preview_image()
+        if number is None:
+            return color_image
+        scale_percent = self._generator_number_preview_scale()
+        number = number.resize(
+            (
+                max(1, round(number.width * scale_percent / 100)),
+                max(1, round(number.height * scale_percent / 100)),
+            ),
+            Image.Resampling.LANCZOS,
+        )
+        try:
+            x = max(0, min(2048, int(self.generator_number_preview_x_var.get())))
+            y = max(0, min(2048, int(self.generator_number_preview_y_var.get())))
+        except tk.TclError:
+            x, y = 1160, 780
+        self.generator_number_preview_x_var.set(x)
+        self.generator_number_preview_y_var.set(y)
+        return _paste_image_on_canvas(number, color_image.copy(), x, y)
 
     def _refresh_blender_preview_files_if_active(self) -> None:
         if not self.blender_preview_live_refresh:
@@ -7445,6 +7473,7 @@ class JerseyModderApp(tk.Tk):
         if hasattr(self, "generator_preview"):
             self._draw_generator_uv_overlay()
             self._draw_generator_image_boxes()
+        self._refresh_blender_preview_files_if_active()
 
     def _draw_generator_uv_overlay(self) -> None:
         self.generator_preview.delete("generator_uv_overlay")
@@ -7785,6 +7814,7 @@ class JerseyModderApp(tk.Tk):
         if self.generator_drag_state:
             if self.generator_drag_state["key"] == "preview_number":
                 self._draw_generator_image_boxes()
+                self._refresh_blender_preview_files_if_active()
             else:
                 self._cancel_generator_preview_refresh()
                 self.generate_jersey_preview(select_tab=False, update_status=False)
