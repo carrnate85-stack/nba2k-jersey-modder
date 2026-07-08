@@ -789,7 +789,7 @@ class JerseyModderApp(tk.Tk):
         )
 
         left = ttk.Frame(tab)
-        left.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
+        left.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
         trim_preview_panel = ttk.LabelFrame(left, text="Trim preview", padding=8)
         trim_preview_panel.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         preview_controls = ttk.Frame(trim_preview_panel)
@@ -866,32 +866,27 @@ class JerseyModderApp(tk.Tk):
         left.columnconfigure(0, weight=1)
 
         preview_frame = ttk.Frame(tab)
-        preview_frame.grid(row=1, column=1, sticky="nsew")
+        preview_frame.grid(row=1, column=0, sticky="nsew")
         ttk.Button(
             preview_frame,
             text="Open Web Selector",
             command=self.open_trim_creator_web_selector,
         ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        ttk.Button(
-            preview_frame,
-            text="Preview / Crop Selected Trim",
-            command=self.open_selected_trim_crop_editor,
-        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self.trim_creator_canvas = tk.Canvas(preview_frame, background="#20242b")
         self.trim_creator_canvas.configure(cursor="crosshair")
-        self.trim_creator_canvas.grid(row=2, column=0, sticky="nsew")
+        self.trim_creator_canvas.grid(row=1, column=0, sticky="nsew")
         trim_v_scroll = ttk.Scrollbar(
             preview_frame,
             orient=tk.VERTICAL,
             command=self.trim_creator_canvas.yview,
         )
-        trim_v_scroll.grid(row=2, column=1, sticky="ns")
+        trim_v_scroll.grid(row=1, column=1, sticky="ns")
         trim_h_scroll = ttk.Scrollbar(
             preview_frame,
             orient=tk.HORIZONTAL,
             command=self.trim_creator_canvas.xview,
         )
-        trim_h_scroll.grid(row=3, column=0, sticky="ew")
+        trim_h_scroll.grid(row=2, column=0, sticky="ew")
         self.trim_creator_canvas.configure(
             xscrollcommand=trim_h_scroll.set,
             yscrollcommand=trim_v_scroll.set,
@@ -906,11 +901,11 @@ class JerseyModderApp(tk.Tk):
             "<Configure>",
             lambda _event: self._show_trim_creator_preview(),
         )
-        preview_frame.rowconfigure(2, weight=1)
+        preview_frame.rowconfigure(1, weight=1)
         preview_frame.columnconfigure(0, weight=1)
 
-        tab.columnconfigure(0, minsize=340)
-        tab.columnconfigure(1, weight=1)
+        tab.columnconfigure(0, weight=1)
+        tab.columnconfigure(1, minsize=340)
         tab.rowconfigure(1, weight=1)
 
     def _build_trim_library_tab(self) -> None:
