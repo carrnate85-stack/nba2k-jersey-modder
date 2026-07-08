@@ -260,6 +260,7 @@ class JerseyModderApp(tk.Tk):
         self.logo_creator_drag_start: tuple[int, int] | None = None
         self.logo_creator_output_path: Path | None = None
         self.logo_creator_web_reference_path: Path | None = None
+        self.logo_creator_preview_visible_var = tk.BooleanVar(value=False)
         self.logo_ai_staged_paths: list[tuple[str, Path]] = []
         self.logo_creator_type_var = tk.StringVar(value="")
         self.logo_creator_bg_var = tk.StringVar(value="Black")
@@ -1146,11 +1147,15 @@ class JerseyModderApp(tk.Tk):
         reference_frame.rowconfigure(0, weight=1)
         reference_frame.columnconfigure(0, weight=1)
 
-        logo_preview_frame = ttk.LabelFrame(left, text="Created Logo Preview", padding=6)
-        logo_preview_frame.grid(row=1, column=0, sticky="nsew")
-        preview_controls = ttk.Frame(logo_preview_frame)
-        preview_controls.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        ttk.Label(preview_controls, text="Background").pack(side=tk.LEFT)
+        preview_controls = ttk.Frame(left)
+        preview_controls.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        self.logo_creator_preview_toggle_button = ttk.Button(
+            preview_controls,
+            text="Show Preview",
+            command=self.toggle_logo_creator_preview,
+        )
+        self.logo_creator_preview_toggle_button.pack(side=tk.LEFT)
+        ttk.Label(preview_controls, text="Background").pack(side=tk.LEFT, padx=(12, 0))
         bg_choice = ttk.Combobox(
             preview_controls,
             textvariable=self.logo_creator_bg_var,
@@ -1161,21 +1166,25 @@ class JerseyModderApp(tk.Tk):
         bg_choice.pack(side=tk.LEFT, padx=(8, 0))
         bg_choice.bind("<<ComboboxSelected>>", lambda _event: self._show_logo_creator_logo_preview())
 
+        logo_preview_frame = ttk.LabelFrame(left, text="Created Logo Preview", padding=6)
+        logo_preview_frame.grid(row=2, column=0, sticky="nsew")
+        self.logo_creator_logo_preview_frame = logo_preview_frame
         self.logo_creator_logo_preview = tk.Canvas(
             logo_preview_frame,
             height=320,
             background="#000000",
             highlightthickness=0,
         )
-        self.logo_creator_logo_preview.grid(row=1, column=0, sticky="nsew")
+        self.logo_creator_logo_preview.grid(row=0, column=0, sticky="nsew")
         self.logo_creator_logo_preview.bind(
             "<Configure>",
             lambda _event: self._show_logo_creator_logo_preview(),
         )
-        logo_preview_frame.rowconfigure(1, weight=1)
+        logo_preview_frame.rowconfigure(0, weight=1)
         logo_preview_frame.columnconfigure(0, weight=1)
-        left.rowconfigure(0, weight=3)
-        left.rowconfigure(1, weight=2)
+        self._sync_logo_creator_preview_visibility()
+        left.rowconfigure(0, weight=1)
+        left.rowconfigure(2, weight=0)
         left.columnconfigure(0, weight=1)
 
         side = ttk.Frame(tab)
@@ -4067,6 +4076,8 @@ class JerseyModderApp(tk.Tk):
         self.logo_creator_lasso_points = []
         self.logo_creator_drag_start = None
         self.logo_creator_output_path = None
+        self.logo_creator_preview_visible_var.set(False)
+        self._sync_logo_creator_preview_visibility()
         self._show_logo_creator_reference()
         self.logo_creator_status.configure(
             text=f"Loaded reference: {Path(selected).name}. Select an area or use Preview to create a logo."
@@ -4349,6 +4360,8 @@ class JerseyModderApp(tk.Tk):
         output_dir.mkdir(parents=True, exist_ok=True)
         self.logo_creator_output_path = output_dir / "created_logo.png"
         cleaned.save(self.logo_creator_output_path)
+        self.logo_creator_preview_visible_var.set(True)
+        self._sync_logo_creator_preview_visibility()
         self._show_logo_creator_logo_preview()
         self.logo_creator_status.configure(text=f"Logo preview ready: {cleaned.width} x {cleaned.height}.")
 
@@ -4373,6 +4386,29 @@ class JerseyModderApp(tk.Tk):
             return max(0, min(255, int(self.logo_creator_tolerance_var.get())))
         except tk.TclError:
             return 32
+
+    def toggle_logo_creator_preview(self) -> None:
+        self.logo_creator_preview_visible_var.set(
+            not self.logo_creator_preview_visible_var.get()
+        )
+        self._sync_logo_creator_preview_visibility()
+
+    def _sync_logo_creator_preview_visibility(self) -> None:
+        if not hasattr(self, "logo_creator_logo_preview_frame"):
+            return
+        visible = self.logo_creator_preview_visible_var.get()
+        if visible:
+            self.logo_creator_logo_preview_frame.grid()
+            self.logo_creator_logo_preview_frame.master.rowconfigure(2, weight=1)
+        else:
+            self.logo_creator_logo_preview_frame.grid_remove()
+            self.logo_creator_logo_preview_frame.master.rowconfigure(2, weight=0)
+        if hasattr(self, "logo_creator_preview_toggle_button"):
+            self.logo_creator_preview_toggle_button.configure(
+                text="Hide Preview" if visible else "Show Preview"
+            )
+        if visible:
+            self._show_logo_creator_logo_preview()
 
     def _show_logo_creator_logo_preview(self) -> None:
         if not hasattr(self, "logo_creator_logo_preview"):
@@ -4582,6 +4618,8 @@ class JerseyModderApp(tk.Tk):
             messagebox.showerror("Logo AI Assist", str(exc))
             return
         self.logo_creator_output_path = output_path
+        self.logo_creator_preview_visible_var.set(True)
+        self._sync_logo_creator_preview_visibility()
         self._show_logo_creator_logo_preview()
         self.logo_creator_status.configure(text=f"Imported AI logo: {output_path.name}.")
 
@@ -4713,7 +4751,13 @@ class JerseyModderApp(tk.Tk):
             self.logo_creator_image_path is not None
             and self.logo_creator_image_path.exists()
         ):
-            return self.logo_creator_image_path
+            try:
+                self.logo_creator_web_reference_path = self._write_logo_creator_web_reference_copy(
+                    self.logo_creator_image_path
+                )
+                return self.logo_creator_web_reference_path
+            except Exception:  # noqa: BLE001 - fallback handled by caller.
+                return self.logo_creator_image_path
         return None
 
     def _logo_creator_web_lasso(self, payload: dict) -> None:
@@ -4736,6 +4780,8 @@ class JerseyModderApp(tk.Tk):
     def _logo_creator_web_clear(self) -> None:
         self.logo_creator_lasso_points = []
         self.logo_creator_output_path = None
+        self.logo_creator_preview_visible_var.set(False)
+        self._sync_logo_creator_preview_visibility()
         self._show_logo_creator_reference()
         self._show_logo_creator_logo_preview()
         self.logo_creator_status.configure(text="Logo lasso cleared.")
