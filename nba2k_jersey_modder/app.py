@@ -9458,53 +9458,170 @@ def _recolor_font_image(
     rgba_data = getattr(rgba, "get_flattened_data", rgba.getdata)
     pixels = list(rgba_data())
     distances = _font_alpha_edge_distances(rgba)
-    visible_pixels = [
-        (red, green, blue, alpha, distances[index])
-        for index, (red, green, blue, alpha) in enumerate(pixels)
-        if alpha > 0
-    ]
-    if not visible_pixels:
+    fill_mixes = _font_fill_region_mixes(pixels, distances, edge_protection)
+    if fill_mixes is None:
         return rgba
-
-    luminances = sorted(
-        _pixel_luminance(red, green, blue)
-        for red, green, blue, _alpha, _distance in visible_pixels
-    )
-    low_luminance = _percentile(luminances, 0.08)
-    high_luminance = _percentile(luminances, 0.92)
-    luminance_range = high_luminance - low_luminance
-    has_tone_split = luminance_range >= 18
-
-    edge_threshold = 0.75 + (edge_protection * 2.75)
-    edge_softness = max(0.65, 2.2 - (edge_protection * 1.25))
-    distance_influence = 0.48 * (1.0 - edge_protection)
 
     recolored = []
     for index, (red, green, blue, alpha) in enumerate(pixels):
         if alpha == 0:
             recolored.append((red, green, blue, alpha))
             continue
-        distance_mix = _smoothstep(
-            _clamp((distances[index] - edge_threshold) / edge_softness, 0.0, 1.0)
-        )
-        if has_tone_split:
-            tone_mix = _smoothstep(
-                _clamp(
-                    (_pixel_luminance(red, green, blue) - low_luminance)
-                    / max(1.0, luminance_range),
-                    0.0,
-                    1.0,
-                )
-            )
-            mix = max(tone_mix, distance_mix * distance_influence)
-        else:
-            mix = distance_mix
+        mix = fill_mixes[index]
         original = (red, green, blue)
         outline = dark_color if dark_color is not None else original
         fill = light_color if light_color is not None else original
         recolored.append((*_blend_rgb(outline, fill, mix), alpha))
     rgba.putdata(recolored)
     return rgba
+
+
+def _font_fill_region_mixes(
+    pixels: list[tuple[int, int, int, int]],
+    distances: list[float],
+    edge_protection: float,
+) -> list[float] | None:
+    visible_indices = [
+        index
+        for index, (_red, _green, _blue, alpha) in enumerate(pixels)
+        if alpha > 0
+    ]
+    if not visible_indices:
+        return None
+
+    visible_distances = [distances[index] for index in visible_indices]
+    distance_mixes = _font_distance_fill_mixes(
+        visible_indices,
+        distances,
+        edge_protection,
+        len(pixels),
+    )
+    centers = _font_outline_fill_color_centers(pixels, distances, visible_indices)
+    if centers is None:
+        return distance_mixes
+
+    outline_center, fill_center = centers
+    separation = _rgb_distance(outline_center, fill_center)
+    color_weight = _clamp((separation - 16.0) / 72.0, 0.0, 1.0)
+    if color_weight <= 0:
+        return distance_mixes
+
+    max_distance = max(visible_distances) if visible_distances else 1.0
+    mixes = [0.0] * len(pixels)
+    edge_gate_weight = 0.42 * edge_protection
+    for index in visible_indices:
+        red, green, blue, _alpha = pixels[index]
+        color = (red, green, blue)
+        outline_distance = _rgb_distance(color, outline_center)
+        fill_distance = _rgb_distance(color, fill_center)
+        color_mix = outline_distance / max(1.0, outline_distance + fill_distance)
+        color_mix = _smoothstep(_clamp(color_mix, 0.0, 1.0))
+        distance_mix = distance_mixes[index]
+        if max_distance > 1:
+            interior_ratio = _clamp(distances[index] / max_distance, 0.0, 1.0)
+            edge_gate = _smoothstep(interior_ratio)
+            color_mix *= (1.0 - edge_gate_weight) + edge_gate_weight * edge_gate
+        mixes[index] = (
+            color_mix * color_weight
+            + distance_mix * (1.0 - color_weight)
+        )
+    return mixes
+
+
+def _font_distance_fill_mixes(
+    visible_indices: list[int],
+    distances: list[float],
+    edge_protection: float,
+    pixel_count: int,
+) -> list[float]:
+    edge_threshold = 0.75 + (edge_protection * 2.75)
+    edge_softness = max(0.65, 2.2 - (edge_protection * 1.25))
+    mixes = [0.0] * pixel_count
+    for index in visible_indices:
+        mixes[index] = _smoothstep(
+            _clamp((distances[index] - edge_threshold) / edge_softness, 0.0, 1.0)
+        )
+    return mixes
+
+
+def _font_outline_fill_color_centers(
+    pixels: list[tuple[int, int, int, int]],
+    distances: list[float],
+    visible_indices: list[int],
+) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
+    if len(visible_indices) < 2:
+        return None
+    distance_values = sorted(distances[index] for index in visible_indices)
+    edge_cutoff = _percentile(distance_values, 0.28)
+    fill_cutoff = _percentile(distance_values, 0.72)
+    edge_indices = [
+        index for index in visible_indices if distances[index] <= edge_cutoff
+    ] or visible_indices
+    fill_indices = [
+        index for index in visible_indices if distances[index] >= fill_cutoff
+    ] or visible_indices
+    centers = [
+        _average_rgb(pixels, edge_indices),
+        _average_rgb(pixels, fill_indices),
+    ]
+    if _rgb_distance(centers[0], centers[1]) < 8:
+        return None
+
+    assignments: dict[int, list[int]] = {0: [], 1: []}
+    for _iteration in range(8):
+        assignments = {0: [], 1: []}
+        for index in visible_indices:
+            red, green, blue, _alpha = pixels[index]
+            color = (red, green, blue)
+            group = (
+                0
+                if _rgb_distance(color, centers[0]) <= _rgb_distance(color, centers[1])
+                else 1
+            )
+            assignments[group].append(index)
+        if not assignments[0] or not assignments[1]:
+            return None
+        next_centers = [
+            _average_rgb(pixels, assignments[0]),
+            _average_rgb(pixels, assignments[1]),
+        ]
+        if all(_rgb_distance(centers[index], next_centers[index]) < 0.5 for index in (0, 1)):
+            centers = next_centers
+            break
+        centers = next_centers
+
+    mean_distances = [
+        sum(distances[index] for index in assignments[group]) / len(assignments[group])
+        for group in (0, 1)
+    ]
+    if abs(mean_distances[0] - mean_distances[1]) < 0.35:
+        return None
+    fill_group = 0 if mean_distances[0] > mean_distances[1] else 1
+    outline_group = 1 - fill_group
+    return centers[outline_group], centers[fill_group]
+
+
+def _average_rgb(
+    pixels: list[tuple[int, int, int, int]],
+    indices: list[int],
+) -> tuple[float, float, float]:
+    if not indices:
+        return (0.0, 0.0, 0.0)
+    red = sum(pixels[index][0] for index in indices) / len(indices)
+    green = sum(pixels[index][1] for index in indices) / len(indices)
+    blue = sum(pixels[index][2] for index in indices) / len(indices)
+    return red, green, blue
+
+
+def _rgb_distance(
+    first: tuple[float, float, float] | tuple[int, int, int],
+    second: tuple[float, float, float] | tuple[int, int, int],
+) -> float:
+    return (
+        (first[0] - second[0]) ** 2
+        + (first[1] - second[1]) ** 2
+        + (first[2] - second[2]) ** 2
+    ) ** 0.5
 
 
 def _blend_rgb(

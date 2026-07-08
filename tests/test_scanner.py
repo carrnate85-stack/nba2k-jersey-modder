@@ -2133,15 +2133,37 @@ class GeneratorTests(unittest.TestCase):
         self.assertGreater(no_outline_center[1], 235)
         self.assertLess(no_outline_center[2], 20)
 
+    def test_recolor_font_image_uses_regions_not_brightness_for_fill(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        image = Image.new("RGBA", (11, 11), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((1, 1, 9, 9), fill=(235, 235, 235, 255))
+        draw.rectangle((4, 4, 6, 6), fill=(35, 35, 35, 255))
+
+        recolored = _recolor_font_image(image, None, (255, 0, 0))
+
+        outline = recolored.getpixel((1, 5))[:3]
+        fill = recolored.getpixel((5, 5))[:3]
+
+        self.assertGreater(outline[0], 220)
+        self.assertGreater(outline[1], 220)
+        self.assertGreater(outline[2], 220)
+        self.assertGreater(fill[0], 220)
+        self.assertLess(fill[1], 40)
+        self.assertLess(fill[2], 40)
+
     def test_recolor_font_image_edge_protection_keeps_fill_from_edges(self) -> None:
         try:
             from PIL import Image, ImageDraw
         except ImportError:
             self.skipTest("Pillow not available")
 
-        image = Image.new("RGBA", (9, 9), (0, 0, 0, 0))
-        ImageDraw.Draw(image).rectangle((1, 1, 7, 7), fill=(120, 120, 120, 255))
-        ImageDraw.Draw(image).rectangle((3, 3, 5, 5), fill=(240, 240, 240, 255))
+        image = Image.new("RGBA", (21, 21), (0, 0, 0, 0))
+        ImageDraw.Draw(image).rectangle((1, 1, 19, 19), fill=(180, 180, 180, 255))
 
         low_protection = _recolor_font_image(
             image,
@@ -2156,9 +2178,9 @@ class GeneratorTests(unittest.TestCase):
             edge_protection=1.0,
         )
 
-        low_edge = low_protection.getpixel((2, 4))[:3]
-        high_edge = high_protection.getpixel((2, 4))[:3]
-        high_center = high_protection.getpixel((4, 4))[:3]
+        low_edge = low_protection.getpixel((2, 10))[:3]
+        high_edge = high_protection.getpixel((2, 10))[:3]
+        high_center = high_protection.getpixel((10, 10))[:3]
 
         self.assertGreater(low_edge[0], high_edge[0])
         self.assertGreater(low_edge[1], high_edge[1])
