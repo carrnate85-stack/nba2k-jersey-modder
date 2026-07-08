@@ -427,6 +427,9 @@ class JerseyModderApp(tk.Tk):
         self._build_rdat_tab()
         self._build_textures_tab()
         self._build_template_tab()
+        self.after_idle(
+            lambda: self.generate_jersey_preview(select_tab=False, update_status=False)
+        )
 
     def _build_textures_tab(self) -> None:
         tab = ttk.Frame(self.tabs, padding=10)
