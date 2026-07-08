@@ -218,6 +218,7 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_sharpen_var = tk.BooleanVar(value=True)
         self.trim_creator_zoom_label_var = tk.StringVar(value="100%")
         self.trim_library_target_var = tk.StringVar(value="collar_trim")
+        self.trim_library_preview_image: tk.PhotoImage | None = None
         self.logo_creator_image_path: Path | None = None
         self.logo_creator_preview_image: tk.PhotoImage | None = None
         self.logo_creator_logo_preview_image: tk.PhotoImage | None = None
@@ -984,9 +985,37 @@ class JerseyModderApp(tk.Tk):
         self.trim_library_list.column("#0", width=260, minwidth=180)
         self.trim_library_list.column("file", width=420, minwidth=220)
         self.trim_library_list.grid(row=1, column=0, sticky="nsew")
+        self.trim_library_list.bind("<<TreeviewSelect>>", self._on_trim_library_select)
         self.trim_library_list.bind("<Double-1>", lambda _event: self.apply_selected_trim_library_item())
 
+        preview_frame = ttk.LabelFrame(tab, text="Preview", padding=8)
+        preview_frame.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
+        preview_tools = ttk.Frame(preview_frame)
+        preview_tools.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(preview_tools, text="Background").pack(side=tk.LEFT)
+        preview_bg = ttk.Combobox(
+            preview_tools,
+            textvariable=self.trim_creator_preview_bg_var,
+            values=("Black", "White"),
+            state="readonly",
+            width=8,
+        )
+        preview_bg.pack(side=tk.LEFT, padx=(8, 0))
+        preview_bg.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: self._show_selected_trim_library_preview(),
+        )
+        self.trim_library_preview = tk.Canvas(preview_frame, background="#000000", height=220)
+        self.trim_library_preview.grid(row=1, column=0, sticky="nsew")
+        self.trim_library_preview.bind(
+            "<Configure>",
+            lambda _event: self._show_selected_trim_library_preview(),
+        )
+        preview_frame.rowconfigure(1, weight=1)
+        preview_frame.columnconfigure(0, weight=1)
+
         tab.columnconfigure(0, weight=1)
+        tab.columnconfigure(1, minsize=360, weight=1)
         tab.rowconfigure(1, weight=1)
         self.refresh_trim_library()
 
@@ -3124,6 +3153,7 @@ class JerseyModderApp(tk.Tk):
                 text=path.stem.replace("_", " "),
                 values=(path.name,),
             )
+        self._clear_trim_library_preview()
         self._set_trim_library_status("Trim library refreshed.")
 
     def _set_trim_library_status(self, text: str) -> None:
@@ -3156,11 +3186,10 @@ class JerseyModderApp(tk.Tk):
         self._set_trim_library_status(f"Saved trim to library: {destination.name}.")
 
     def apply_selected_trim_library_item(self) -> None:
-        selected = self.trim_library_list.selection()
-        if not selected:
+        path = self._selected_trim_library_path()
+        if path is None:
             messagebox.showinfo("Trim Library", "Select a saved trim first.")
             return
-        path = Path(selected[0])
         target_name = self.trim_library_target_var.get()
         key = TRIM_GENERATOR_KEYS.get(target_name)
         if key is None:
@@ -3170,6 +3199,81 @@ class JerseyModderApp(tk.Tk):
         self.generator_trim_placements[target_name] = TrimPlacementSettings()
         self._set_trim_library_status(f"Applied {path.name} to {_human_label(target_name)}.")
         self.generate_jersey_preview(select_tab=False, update_status=False)
+
+    def _selected_trim_library_path(self) -> Path | None:
+        if not hasattr(self, "trim_library_list"):
+            return None
+        selected = self.trim_library_list.selection()
+        if not selected:
+            return None
+        path = Path(selected[0])
+        return path if path.exists() else None
+
+    def _on_trim_library_select(self, _event: tk.Event | None = None) -> None:
+        self._show_selected_trim_library_preview()
+
+    def _show_selected_trim_library_preview(self) -> None:
+        path = self._selected_trim_library_path()
+        if path is None:
+            self._clear_trim_library_preview()
+            return
+        self._show_trim_library_preview(path)
+        self._set_trim_library_status(f"Previewing {path.name}.")
+
+    def _show_trim_library_preview(self, path: Path) -> None:
+        if not hasattr(self, "trim_library_preview"):
+            return
+        self.trim_library_preview.update_idletasks()
+        self.trim_library_preview.configure(background=self._trim_creator_preview_background())
+        width = max(1, self.trim_library_preview.winfo_width() - 12)
+        height = max(1, self.trim_library_preview.winfo_height() - 12)
+        try:
+            from PIL import Image, ImageTk
+        except ImportError:
+            self.trim_library_preview_image = tk.PhotoImage(file=str(path))
+            self.trim_library_preview.delete("all")
+            self.trim_library_preview.create_image(
+                self.trim_library_preview.winfo_width() // 2,
+                self.trim_library_preview.winfo_height() // 2,
+                image=self.trim_library_preview_image,
+                anchor=tk.CENTER,
+            )
+            return
+        with Image.open(path) as opened:
+            image = opened.convert("RGBA")
+        scale = min(width / max(1, image.width), height / max(1, image.height), 1)
+        preview_size = (
+            max(1, round(image.width * scale)),
+            max(1, round(image.height * scale)),
+        )
+        preview = image.resize(preview_size, Image.Resampling.LANCZOS)
+        background = Image.new(
+            "RGBA",
+            preview_size,
+            self._trim_creator_preview_background(),
+        )
+        background.alpha_composite(preview)
+        self.trim_library_preview_image = ImageTk.PhotoImage(background)
+        self.trim_library_preview.delete("all")
+        self.trim_library_preview.create_image(
+            self.trim_library_preview.winfo_width() // 2,
+            self.trim_library_preview.winfo_height() // 2,
+            image=self.trim_library_preview_image,
+            anchor=tk.CENTER,
+        )
+
+    def _clear_trim_library_preview(self) -> None:
+        if hasattr(self, "trim_library_preview"):
+            self.trim_library_preview.delete("all")
+            self.trim_library_preview.configure(background=self._trim_creator_preview_background())
+            self.trim_library_preview.create_text(
+                self.trim_library_preview.winfo_width() // 2,
+                self.trim_library_preview.winfo_height() // 2,
+                text="Select a saved trim to preview it.",
+                fill="#9aa4b5",
+                anchor=tk.CENTER,
+            )
+        self.trim_library_preview_image = None
 
     def _show_trim_creator_preview(self) -> None:
         if self.trim_creator_image_path is None:
