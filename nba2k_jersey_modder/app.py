@@ -790,28 +790,34 @@ class JerseyModderApp(tk.Tk):
 
         left = ttk.Frame(tab)
         left.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
-        ttk.Label(left, text="Detected strips", style="Status.TLabel").grid(
-            row=0, column=0, sticky=tk.W, pady=(0, 8)
+        trim_preview_panel = ttk.LabelFrame(left, text="Trim preview", padding=8)
+        trim_preview_panel.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        preview_controls = ttk.Frame(trim_preview_panel)
+        preview_controls.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        ttk.Label(preview_controls, text="Background").pack(side=tk.RIGHT, padx=(8, 0))
+        preview_bg = ttk.Combobox(
+            preview_controls,
+            textvariable=self.trim_creator_preview_bg_var,
+            values=("Black", "White"),
+            state="readonly",
+            width=7,
         )
-        self.trim_creator_list = ttk.Treeview(
-            left,
-            columns=("bbox", "file"),
-            show="tree headings",
-            height=12,
+        preview_bg.pack(side=tk.RIGHT)
+        preview_bg.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: self.update_trim_preview_background(),
         )
-        self.trim_creator_list.heading("#0", text="Trim")
-        self.trim_creator_list.heading("bbox", text="Detected Box")
-        self.trim_creator_list.heading("file", text="Strip PNG")
-        self.trim_creator_list.column("#0", width=120, minwidth=80)
-        self.trim_creator_list.column("bbox", width=110, minwidth=80)
-        self.trim_creator_list.column("file", width=160, minwidth=110)
-        self.trim_creator_list.grid(row=1, column=0, sticky="nsew")
-        self.trim_creator_list.bind("<<TreeviewSelect>>", self._on_trim_creator_result_select)
-        self.trim_creator_list.bind("<Double-1>", self._open_trim_creator_editor_from_click)
-        self.trim_creator_list.bind("<Delete>", lambda _event: self.remove_selected_trim_strips())
+        self.trim_creator_strip_preview = tk.Canvas(
+            trim_preview_panel,
+            height=96,
+            background=self._trim_preview_background_color(),
+            highlightthickness=0,
+        )
+        self.trim_creator_strip_preview.grid(row=1, column=0, sticky="ew")
+        trim_preview_panel.columnconfigure(0, weight=1)
 
         selected_actions = ttk.LabelFrame(left, text="Selected strip", padding=8)
-        selected_actions.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        selected_actions.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         strip_actions = (
             ("Save As", self.save_selected_trim_strip_as),
             ("Remove", self.remove_selected_trim_strips),
@@ -833,8 +839,28 @@ class JerseyModderApp(tk.Tk):
         selected_actions.columnconfigure(0, weight=1)
         selected_actions.columnconfigure(1, weight=1)
 
+        ttk.Label(left, text="Detected strips", style="Status.TLabel").grid(
+            row=2, column=0, sticky=tk.W, pady=(0, 8)
+        )
+        self.trim_creator_list = ttk.Treeview(
+            left,
+            columns=("bbox", "file"),
+            show="tree headings",
+            height=16,
+        )
+        self.trim_creator_list.heading("#0", text="Trim")
+        self.trim_creator_list.heading("bbox", text="Detected Box")
+        self.trim_creator_list.heading("file", text="Strip PNG")
+        self.trim_creator_list.column("#0", width=120, minwidth=80)
+        self.trim_creator_list.column("bbox", width=110, minwidth=80)
+        self.trim_creator_list.column("file", width=160, minwidth=110)
+        self.trim_creator_list.grid(row=3, column=0, sticky="nsew")
+        self.trim_creator_list.bind("<<TreeviewSelect>>", self._on_trim_creator_result_select)
+        self.trim_creator_list.bind("<Double-1>", self._open_trim_creator_editor_from_click)
+        self.trim_creator_list.bind("<Delete>", lambda _event: self.remove_selected_trim_strips())
+
         precision = ttk.LabelFrame(left, text="Line precision", padding=8)
-        precision.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        precision.grid(row=4, column=0, sticky="ew", pady=(10, 0))
         ttk.Combobox(
             precision,
             textvariable=self.trim_creator_nudge_target_var,
@@ -894,44 +920,8 @@ class JerseyModderApp(tk.Tk):
             text="Update Preview",
             command=self.refresh_trim_creator_line_preview,
         ).grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        preview_controls = ttk.Frame(precision)
-        preview_controls.grid(
-            row=7,
-            column=0,
-            columnspan=3,
-            sticky="ew",
-            pady=(10, 4),
-        )
-        ttk.Label(preview_controls, text="Trim preview", style="Status.TLabel").pack(
-            side=tk.LEFT
-        )
-        ttk.Label(preview_controls, text="Background").pack(side=tk.RIGHT, padx=(8, 0))
-        preview_bg = ttk.Combobox(
-            preview_controls,
-            textvariable=self.trim_creator_preview_bg_var,
-            values=("Black", "White"),
-            state="readonly",
-            width=7,
-        )
-        preview_bg.pack(side=tk.RIGHT)
-        preview_bg.bind(
-            "<<ComboboxSelected>>",
-            lambda _event: self.update_trim_preview_background(),
-        )
-        self.trim_creator_strip_preview = tk.Canvas(
-            precision,
-            height=78,
-            background=self._trim_preview_background_color(),
-            highlightthickness=0,
-        )
-        self.trim_creator_strip_preview.grid(
-            row=8,
-            column=0,
-            columnspan=3,
-            sticky="ew",
-        )
         upscale_frame = ttk.Frame(precision)
-        upscale_frame.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        upscale_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         ttk.Label(upscale_frame, text="Upscale").pack(side=tk.LEFT)
         ttk.Combobox(
             upscale_frame,
@@ -946,7 +936,7 @@ class JerseyModderApp(tk.Tk):
             variable=self.trim_creator_sharpen_var,
         ).pack(side=tk.LEFT)
         ai_frame = ttk.LabelFrame(precision, text="AI Assist", padding=8)
-        ai_frame.grid(row=10, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        ai_frame.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(10, 0))
         ttk.Button(
             ai_frame,
             text="Create AI Trim Pack",
@@ -969,7 +959,7 @@ class JerseyModderApp(tk.Tk):
         for index in range(3):
             precision.columnconfigure(index, weight=1)
 
-        left.rowconfigure(1, weight=1)
+        left.rowconfigure(3, weight=1)
         left.columnconfigure(0, weight=1)
 
         preview_frame = ttk.Frame(tab)
