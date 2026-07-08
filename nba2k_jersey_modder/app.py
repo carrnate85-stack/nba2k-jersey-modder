@@ -2769,7 +2769,8 @@ class JerseyModderApp(tk.Tk):
                 "Keep it as a perfectly straight horizontal trim strip.",
                 "Preserve the exact stripe order, stripe thickness relationships, colors, outlines, and any subtle fabric texture.",
                 "Even out gaps, wavy edges, compression artifacts, and blurry pixels without changing the design.",
-                "Return a PNG with transparent background when possible.",
+                "Return a PNG with a true transparent background and alpha channel.",
+                "Do not put the trim on white, black, gray, checkerboard, or any solid-color background.",
                 "Keep the strip tileable/repeatable left-to-right so it can wrap around a collar or armhole.",
                 "Do not place it on a jersey mockup. Only output the trim strip image.",
             ]
@@ -4595,6 +4596,8 @@ class JerseyModderApp(tk.Tk):
                 f"Logo type(s): {logo_type_text}.",
                 "Keep the same design, colors, proportions, outline thickness, and visual style.",
                 "Remove background noise, jagged edges, compression artifacts, and blur.",
+                "Use a true transparent background with an alpha channel.",
+                "Do not put the logo on white, black, gray, checkerboard, or any solid-color background.",
                 "Do not redesign it, change the wording, add extra effects, or place it on a jersey mockup.",
                 f"Output size should be {self._logo_creator_canvas_size()} x {self._logo_creator_canvas_size()} pixels.",
                 "Keep it centered with a small transparent padding area.",
