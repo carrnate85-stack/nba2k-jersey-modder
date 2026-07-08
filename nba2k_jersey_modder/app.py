@@ -725,62 +725,47 @@ class JerseyModderApp(tk.Tk):
 
         toolbar = ttk.Frame(tab)
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        action_grid = ttk.Frame(toolbar)
-        action_grid.grid(row=0, column=0, sticky="ew")
-        trim_actions = (
-            ("Upload Jersey Mockup", self.load_trim_creator_mockup),
-            ("Generate From Line", self.generate_trim_creator_line_strip),
-            ("Save Selected Strip As", self.save_selected_trim_strip_as),
-            ("Remove Selected", self.remove_selected_trim_strips),
-            ("Correct Selected Trim", self.correct_selected_trim_strip),
-            ("Color Correct", self.open_selected_trim_color_corrector),
-            ("Upscale Selected Trim", self.upscale_selected_trim_strip),
-            ("Preview / Crop", self.open_selected_trim_crop_editor),
-            ("Use Selected in Generator", self.use_selected_trim_strip_in_generator),
-        )
-        for index, (label, command) in enumerate(trim_actions):
-            row, column = divmod(index, 2)
-            ttk.Button(action_grid, text=label, command=command).grid(
-                row=row,
-                column=column,
-                sticky="ew",
-                padx=(0 if column == 0 else 6, 0),
-                pady=(0 if row == 0 else 6, 0),
-            )
-        for column in range(2):
-            action_grid.columnconfigure(column, weight=1)
-
-        view_tools = ttk.Frame(toolbar)
-        view_tools.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         ttk.Button(
-            view_tools,
-            text="Zoom -",
-            command=lambda: self.zoom_trim_creator_preview(0.67),
-        ).pack(side=tk.LEFT)
-        ttk.Label(view_tools, textvariable=self.trim_creator_zoom_label_var).pack(
-            side=tk.LEFT,
-            padx=(6, 0),
-        )
+            toolbar,
+            text="Upload Jersey Mockup",
+            command=self.load_trim_creator_mockup,
+        ).grid(row=0, column=0, sticky="ew")
         ttk.Button(
-            view_tools,
-            text="Zoom +",
-            command=lambda: self.zoom_trim_creator_preview(1.5),
-        ).pack(side=tk.LEFT, padx=(6, 0))
+            toolbar,
+            text="Generate From Line",
+            command=self.generate_trim_creator_line_strip,
+        ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        ttk.Label(toolbar, text="Target").grid(row=0, column=2, sticky="e", padx=(12, 4))
         ttk.Combobox(
-            view_tools,
+            toolbar,
             textvariable=self.trim_creator_target_var,
             values=("collar_trim", "left_arm_hole_trim", "right_arm_hole_trim"),
             state="readonly",
             width=18,
-        ).pack(side=tk.LEFT, padx=(8, 0))
+        ).grid(row=0, column=3, sticky="ew")
+        ttk.Button(
+            toolbar,
+            text="Zoom -",
+            command=lambda: self.zoom_trim_creator_preview(0.67),
+        ).grid(row=0, column=4, sticky="ew", padx=(12, 0))
+        ttk.Label(toolbar, textvariable=self.trim_creator_zoom_label_var).grid(
+            row=0,
+            column=5,
+            padx=(6, 0),
+        )
+        ttk.Button(
+            toolbar,
+            text="Zoom +",
+            command=lambda: self.zoom_trim_creator_preview(1.5),
+        ).grid(row=0, column=6, sticky="ew", padx=(6, 0))
         self.trim_creator_status = ttk.Label(
             toolbar,
             text="Upload a jersey mockup image to detect collar and armhole trim.",
             style="Muted.TLabel",
             wraplength=360,
         )
-        self.trim_creator_status.grid(row=2, column=0, sticky="ew", pady=(6, 0))
-        toolbar.columnconfigure(0, weight=1)
+        self.trim_creator_status.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(6, 0))
+        toolbar.columnconfigure(3, weight=1)
         toolbar.bind(
             "<Configure>",
             lambda event: self.trim_creator_status.configure(
@@ -810,8 +795,31 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_list.bind("<Double-1>", self._open_trim_creator_editor_from_click)
         self.trim_creator_list.bind("<Delete>", lambda _event: self.remove_selected_trim_strips())
 
+        selected_actions = ttk.LabelFrame(left, text="Selected strip", padding=8)
+        selected_actions.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        strip_actions = (
+            ("Save As", self.save_selected_trim_strip_as),
+            ("Remove", self.remove_selected_trim_strips),
+            ("Preview / Crop", self.open_selected_trim_crop_editor),
+            ("Use in Generator", self.use_selected_trim_strip_in_generator),
+            ("Correct", self.correct_selected_trim_strip),
+            ("Color Correct", self.open_selected_trim_color_corrector),
+            ("Upscale", self.upscale_selected_trim_strip),
+        )
+        for index, (label, command) in enumerate(strip_actions):
+            row, column = divmod(index, 2)
+            ttk.Button(selected_actions, text=label, command=command).grid(
+                row=row,
+                column=column,
+                sticky="ew",
+                padx=(0 if column == 0 else 6, 0),
+                pady=(0 if row == 0 else 6, 0),
+            )
+        selected_actions.columnconfigure(0, weight=1)
+        selected_actions.columnconfigure(1, weight=1)
+
         precision = ttk.LabelFrame(left, text="Line precision", padding=8)
-        precision.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        precision.grid(row=3, column=0, sticky="ew", pady=(10, 0))
         ttk.Combobox(
             precision,
             textvariable=self.trim_creator_nudge_target_var,
