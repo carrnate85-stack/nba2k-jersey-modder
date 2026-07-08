@@ -3998,6 +3998,7 @@ class JerseyModderApp(tk.Tk):
         trim_name = _trim_name_for_generator_key(key)
         if trim_name is not None:
             self.generator_trim_placements[trim_name] = TrimPlacementSettings()
+        self._schedule_generator_preview_refresh()
 
     def clear_generator_image(self, key: str) -> None:
         self.generator_paths[key] = None
@@ -4005,6 +4006,7 @@ class JerseyModderApp(tk.Tk):
         trim_name = _trim_name_for_generator_key(key)
         if trim_name is not None:
             self.generator_trim_placements.pop(trim_name, None)
+        self._schedule_generator_preview_refresh()
 
     def upload_generator_logo(self) -> None:
         type_label = self.generator_logo_type_var.get()
@@ -4033,6 +4035,7 @@ class JerseyModderApp(tk.Tk):
             iid=f"logo:{len(self.generator_logo_placements) - 1}",
             values=(type_label, placement.path.name),
         )
+        self._schedule_generator_preview_refresh()
 
     def load_logo_creator_reference(self) -> None:
         selected = filedialog.askopenfilename(
@@ -4617,6 +4620,7 @@ class JerseyModderApp(tk.Tk):
                     text=saved_path.name
                 )
             self.tabs.select(self.generator_tab)
+            self._schedule_generator_preview_refresh()
             self.logo_creator_status.configure(
                 text=f"Sent front wordmark to Generator: {saved_path.name}."
             )
@@ -4629,6 +4633,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_logo_placements.append(placement)
         self._refresh_generator_logo_list()
         self.tabs.select(self.generator_tab)
+        self._schedule_generator_preview_refresh()
         self.logo_creator_status.configure(text=f"Sent logo to Generator: {saved_path.name}.")
 
     def open_logo_creator_web_selector(self) -> None:
@@ -6143,6 +6148,7 @@ class JerseyModderApp(tk.Tk):
         self.fabric_overlay_var.set("Custom upload")
         if self.fabric_overlay_opacity_var.get() == 0:
             self.fabric_overlay_opacity_var.set(25)
+        self._schedule_generator_preview_refresh()
 
     def remove_selected_generator_logo(self) -> None:
         selected = self.generator_logo_list.selection()
@@ -6157,6 +6163,7 @@ class JerseyModderApp(tk.Tk):
                 del self.generator_logo_placements[index]
         self._reindex_logo_web_editor_state(indexes)
         self._refresh_generator_logo_list()
+        self._schedule_generator_preview_refresh()
 
     def _reindex_logo_web_editor_state(self, removed_indexes: list[int]) -> None:
         removed = set(removed_indexes)
