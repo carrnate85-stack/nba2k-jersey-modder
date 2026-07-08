@@ -1326,7 +1326,7 @@ class JerseyModderApp(tk.Tk):
     def _build_number_set_creator_tab(self) -> None:
         tab = ttk.Frame(self.tabs, padding=10)
         self.number_creator_tab = tab
-        self.tabs.add(tab, text="Font Recolor")
+        self.tabs.add(tab, text="Number Editor")
 
         toolbar = ttk.Frame(tab)
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
@@ -1350,7 +1350,7 @@ class JerseyModderApp(tk.Tk):
         side = ttk.Frame(tab)
         side.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
 
-        recolor = ttk.LabelFrame(side, text="Font Recolor", padding=8)
+        recolor = ttk.LabelFrame(side, text="Number Recolor", padding=8)
         recolor.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         light_row = ttk.Frame(recolor)
         light_row.grid(row=0, column=0, sticky="ew", pady=(0, 8))
@@ -5057,7 +5057,7 @@ class JerseyModderApp(tk.Tk):
 
     def apply_number_font_recolor(self) -> None:
         if self.number_creator_font_info is None or not self.number_creator_original_digit_paths:
-            messagebox.showinfo("Font Recolor", "Import a font IFF first.")
+            messagebox.showinfo("Number Editor", "Import a font IFF first.")
             return
         try:
             light = self._number_recolor_rgb("light")
@@ -5090,9 +5090,9 @@ class JerseyModderApp(tk.Tk):
             self.number_creator_digit_paths = recolored_paths
             self.refresh_number_creator_sheet_preview()
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
-            messagebox.showerror("Font Recolor", str(exc))
+            messagebox.showerror("Number Editor", str(exc))
             return
-        self.number_creator_status.configure(text="Applied font recolor preview.")
+        self.number_creator_status.configure(text="Applied number recolor preview.")
 
     def _on_number_recolor_edge_protection_changed(self, _value: str | None = None) -> None:
         self.number_recolor_edge_protection_label_var.set(
@@ -5120,7 +5120,7 @@ class JerseyModderApp(tk.Tk):
 
     def restore_number_font_original_colors(self) -> None:
         if self.number_creator_font_info is None or not self.number_creator_original_digit_paths:
-            messagebox.showinfo("Font Recolor", "Import a font IFF first.")
+            messagebox.showinfo("Number Editor", "Import a font IFF first.")
             return
         self.number_creator_digit_paths = {
             digit: path
@@ -5178,7 +5178,7 @@ class JerseyModderApp(tk.Tk):
 
     def save_number_creator_back_to_font_iff(self) -> None:
         if not self.number_creator_digit_paths:
-            messagebox.showinfo("Font Recolor", "Import and recolor a font IFF first.")
+            messagebox.showinfo("Number Editor", "Import and recolor a font IFF first.")
             return
         if self.number_creator_font_info is None:
             selected_template = filedialog.askopenfilename(
