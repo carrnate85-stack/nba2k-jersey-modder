@@ -130,6 +130,18 @@ def _logo_type_label(name: str) -> str:
     return labels.get(name, _human_label(name))
 
 
+LOGO_CREATOR_TARGET_DISPLAY_ORDER = (
+    "front_center_chest_logo",
+    "front_left_chest_logo",
+    "front_right_chest_logo",
+    "front_wordmark",
+    "wrap_across_front_back_logo",
+    "back_neck_logo",
+    "back_center_logo",
+    "shorts_belt_buckle_logo",
+)
+
+
 class JerseyModderApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -2323,7 +2335,19 @@ class JerseyModderApp(tk.Tk):
         if include_front_wordmark:
             labels_by_target["Front Wordmark"] = "front_wordmark"
         self.generator_logo_target_names.update(labels_by_target)
-        return list(labels_by_target)
+        if not include_front_wordmark:
+            return list(labels_by_target)
+        order_by_target = {
+            target: index
+            for index, target in enumerate(LOGO_CREATOR_TARGET_DISPLAY_ORDER)
+        }
+        return sorted(
+            labels_by_target,
+            key=lambda label: (
+                order_by_target.get(labels_by_target[label], len(order_by_target)),
+                label,
+            ),
+        )
 
     def _build_logo_controls(self, parent: ttk.Frame, row: int) -> None:
         frame = ttk.Frame(parent)
