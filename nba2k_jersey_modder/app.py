@@ -6327,7 +6327,17 @@ class JerseyModderApp(tk.Tk):
         return {
             "textureSize": 2048,
             "baseUrl": "/api/base.png",
+            "uvOverlay": self._web_editor_uv_overlay_payload(),
             "overlays": overlays,
+        }
+
+    def _web_editor_uv_overlay_payload(self) -> dict:
+        uv_path = self._current_generator_uv_map_path()
+        return {
+            "available": uv_path.exists(),
+            "imageUrl": "/api/uv.png",
+            "enabled": self.generator_uv_overlay_var.get(),
+            "opacity": self.generator_uv_overlay_opacity_var.get(),
         }
 
     def _web_editor_order_layers(self, overlays: list[dict]) -> list[dict]:
@@ -6479,6 +6489,12 @@ class JerseyModderApp(tk.Tk):
         )
         image.save(output_path)
         return output_path.read_bytes()
+
+    def _web_editor_uv_png(self) -> bytes:
+        uv_path = self._current_generator_uv_map_path()
+        if not uv_path.exists():
+            raise FileNotFoundError("No UV overlay is available for this template.")
+        return uv_path.read_bytes()
 
     def _web_editor_image(self, key: str) -> tuple[bytes, str]:
         if key == "front_wordmark":

@@ -40,6 +40,10 @@ INDEX_HTML = """<!doctype html>
     button.secondary { background: #303746; color: #edf1f7; border: 1px solid #475064; }
     button:disabled { opacity: .45; cursor: default; }
     .small { color: #9aa4b5; font-size: 12px; line-height: 1.4; margin-top: 12px; }
+    .uv-panel { border: 1px solid #343b49; border-radius: 6px; padding: 10px; margin-bottom: 12px; background: #202632; }
+    .uv-panel h2 { margin-bottom: 6px; }
+    .range-row { display: flex; align-items: center; gap: 8px; }
+    input[type="range"] { padding: 0; }
   </style>
 </head>
 <body>
@@ -59,6 +63,12 @@ INDEX_HTML = """<!doctype html>
   <div id="wrap">
     <main id="stage"><canvas id="canvas" width="2048" height="2048"></canvas></main>
     <aside>
+      <div id="uvPanel" class="uv-panel">
+        <h2>UV Overlay</h2>
+        <label class="check"><input id="showUvOverlay" type="checkbox"> Show UV overlay</label>
+        <label for="uvOpacity">Opacity <span id="uvOpacityLabel">45%</span></label>
+        <input id="uvOpacity" type="range" min="0" max="100" step="1" value="45">
+      </div>
       <h2>Editable Images</h2>
       <div id="layers"></div>
       <div class="panel">
@@ -121,11 +131,20 @@ INDEX_HTML = """<!doctype html>
     const viewRegion = document.getElementById("viewRegion");
     const editorZoomLabel = document.getElementById("editorZoomLabel");
     const loadStatus = document.getElementById("loadStatus");
+    const uvPanel = document.getElementById("uvPanel");
+    const showUvOverlay = document.getElementById("showUvOverlay");
+    const uvOpacity = document.getElementById("uvOpacity");
+    const uvOpacityLabel = document.getElementById("uvOpacityLabel");
     let editorZoom = 1;
     let viewMode = "texture";
     let project = null;
     let baseImage = new Image();
     let regionImage = new Image();
+    let uvImage = new Image();
+    let uvOverlayAvailable = false;
+    let uvOverlayEnabled = false;
+    let uvOverlayOpacity = 45;
+    let uvOverlayTouched = false;
     let overlays = new Map();
     let activeKey = null;
     let drag = null;
@@ -155,6 +174,19 @@ INDEX_HTML = """<!doctype html>
           regionImage.onerror = resolve;
           regionImage.src = "/api/region.png?t=" + Date.now();
         });
+        uvOverlayAvailable = Boolean(project.uvOverlay?.available);
+        if (uvOverlayAvailable) {
+          if (!uvOverlayTouched) {
+            uvOverlayEnabled = Boolean(project.uvOverlay?.enabled);
+            uvOverlayOpacity = Math.max(0, Math.min(100, Number(project.uvOverlay?.opacity ?? uvOverlayOpacity)));
+          }
+          await new Promise(resolve => {
+            uvImage.onload = resolve;
+            uvImage.onerror = resolve;
+            uvImage.src = `${project.uvOverlay.imageUrl}?t=${Date.now()}`;
+          });
+        }
+        renderUvControls();
         if (!project.overlays.some(item => item.key === activeKey)) {
           activeKey = project.overlays[project.overlays.length - 1]?.key || null;
         }
@@ -271,9 +303,28 @@ INDEX_HTML = """<!doctype html>
         drawOverlayImage(img, item);
         ctx.restore();
       }
+      drawUvOverlay();
       const active = project?.overlays.find(item => item.key === activeKey);
       if (active?.canTransform) drawBox(active);
       renderInspector();
+    }
+
+    function renderUvControls() {
+      uvPanel.style.display = uvOverlayAvailable ? "block" : "none";
+      showUvOverlay.checked = uvOverlayEnabled;
+      showUvOverlay.disabled = !uvOverlayAvailable;
+      uvOpacity.disabled = !uvOverlayAvailable || !uvOverlayEnabled;
+      uvOpacity.value = uvOverlayOpacity;
+      uvOpacityLabel.textContent = `${Math.round(uvOverlayOpacity)}%`;
+    }
+
+    function drawUvOverlay() {
+      if (!uvOverlayAvailable || !uvOverlayEnabled || viewMode !== "texture") return;
+      if (!uvImage.complete || !uvImage.naturalWidth) return;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, uvOverlayOpacity / 100));
+      ctx.drawImage(uvImage, 0, 0, 2048, 2048);
+      ctx.restore();
     }
 
     function setViewMode(nextMode) {
@@ -555,6 +606,18 @@ INDEX_HTML = """<!doctype html>
     flipX.onclick = flipSelected;
     applyTransparency.onclick = () => sendTransparency(false);
     resetTransparency.onclick = () => sendTransparency(true);
+    showUvOverlay.onchange = () => {
+      uvOverlayTouched = true;
+      uvOverlayEnabled = showUvOverlay.checked;
+      renderUvControls();
+      draw();
+    };
+    uvOpacity.oninput = () => {
+      uvOverlayTouched = true;
+      uvOverlayOpacity = Number(uvOpacity.value || 0);
+      uvOpacityLabel.textContent = `${Math.round(uvOverlayOpacity)}%`;
+      draw();
+    };
     document.getElementById("editorZoomOut").onclick = () => {
       editorZoom = Math.max(0.25, editorZoom / 1.25);
       draw();
@@ -1245,6 +1308,9 @@ class WebEditorServer:
                     return
                 if self.path.startswith("/api/region.png"):
                     self._send(app._run_on_ui_thread(app._web_editor_region_png), "image/png")
+                    return
+                if self.path.startswith("/api/uv.png"):
+                    self._send(app._run_on_ui_thread(app._web_editor_uv_png), "image/png")
                     return
                 if self.path.startswith("/api/image/"):
                     key = unquote(self.path.split("/api/image/", 1)[1].split("?", 1)[0])
