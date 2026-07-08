@@ -780,14 +780,8 @@ class JerseyModderApp(tk.Tk):
             state="readonly",
             width=18,
         ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(
-            left,
-            text="Stage Current Trim",
-            command=self.generate_trim_creator_line_strip,
-        ).grid(row=2, column=0, sticky="ew", pady=(0, 12))
-
         trim_preview_panel = ttk.LabelFrame(left, text="Trim preview", padding=8)
-        trim_preview_panel.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        trim_preview_panel.grid(row=2, column=0, sticky="ew", pady=(0, 10))
         preview_controls = ttk.Frame(trim_preview_panel)
         preview_controls.grid(row=0, column=0, sticky="ew", pady=(0, 4))
         ttk.Button(
@@ -826,6 +820,24 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_strip_preview.grid(row=1, column=0, sticky="ew")
         trim_preview_panel.columnconfigure(0, weight=1)
 
+        trim_workflow = ttk.Frame(left)
+        trim_workflow.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        trim_workflow_actions = (
+            ("Stage Current Trim", self.generate_trim_creator_line_strip),
+            ("Send Staged to Generator", self.send_staged_trims_to_generator),
+            ("Edit Selected Trim", self.open_selected_trim_crop_editor),
+            ("Create AI Trim Pack", self.create_trim_ai_reference_pack),
+            ("Import AI Trim", self.import_ai_trim_strip),
+        )
+        for index, (label, command) in enumerate(trim_workflow_actions):
+            ttk.Button(trim_workflow, text=label, command=command).grid(
+                row=index,
+                column=0,
+                sticky="ew",
+                pady=(0 if index == 0 else 6, 0),
+            )
+        trim_workflow.columnconfigure(0, weight=1)
+
         staged_trims = ttk.LabelFrame(left, text="Staged Trims", padding=8)
         staged_trims.grid(row=4, column=0, sticky="nsew", pady=(0, 10))
         self.trim_creator_list = ttk.Treeview(
@@ -847,26 +859,18 @@ class JerseyModderApp(tk.Tk):
         staged_trims.rowconfigure(0, weight=1)
         staged_trims.columnconfigure(0, weight=1)
 
-        selected_actions = ttk.LabelFrame(left, text="Selected strip", padding=8)
+        selected_actions = ttk.Frame(left)
         selected_actions.grid(row=5, column=0, sticky="ew")
         strip_actions = (
-            ("Remove", self.remove_selected_trim_strips),
-            ("Preview / Crop", self.open_selected_trim_crop_editor),
-            ("Use in Generator", self.use_selected_trim_strip_in_generator),
-            ("Correct", self.correct_selected_trim_strip),
-            ("Color Correct", self.open_selected_trim_color_corrector),
-            ("Upscale", self.upscale_selected_trim_strip),
-            ("Create AI Pack", self.create_trim_ai_reference_pack),
-            ("Import AI Trim", self.import_ai_trim_strip),
+            ("Remove Selected", self.remove_selected_trim_strips),
+            ("Clear Boxes", self.clear_trim_creator_boxes),
         )
         for index, (label, command) in enumerate(strip_actions):
-            row, column = divmod(index, 2)
             ttk.Button(selected_actions, text=label, command=command).grid(
-                row=row,
-                column=column,
+                row=0,
+                column=index,
                 sticky="ew",
-                padx=(0 if column == 0 else 6, 0),
-                pady=(0 if row == 0 else 6, 0),
+                padx=(0 if index == 0 else 6, 0),
             )
         selected_actions.columnconfigure(0, weight=1)
         selected_actions.columnconfigure(1, weight=1)
@@ -2745,6 +2749,17 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_status.configure(text=f"Removed {removed_count} {label} from the list.")
         return "break"
 
+    def clear_trim_creator_boxes(self) -> str:
+        if not self.trim_creator_results:
+            self.trim_creator_status.configure(text="No staged trim boxes to clear.")
+            return "break"
+        self.trim_creator_results.clear()
+        self._populate_trim_creator_results()
+        self._clear_trim_creator_strip_preview()
+        self._show_trim_creator_preview()
+        self.trim_creator_status.configure(text="Cleared all staged trim boxes.")
+        return "break"
+
     def save_selected_trim_strip_as(self) -> None:
         result = self._selected_trim_creator_result()
         if result is None:
@@ -2834,7 +2849,6 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_list.selection_set(new_iid)
         self.trim_creator_list.see(new_iid)
         self._show_trim_creator_strip_preview(output_path)
-        self.refresh_trim_library()
         self.trim_creator_status.configure(text=f"Imported AI trim: {output_path.name}.")
 
     def _trim_ai_prompt_text(self, result: TrimStrip) -> str:
@@ -3426,6 +3440,31 @@ class JerseyModderApp(tk.Tk):
         )
         self.tabs.select(self.generator_tab)
 
+    def send_staged_trims_to_generator(self) -> None:
+        if not self.trim_creator_results:
+            messagebox.showinfo("Trim Creator", "Stage at least one trim first.")
+            return
+
+        sent_names: list[str] = []
+        for result in self.trim_creator_results:
+            key = TRIM_GENERATOR_KEYS.get(result.name)
+            if key is None or not result.output_path.exists():
+                continue
+            self.generator_paths[key] = result.output_path
+            self.generator_file_labels[key].configure(text=result.output_path.name)
+            self.generator_trim_placements[result.name] = TrimPlacementSettings()
+            sent_names.append(_human_label(result.name))
+
+        if not sent_names:
+            messagebox.showinfo("Trim Creator", "No staged trims matched a generator slot.")
+            return
+
+        self._schedule_generator_preview_refresh()
+        self.trim_creator_status.configure(
+            text=f"Sent {', '.join(sent_names)} to the Generator."
+        )
+        self.tabs.select(self.generator_tab)
+
     def refresh_trim_library(self) -> None:
         if not hasattr(self, "trim_library_list"):
             return
@@ -3445,8 +3484,6 @@ class JerseyModderApp(tk.Tk):
     def _set_trim_library_status(self, text: str) -> None:
         if hasattr(self, "trim_library_status"):
             self.trim_library_status.configure(text=text)
-        if hasattr(self, "trim_creator_status"):
-            self.trim_creator_status.configure(text=text)
 
     def save_selected_trim_to_library(self) -> None:
         result = self._selected_trim_creator_result()
