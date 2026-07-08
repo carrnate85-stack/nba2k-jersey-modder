@@ -747,40 +747,27 @@ class JerseyModderApp(tk.Tk):
         ).grid(row=0, column=0, sticky="ew")
         ttk.Button(
             toolbar,
-            text="Stage Current Trim",
-            command=self.generate_trim_creator_line_strip,
-        ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
-        ttk.Label(toolbar, text="Target").grid(row=0, column=2, sticky="e", padx=(12, 4))
-        ttk.Combobox(
-            toolbar,
-            textvariable=self.trim_creator_target_var,
-            values=("collar_trim", "left_arm_hole_trim", "right_arm_hole_trim"),
-            state="readonly",
-            width=18,
-        ).grid(row=0, column=3, sticky="ew")
-        ttk.Button(
-            toolbar,
             text="Zoom -",
             command=lambda: self.zoom_trim_creator_preview(0.67),
-        ).grid(row=0, column=4, sticky="ew", padx=(12, 0))
+        ).grid(row=0, column=1, sticky="ew", padx=(12, 0))
         ttk.Label(toolbar, textvariable=self.trim_creator_zoom_label_var).grid(
             row=0,
-            column=5,
+            column=2,
             padx=(6, 0),
         )
         ttk.Button(
             toolbar,
             text="Zoom +",
             command=lambda: self.zoom_trim_creator_preview(1.5),
-        ).grid(row=0, column=6, sticky="ew", padx=(6, 0))
+        ).grid(row=0, column=3, sticky="ew", padx=(6, 0))
         self.trim_creator_status = ttk.Label(
             toolbar,
             text="Upload a jersey mockup image to detect collar and armhole trim.",
             style="Muted.TLabel",
             wraplength=360,
         )
-        self.trim_creator_status.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(6, 0))
-        toolbar.columnconfigure(3, weight=1)
+        self.trim_creator_status.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(6, 0))
+        toolbar.columnconfigure(0, weight=1)
         toolbar.bind(
             "<Configure>",
             lambda event: self.trim_creator_status.configure(
@@ -816,8 +803,24 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_strip_preview.grid(row=1, column=0, sticky="ew")
         trim_preview_panel.columnconfigure(0, weight=1)
 
+        target_panel = ttk.LabelFrame(left, text="Target", padding=8)
+        target_panel.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        ttk.Combobox(
+            target_panel,
+            textvariable=self.trim_creator_target_var,
+            values=("collar_trim", "left_arm_hole_trim", "right_arm_hole_trim"),
+            state="readonly",
+            width=18,
+        ).grid(row=0, column=0, sticky="ew")
+        ttk.Button(
+            target_panel,
+            text="Stage Current Trim",
+            command=self.generate_trim_creator_line_strip,
+        ).grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        target_panel.columnconfigure(0, weight=1)
+
         selected_actions = ttk.LabelFrame(left, text="Selected strip", padding=8)
-        selected_actions.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        selected_actions.grid(row=2, column=0, sticky="ew", pady=(0, 10))
         strip_actions = (
             ("Save As", self.save_selected_trim_strip_as),
             ("Remove", self.remove_selected_trim_strips),
@@ -842,7 +845,7 @@ class JerseyModderApp(tk.Tk):
         selected_actions.columnconfigure(1, weight=1)
 
         staged_trims = ttk.LabelFrame(left, text="Staged Trims", padding=8)
-        staged_trims.grid(row=2, column=0, sticky="nsew")
+        staged_trims.grid(row=3, column=0, sticky="nsew")
         self.trim_creator_list = ttk.Treeview(
             staged_trims,
             columns=("bbox", "file"),
@@ -862,7 +865,7 @@ class JerseyModderApp(tk.Tk):
         staged_trims.rowconfigure(0, weight=1)
         staged_trims.columnconfigure(0, weight=1)
 
-        left.rowconfigure(2, weight=1)
+        left.rowconfigure(3, weight=1)
         left.columnconfigure(0, weight=1)
 
         preview_frame = ttk.Frame(tab)
