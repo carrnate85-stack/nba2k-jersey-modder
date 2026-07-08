@@ -1096,7 +1096,7 @@ class JerseyModderApp(tk.Tk):
         ).pack(side=tk.LEFT)
         ttk.Button(
             toolbar,
-            text="Update Preview",
+            text="Refresh Logo Preview",
             command=self.update_logo_creator_preview,
         ).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(
@@ -1335,14 +1335,19 @@ class JerseyModderApp(tk.Tk):
         ).grid(row=0, column=0, sticky="ew")
         ttk.Button(
             ai,
+            text="Send Staged to Generator",
+            command=self.send_staged_logos_to_generator,
+        ).grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(
+            ai,
             text="Create AI Logo Pack",
             command=self.create_logo_ai_reference_pack,
-        ).grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        ).grid(row=2, column=0, sticky="ew", pady=(8, 0))
         ttk.Button(
             ai,
             text="Import AI Logo",
             command=self.import_ai_logo_creator_png,
-        ).grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        ).grid(row=3, column=0, sticky="ew", pady=(8, 0))
         self.logo_ai_stage_list = ttk.Treeview(
             ai,
             columns=("type", "file"),
@@ -1353,9 +1358,9 @@ class JerseyModderApp(tk.Tk):
         self.logo_ai_stage_list.heading("file", text="File")
         self.logo_ai_stage_list.column("type", width=120, minwidth=90)
         self.logo_ai_stage_list.column("file", width=160, minwidth=120)
-        self.logo_ai_stage_list.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        self.logo_ai_stage_list.grid(row=4, column=0, sticky="ew", pady=(8, 0))
         stage_buttons = ttk.Frame(ai)
-        stage_buttons.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        stage_buttons.grid(row=5, column=0, sticky="ew", pady=(8, 0))
         ttk.Button(
             stage_buttons,
             text="Remove Selected",
@@ -1368,10 +1373,10 @@ class JerseyModderApp(tk.Tk):
         ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
         ttk.Label(
             ai,
-            text="Stage several logo previews, then export one AI pack for the set.",
+            text="Stage several logo previews, then send them to Generator or export one AI pack.",
             style="Muted.TLabel",
             wraplength=300,
-        ).grid(row=5, column=0, sticky="ew", pady=(8, 0))
+        ).grid(row=6, column=0, sticky="ew", pady=(8, 0))
         ai.columnconfigure(0, weight=1)
 
         side.columnconfigure(0, weight=1)
@@ -4689,42 +4694,85 @@ class JerseyModderApp(tk.Tk):
         if self.logo_creator_output_path is None or not self.logo_creator_output_path.exists():
             return
         type_label = self.logo_creator_type_var.get()
-        target_name = self.generator_logo_target_names.get(type_label)
-        if not target_name:
-            messagebox.showinfo("Logo Creator", "Choose a logo type first.")
-            return
-        saved_path = _next_available_path(
-            self.logo_creator_output_path.with_name(
-                f"{safe_filename(type_label).replace(' ', '_').lower()}_logo.png"
-            )
-        )
         try:
-            shutil.copyfile(self.logo_creator_output_path, saved_path)
+            saved_path, target_name = self._send_logo_path_to_generator(
+                type_label,
+                self.logo_creator_output_path,
+            )
+        except ValueError as exc:
+            messagebox.showinfo("Logo Creator", str(exc))
+            return
         except OSError as exc:
             messagebox.showerror("Logo Creator", str(exc))
             return
+        self._refresh_generator_logo_list()
+        self.tabs.select(self.generator_tab)
+        self._schedule_generator_preview_refresh()
+        if target_name == "front_wordmark":
+            self.logo_creator_status.configure(
+                text=f"Sent front wordmark to Generator: {saved_path.name}."
+            )
+            return
+        self.logo_creator_status.configure(text=f"Sent logo to Generator: {saved_path.name}.")
+
+    def send_staged_logos_to_generator(self) -> None:
+        staged = [
+            (logo_type, path)
+            for logo_type, path in self.logo_ai_staged_paths
+            if path.exists()
+        ]
+        if not staged:
+            messagebox.showinfo("Logo Creator", "Stage one or more logos first.")
+            return
+        sent_count = 0
+        failures = []
+        for logo_type, path in staged:
+            try:
+                self._send_logo_path_to_generator(logo_type, path)
+                sent_count += 1
+            except (OSError, ValueError) as exc:
+                failures.append(f"{logo_type}: {exc}")
+        if sent_count:
+            self._refresh_generator_logo_list()
+            self.tabs.select(self.generator_tab)
+            self._schedule_generator_preview_refresh()
+            self.logo_creator_status.configure(
+                text=f"Sent {sent_count} staged logo(s) to Generator."
+            )
+        if failures:
+            messagebox.showwarning(
+                "Logo Creator",
+                "Some staged logos could not be sent:\n\n" + "\n".join(failures[:6]),
+            )
+        elif sent_count == 0:
+            messagebox.showinfo("Logo Creator", "No staged logos were sent.")
+
+    def _send_logo_path_to_generator(self, type_label: str, source_path: Path) -> tuple[Path, str]:
+        target_name = self.generator_logo_target_names.get(type_label)
+        if not target_name:
+            raise ValueError("Choose a logo type first.")
+        if not source_path.exists():
+            raise ValueError(f"Logo file is missing: {source_path.name}")
+        saved_path = _next_available_path(
+            source_path.with_name(
+                f"{safe_filename(type_label).replace(' ', '_').lower()}_logo.png"
+            )
+        )
+        shutil.copyfile(source_path, saved_path)
         if target_name == "front_wordmark":
             self.generator_paths["front_wordmark_image"] = saved_path
             if "front_wordmark_image" in self.generator_file_labels:
                 self.generator_file_labels["front_wordmark_image"].configure(
                     text=saved_path.name
                 )
-            self.tabs.select(self.generator_tab)
-            self._schedule_generator_preview_refresh()
-            self.logo_creator_status.configure(
-                text=f"Sent front wordmark to Generator: {saved_path.name}."
-            )
-            return
+            return saved_path, target_name
         placement = LogoPlacement(
             saved_path,
             target_name,
             stretch_x=target_name == "wrap_across_front_back_logo",
         )
         self.generator_logo_placements.append(placement)
-        self._refresh_generator_logo_list()
-        self.tabs.select(self.generator_tab)
-        self._schedule_generator_preview_refresh()
-        self.logo_creator_status.configure(text=f"Sent logo to Generator: {saved_path.name}.")
+        return saved_path, target_name
 
     def open_logo_creator_web_selector(self) -> None:
         if self.logo_creator_image_path is None:
