@@ -1341,7 +1341,7 @@ class JerseyModderApp(tk.Tk):
         canvas_choice.bind("<<ComboboxSelected>>", lambda _event: self.update_logo_creator_preview())
         upscale.columnconfigure(0, weight=1)
 
-        ai = ttk.LabelFrame(side, text="AI Assist", padding=8)
+        ai = ttk.LabelFrame(side, text="Staged Logos", padding=8)
         ai.grid(row=4, column=0, sticky="ew", pady=(0, 12))
         ttk.Button(
             ai,
