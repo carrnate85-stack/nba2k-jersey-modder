@@ -752,16 +752,19 @@ class JerseyModderApp(tk.Tk):
         ).grid(row=0, column=1, sticky="w", padx=(8, 0))
         self.trim_creator_status = ttk.Label(
             toolbar,
-            text="Upload a jersey mockup image to detect collar and armhole trim.",
+            text=(
+                "Upload a jersey mockup, click two points across the collar or armhole trim, "
+                "crop/clean the preview, then stage trims and send them to the Generator."
+            ),
             style="Muted.TLabel",
-            wraplength=360,
+            wraplength=640,
         )
-        self.trim_creator_status.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        toolbar.columnconfigure(1, weight=1)
+        self.trim_creator_status.grid(row=0, column=2, sticky="ew", padx=(16, 0))
+        toolbar.columnconfigure(2, weight=1)
         toolbar.bind(
             "<Configure>",
             lambda event: self.trim_creator_status.configure(
-                wraplength=max(220, event.width - 20)
+                wraplength=max(320, event.width - 300)
             ),
         )
 
