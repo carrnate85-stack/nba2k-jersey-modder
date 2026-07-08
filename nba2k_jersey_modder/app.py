@@ -209,7 +209,7 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_source_var = tk.StringVar(value="Current generator design")
         self.texture_creator_normal_strength_var = tk.IntVar(value=15)
         self.texture_creator_normal_strength_label_var = tk.StringVar(value="15%")
-        self.texture_creator_blender_normal_var = tk.BooleanVar(value=False)
+        self.texture_creator_blender_normal_var = tk.BooleanVar(value=True)
         self.blender_preview_live_refresh = False
         self.blender_preview_refresh_after_id: str | None = None
         self.blender_preview_refresh_running = False
