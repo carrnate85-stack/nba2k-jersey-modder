@@ -1109,8 +1109,13 @@ class JerseyModderApp(tk.Tk):
         )
         self.logo_creator_status.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(16, 0))
 
-        canvas_frame = ttk.Frame(tab)
-        canvas_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
+        left = ttk.Frame(tab)
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
+
+        reference_frame = ttk.LabelFrame(left, text="Reference", padding=6)
+        reference_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
+        canvas_frame = ttk.Frame(reference_frame)
+        canvas_frame.grid(row=0, column=0, sticky="nsew")
         self.logo_creator_canvas = tk.Canvas(canvas_frame, background="#20242b")
         logo_y_scroll = ttk.Scrollbar(
             canvas_frame,
@@ -1138,6 +1143,40 @@ class JerseyModderApp(tk.Tk):
         )
         canvas_frame.rowconfigure(0, weight=1)
         canvas_frame.columnconfigure(0, weight=1)
+        reference_frame.rowconfigure(0, weight=1)
+        reference_frame.columnconfigure(0, weight=1)
+
+        logo_preview_frame = ttk.LabelFrame(left, text="Created Logo Preview", padding=6)
+        logo_preview_frame.grid(row=1, column=0, sticky="nsew")
+        preview_controls = ttk.Frame(logo_preview_frame)
+        preview_controls.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        ttk.Label(preview_controls, text="Background").pack(side=tk.LEFT)
+        bg_choice = ttk.Combobox(
+            preview_controls,
+            textvariable=self.logo_creator_bg_var,
+            values=("Black", "White", "Checker"),
+            state="readonly",
+            width=8,
+        )
+        bg_choice.pack(side=tk.LEFT, padx=(8, 0))
+        bg_choice.bind("<<ComboboxSelected>>", lambda _event: self._show_logo_creator_logo_preview())
+
+        self.logo_creator_logo_preview = tk.Canvas(
+            logo_preview_frame,
+            height=320,
+            background="#000000",
+            highlightthickness=0,
+        )
+        self.logo_creator_logo_preview.grid(row=1, column=0, sticky="nsew")
+        self.logo_creator_logo_preview.bind(
+            "<Configure>",
+            lambda _event: self._show_logo_creator_logo_preview(),
+        )
+        logo_preview_frame.rowconfigure(1, weight=1)
+        logo_preview_frame.columnconfigure(0, weight=1)
+        left.rowconfigure(0, weight=3)
+        left.rowconfigure(1, weight=2)
+        left.columnconfigure(0, weight=1)
 
         side = ttk.Frame(tab)
         side.grid(row=1, column=1, sticky="nsew")
@@ -1314,32 +1353,7 @@ class JerseyModderApp(tk.Tk):
         ).grid(row=5, column=0, sticky="ew", pady=(8, 0))
         ai.columnconfigure(0, weight=1)
 
-        preview_controls = ttk.Frame(side)
-        preview_controls.grid(row=5, column=0, sticky="ew", pady=(0, 6))
-        ttk.Label(preview_controls, text="Preview", style="Status.TLabel").pack(
-            side=tk.LEFT
-        )
-        ttk.Label(preview_controls, text="Background").pack(side=tk.RIGHT, padx=(8, 0))
-        bg_choice = ttk.Combobox(
-            preview_controls,
-            textvariable=self.logo_creator_bg_var,
-            values=("Black", "White", "Checker"),
-            state="readonly",
-            width=8,
-        )
-        bg_choice.pack(side=tk.RIGHT)
-        bg_choice.bind("<<ComboboxSelected>>", lambda _event: self._show_logo_creator_logo_preview())
-
-        self.logo_creator_logo_preview = tk.Canvas(
-            side,
-            height=260,
-            background="#000000",
-            highlightthickness=0,
-        )
-        self.logo_creator_logo_preview.grid(row=6, column=0, sticky="nsew")
-
         side.columnconfigure(0, weight=1)
-        side.rowconfigure(6, weight=1)
         tab.columnconfigure(0, weight=1)
         tab.columnconfigure(1, minsize=320)
         tab.rowconfigure(1, weight=1)
