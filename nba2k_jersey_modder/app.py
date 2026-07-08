@@ -195,6 +195,8 @@ class JerseyModderApp(tk.Tk):
         self.custom_fabric_overlay_path: Path | None = None
         self.generated_texture_path: Path | None = None
         self.generated_preview_image: tk.PhotoImage | None = None
+        self.generated_preview_base_image = None
+        self.generator_preview_image_item: int | None = None
         self.texture_creator_preview_path: Path | None = None
         self.texture_creator_source_path: Path | None = None
         self.texture_creator_preview_image: tk.PhotoImage | None = None
@@ -217,6 +219,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_uv_overlay_opacity_var = tk.IntVar(value=45)
         self.generator_uv_overlay_opacity_label_var = tk.StringVar(value="45%")
         self.generator_uv_overlay_image: tk.PhotoImage | None = None
+        self.generator_uv_overlay_cache: dict | None = None
         self.generator_preview_rect: tuple[int, int, int, int] | None = None
         self.generator_preview_scale = 1.0
         self.generator_image_rects: dict[str, tuple[int, int, int, int]] = {}
@@ -224,6 +227,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_selected_image_key: str | None = None
         self.generator_preview_refresh_after_id: str | None = None
         self.generator_preview_refresh_running = False
+        self.generator_overlay_refresh_after_id: str | None = None
         self.web_editor_server: WebEditorServer | None = None
         self.trim_creator_image_path: Path | None = None
         self.trim_creator_preview_image: tk.PhotoImage | None = None
@@ -2176,6 +2180,18 @@ class JerseyModderApp(tk.Tk):
         value = max(0, min(100, value))
         self.generator_uv_overlay_opacity_var.set(value)
         self.generator_uv_overlay_opacity_label_var.set(f"{value}%")
+        self._schedule_generator_overlay_redraw()
+
+    def _schedule_generator_overlay_redraw(self) -> None:
+        if self.generator_overlay_refresh_after_id is not None:
+            self.after_cancel(self.generator_overlay_refresh_after_id)
+        self.generator_overlay_refresh_after_id = self.after(
+            35,
+            self._run_scheduled_generator_overlay_redraw,
+        )
+
+    def _run_scheduled_generator_overlay_redraw(self) -> None:
+        self.generator_overlay_refresh_after_id = None
         self._redraw_generator_preview_overlays()
 
     def _sync_generator_template_controls(self, *, refresh_preview: bool) -> None:
@@ -7269,6 +7285,12 @@ class JerseyModderApp(tk.Tk):
         return max(0, min(128, value))
 
     def _show_generated_preview(self, path: Path) -> None:
+        try:
+            from PIL import Image, ImageTk
+        except ImportError as exc:
+            messagebox.showerror("Preview failed", "Preview rendering requires Pillow.")
+            raise RuntimeError("Preview rendering requires Pillow.") from exc
+
         self.generator_preview.update_idletasks()
         canvas_width = max(1, self.generator_preview.winfo_width())
         canvas_height = max(1, self.generator_preview.winfo_height())
@@ -7277,9 +7299,14 @@ class JerseyModderApp(tk.Tk):
         top = (canvas_height - size) // 2
         self.generator_preview_rect = (left, top, size, size)
         self.generator_preview_scale = size / 2048
-        self.generated_preview_image = load_scaled_photo_image(path, size, size)
+        with Image.open(path) as opened:
+            self.generated_preview_base_image = opened.convert("RGB").resize(
+                (size, size),
+                Image.Resampling.LANCZOS,
+            )
+        self.generated_preview_image = ImageTk.PhotoImage(self.generated_preview_base_image)
         self.generator_preview.delete("all")
-        self.generator_preview.create_image(
+        self.generator_preview_image_item = self.generator_preview.create_image(
             left + size // 2,
             top + size // 2,
             image=self.generated_preview_image,
@@ -7295,8 +7322,24 @@ class JerseyModderApp(tk.Tk):
 
     def _draw_generator_uv_overlay(self) -> None:
         self.generator_preview.delete("generator_uv_overlay")
+        if (
+            self.generator_preview_rect is None
+            or self.generated_preview_base_image is None
+            or self.generator_preview_image_item is None
+        ):
+            return
+        try:
+            from PIL import Image, ImageTk
+        except ImportError:
+            return
+        display = self.generated_preview_base_image.copy()
         self.generator_uv_overlay_image = None
-        if self.generator_preview_rect is None or not self.generator_uv_overlay_var.get():
+        if not self.generator_uv_overlay_var.get():
+            self.generated_preview_image = ImageTk.PhotoImage(display)
+            self.generator_preview.itemconfigure(
+                self.generator_preview_image_item,
+                image=self.generated_preview_image,
+            )
             return
         try:
             opacity = int(float(self.generator_uv_overlay_opacity_var.get()))
@@ -7304,28 +7347,50 @@ class JerseyModderApp(tk.Tk):
             opacity = 45
         opacity = max(0, min(100, opacity))
         if opacity <= 0:
+            self.generated_preview_image = ImageTk.PhotoImage(display)
+            self.generator_preview.itemconfigure(
+                self.generator_preview_image_item,
+                image=self.generated_preview_image,
+            )
             return
         uv_path = self._current_generator_uv_map_path()
         if not uv_path.exists():
+            self.generated_preview_image = ImageTk.PhotoImage(display)
+            self.generator_preview.itemconfigure(
+                self.generator_preview_image_item,
+                image=self.generated_preview_image,
+            )
             return
         try:
-            from PIL import Image, ImageTk
-
-            with Image.open(uv_path) as opened:
-                overlay = opened.convert("RGBA")
+            left, top, width, height = self.generator_preview_rect
+            cache_key = (str(uv_path), uv_path.stat().st_mtime_ns, width, height)
+            if (
+                self.generator_uv_overlay_cache is None
+                or self.generator_uv_overlay_cache.get("key") != cache_key
+            ):
+                with Image.open(uv_path) as opened:
+                    source = opened.convert("RGBA")
+                if source.size == (width, height):
+                    scaled = source
+                else:
+                    scaled = source.resize((width, height), Image.Resampling.LANCZOS)
+                self.generator_uv_overlay_cache = {
+                    "key": cache_key,
+                    "alpha": scaled.getchannel("A"),
+                }
+            base_alpha = self.generator_uv_overlay_cache["alpha"]
         except Exception:
             return
-        left, top, width, height = self.generator_preview_rect
-        overlay = overlay.resize((width, height), Image.Resampling.LANCZOS)
-        alpha = overlay.getchannel("A").point(lambda value: round(value * opacity / 100))
-        overlay.putalpha(alpha)
-        self.generator_uv_overlay_image = ImageTk.PhotoImage(overlay)
-        self.generator_preview.create_image(
-            left + width // 2,
-            top + height // 2,
-            image=self.generator_uv_overlay_image,
-            anchor=tk.CENTER,
-            tags=("generator_uv_overlay",),
+        alpha = base_alpha.point(lambda value: round(value * opacity / 100))
+        display = Image.composite(
+            Image.new("RGB", display.size, (0, 0, 0)),
+            display,
+            alpha,
+        )
+        self.generated_preview_image = ImageTk.PhotoImage(display)
+        self.generator_preview.itemconfigure(
+            self.generator_preview_image_item,
+            image=self.generated_preview_image,
         )
 
     def _draw_generator_image_boxes(self) -> None:
@@ -7727,8 +7792,8 @@ class JerseyModderApp(tk.Tk):
         if not selected:
             return
         try:
-            image = tk.PhotoImage(file=selected)
-        except tk.TclError as exc:
+            image_width, image_height = read_image_size(Path(selected))
+        except (RuntimeError, OSError) as exc:
             messagebox.showerror(
                 "Template image failed",
                 f"Could not load this image.\n\n{exc}\n\nExport PNG from Photoshop for best results.",
@@ -7736,11 +7801,11 @@ class JerseyModderApp(tk.Tk):
             return
 
         self.template_image_path = Path(selected)
-        self.template_original_size = (image.width(), image.height())
+        self.template_original_size = (image_width, image_height)
         self.template_zoom = 1.0
         self._render_template_image(fit=True)
         self.template_status.configure(
-            text=f"Loaded {Path(selected).name} ({image.width()} x {image.height()}). Drag on the image to create zones."
+            text=f"Loaded {Path(selected).name} ({image_width} x {image_height}). Drag on the image to create zones."
         )
         self.tabs.select(self.template_tab)
 
@@ -7754,19 +7819,19 @@ class JerseyModderApp(tk.Tk):
             return
 
         try:
-            image = tk.PhotoImage(file=str(image_path))
+            image_width, image_height = read_image_size(image_path)
             template = load_template(zones_path)
-        except (tk.TclError, OSError, ValueError, TypeError) as exc:
+        except (RuntimeError, OSError, ValueError, TypeError) as exc:
             messagebox.showerror("Master Template failed", str(exc))
             return
 
         self.template_image_path = image_path
-        self.template_original_size = (image.width(), image.height())
+        self.template_original_size = (image_width, image_height)
         self.template_zones = list(template.zones)
         self.template_zoom = 1.0
         self._render_template_image(fit=True)
         self.template_status.configure(
-            text=f"Loaded {self._current_template_master_label()} ({image.width()} x {image.height()})."
+            text=f"Loaded {self._current_template_master_label()} ({image_width} x {image_height})."
         )
         self.tabs.select(self.template_tab)
 
@@ -8211,13 +8276,13 @@ class JerseyModderApp(tk.Tk):
             return
         try:
             create_uv_overlay_from_template(source_path, output_path)
-            image = tk.PhotoImage(file=str(output_path))
+            image_width, image_height = read_image_size(output_path)
         except (RuntimeError, OSError, tk.TclError) as exc:
             messagebox.showerror("Save UV Map failed", str(exc))
             return
         self.template_jersey_template_var.set("Jersey UV")
         self.template_image_path = output_path
-        self.template_original_size = (image.width(), image.height())
+        self.template_original_size = (image_width, image_height)
         self.template_zoom = 1.0
         try:
             template = load_template(JERSEY_CUT_TEMPLATE_OPTIONS.get(
@@ -8262,12 +8327,12 @@ class JerseyModderApp(tk.Tk):
         self.template_zones = list(template.zones)
         if template.image_path and Path(template.image_path).exists():
             try:
-                image = tk.PhotoImage(file=template.image_path)
-            except tk.TclError:
-                image = None
-            if image is not None:
+                image_width, image_height = read_image_size(Path(template.image_path))
+            except (RuntimeError, OSError):
+                image_width = image_height = None
+            if image_width is not None and image_height is not None:
                 self.template_image_path = Path(template.image_path)
-                self.template_original_size = (image.width(), image.height())
+                self.template_original_size = (image_width, image_height)
                 self.template_zoom = 1.0
                 self._render_template_image(fit=True)
             else:
@@ -8355,8 +8420,7 @@ class JerseyModderApp(tk.Tk):
             return self.template_original_size
         if self.template_image_path is None:
             raise RuntimeError("No template image loaded.")
-        image = tk.PhotoImage(file=str(self.template_image_path))
-        self.template_original_size = (image.width(), image.height())
+        self.template_original_size = read_image_size(self.template_image_path)
         return self.template_original_size
 
     def _template_event_to_image_coords(self, event: tk.Event) -> tuple[int, int]:
@@ -9532,6 +9596,17 @@ def decode_text_file(data: bytes) -> tuple[str, str]:
         except UnicodeDecodeError:
             continue
     return data.decode("latin-1"), "latin-1"
+
+
+def read_image_size(path: Path) -> tuple[int, int]:
+    try:
+        from PIL import Image
+    except ImportError:
+        image = tk.PhotoImage(file=str(path))
+        return image.width(), image.height()
+
+    with Image.open(path) as image:
+        return image.size
 
 
 def load_scaled_photo_image(path: Path, width: int, height: int) -> tk.PhotoImage:
