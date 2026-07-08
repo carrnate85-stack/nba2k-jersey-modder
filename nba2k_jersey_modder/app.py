@@ -819,8 +819,29 @@ class JerseyModderApp(tk.Tk):
         ).grid(row=1, column=0, sticky="ew", pady=(8, 0))
         target_panel.columnconfigure(0, weight=1)
 
+        staged_trims = ttk.LabelFrame(left, text="Staged Trims", padding=8)
+        staged_trims.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
+        self.trim_creator_list = ttk.Treeview(
+            staged_trims,
+            columns=("bbox", "file"),
+            show="tree headings",
+            height=18,
+        )
+        self.trim_creator_list.heading("#0", text="Trim")
+        self.trim_creator_list.heading("bbox", text="Selection")
+        self.trim_creator_list.heading("file", text="Strip PNG")
+        self.trim_creator_list.column("#0", width=120, minwidth=80)
+        self.trim_creator_list.column("bbox", width=110, minwidth=80)
+        self.trim_creator_list.column("file", width=160, minwidth=110)
+        self.trim_creator_list.grid(row=0, column=0, sticky="nsew")
+        self.trim_creator_list.bind("<<TreeviewSelect>>", self._on_trim_creator_result_select)
+        self.trim_creator_list.bind("<Double-1>", self._open_trim_creator_editor_from_click)
+        self.trim_creator_list.bind("<Delete>", lambda _event: self.remove_selected_trim_strips())
+        staged_trims.rowconfigure(0, weight=1)
+        staged_trims.columnconfigure(0, weight=1)
+
         selected_actions = ttk.LabelFrame(left, text="Selected strip", padding=8)
-        selected_actions.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        selected_actions.grid(row=3, column=0, sticky="ew")
         strip_actions = (
             ("Save As", self.save_selected_trim_strip_as),
             ("Remove", self.remove_selected_trim_strips),
@@ -844,28 +865,7 @@ class JerseyModderApp(tk.Tk):
         selected_actions.columnconfigure(0, weight=1)
         selected_actions.columnconfigure(1, weight=1)
 
-        staged_trims = ttk.LabelFrame(left, text="Staged Trims", padding=8)
-        staged_trims.grid(row=3, column=0, sticky="nsew")
-        self.trim_creator_list = ttk.Treeview(
-            staged_trims,
-            columns=("bbox", "file"),
-            show="tree headings",
-            height=18,
-        )
-        self.trim_creator_list.heading("#0", text="Trim")
-        self.trim_creator_list.heading("bbox", text="Selection")
-        self.trim_creator_list.heading("file", text="Strip PNG")
-        self.trim_creator_list.column("#0", width=120, minwidth=80)
-        self.trim_creator_list.column("bbox", width=110, minwidth=80)
-        self.trim_creator_list.column("file", width=160, minwidth=110)
-        self.trim_creator_list.grid(row=0, column=0, sticky="nsew")
-        self.trim_creator_list.bind("<<TreeviewSelect>>", self._on_trim_creator_result_select)
-        self.trim_creator_list.bind("<Double-1>", self._open_trim_creator_editor_from_click)
-        self.trim_creator_list.bind("<Delete>", lambda _event: self.remove_selected_trim_strips())
-        staged_trims.rowconfigure(0, weight=1)
-        staged_trims.columnconfigure(0, weight=1)
-
-        left.rowconfigure(3, weight=1)
+        left.rowconfigure(2, weight=1)
         left.columnconfigure(0, weight=1)
 
         preview_frame = ttk.Frame(tab)
