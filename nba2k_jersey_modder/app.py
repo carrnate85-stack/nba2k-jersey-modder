@@ -6305,6 +6305,7 @@ class JerseyModderApp(tk.Tk):
                     "imageUrl": f"/api/image/{placement.key}?",
                     "blendMode": "normal",
                     "lockX": self._web_editor_overlay_locks_x(placement.key),
+                    "lockAspect": not is_side_panel,
                     "canTransform": True,
                     "canRotate": is_side_panel,
                     "rotation": placement.rotation_degrees,
@@ -6320,7 +6321,17 @@ class JerseyModderApp(tk.Tk):
                             "width": placement.clip_width,
                             "height": placement.clip_height,
                         }
-                        if placement.clip_x is not None
+                        if placement.clip_x is not None and not is_side_panel
+                        else None
+                    ),
+                    "guideBox": (
+                        {
+                            "x": placement.clip_x,
+                            "y": placement.clip_y,
+                            "width": placement.clip_width,
+                            "height": placement.clip_height,
+                        }
+                        if placement.clip_x is not None and is_side_panel
                         else None
                     ),
                     "canCleanup": True,
@@ -6644,7 +6655,7 @@ class JerseyModderApp(tk.Tk):
         current = placements.get(key)
         if current is None:
             return
-        if key in {*TRIM_GENERATOR_KEYS, *SIDE_PANEL_GENERATOR_KEYS} and current.clip_x is not None:
+        if key in TRIM_GENERATOR_KEYS and current.clip_x is not None:
             x, y, width, height = _clamp_overlay_to_clip(
                 x,
                 y,
@@ -6699,12 +6710,25 @@ class JerseyModderApp(tk.Tk):
             )
         elif key in SIDE_PANEL_GENERATOR_KEYS:
             panel = self.generator_trim_placements.get(key, TrimPlacementSettings())
-            scale = round(panel.scale_percent * width / max(1, current.width))
+            width_scale = _scale_dimension_percent(
+                panel.scale_width_percent,
+                panel.scale_percent,
+                width,
+                current.width,
+            )
+            height_scale = _scale_dimension_percent(
+                panel.scale_height_percent,
+                panel.scale_percent,
+                height,
+                current.height,
+            )
             self.generator_trim_placements[key] = replace(
                 panel,
                 offset_x=panel.offset_x + delta_x,
                 offset_y=panel.offset_y + delta_y,
-                scale_percent=max(1, min(500, scale)),
+                scale_percent=width_scale,
+                scale_width_percent=width_scale,
+                scale_height_percent=height_scale,
                 rotation_degrees=rotation,
             )
         self._schedule_generator_preview_refresh()
@@ -7680,6 +7704,14 @@ class JerseyModderApp(tk.Tk):
             ),
             "front_scale": self._front_wordmark_scale_percent(),
             "logos": tuple(self.generator_logo_placements),
+            "trim_placements": dict(self.generator_trim_placements),
+            "placements": {
+                placement.key: placement
+                for placement in image_placement_rects(
+                    self._current_generator_template(),
+                    self._generator_inputs(),
+                )
+            },
             "preview_number": (
                 self.generator_number_preview_x_var.get(),
                 self.generator_number_preview_y_var.get(),
@@ -7701,6 +7733,8 @@ class JerseyModderApp(tk.Tk):
             self._drag_front_wordmark(mode, delta_x, delta_y, texture_x)
         elif key.startswith("logo:"):
             self._drag_logo(key, mode, delta_x, delta_y, texture_x, texture_y)
+        elif key in SIDE_PANEL_GENERATOR_KEYS:
+            self._drag_side_panel(key, mode, delta_x, delta_y, texture_x, texture_y)
         elif key == "preview_number":
             self._drag_generator_number_preview(mode, delta_x, delta_y, texture_x)
             self._draw_generator_image_boxes()
@@ -7818,6 +7852,63 @@ class JerseyModderApp(tk.Tk):
             )
         self.generator_logo_placements[index] = updated
         self._refresh_generator_logo_list()
+
+    def _drag_side_panel(
+        self,
+        key: str,
+        mode: str,
+        delta_x: int,
+        delta_y: int,
+        texture_x: float,
+        texture_y: float,
+    ) -> None:
+        if self.generator_drag_state is None:
+            return
+        original_placements: dict[str, TrimPlacementSettings] = (
+            self.generator_drag_state["trim_placements"]
+        )
+        panel = original_placements.get(key, TrimPlacementSettings())
+        if mode == "move":
+            self.generator_trim_placements[key] = replace(
+                panel,
+                offset_x=panel.offset_x + delta_x,
+                offset_y=panel.offset_y + delta_y,
+            )
+            return
+
+        rect_x, rect_y, rect_width, rect_height = self.generator_drag_state["rect"]
+        new_width = max(1, texture_x - rect_x)
+        new_height = max(1, texture_y - rect_y)
+        width_scale = _scale_dimension_percent(
+            panel.scale_width_percent,
+            panel.scale_percent,
+            new_width,
+            rect_width,
+        )
+        height_scale = _scale_dimension_percent(
+            panel.scale_height_percent,
+            panel.scale_percent,
+            new_height,
+            rect_height,
+        )
+        offset_x = panel.offset_x
+        offset_y = panel.offset_y
+        placement = self.generator_drag_state["placements"].get(key)
+        if placement is not None and placement.clip_x is not None:
+            zone_x = placement.clip_x
+            zone_y = placement.clip_y or 0
+            zone_width = placement.clip_width or 1
+            zone_height = placement.clip_height or 1
+            offset_x = round(rect_x - (zone_x + (zone_width - new_width) / 2))
+            offset_y = round(rect_y - (zone_y + (zone_height - new_height) / 2))
+        self.generator_trim_placements[key] = replace(
+            panel,
+            offset_x=offset_x,
+            offset_y=offset_y,
+            scale_percent=width_scale,
+            scale_width_percent=width_scale,
+            scale_height_percent=height_scale,
+        )
 
     def _hit_generator_image(self, canvas_x: int, canvas_y: int) -> tuple[str, str] | None:
         if self.generator_preview_rect is None:
@@ -9804,6 +9895,17 @@ def _clamp_overlay_to_clip(
     else:
         y = max(clip_bottom - height, min(y, clip_y))
     return x, y, width, height
+
+
+def _scale_dimension_percent(
+    current_scale: int | None,
+    fallback_scale: int,
+    new_size: float,
+    current_size: float,
+) -> int:
+    base_scale = fallback_scale if current_scale is None else current_scale
+    scale = round(max(1, base_scale) * new_size / max(1, current_size))
+    return max(1, min(500, scale))
 
 
 def main() -> None:

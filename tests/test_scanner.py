@@ -854,6 +854,41 @@ class GeneratorTests(unittest.TestCase):
 
         self.assertEqual(image.getpixel((3, 3))[3], 0)
 
+    def test_side_panel_image_can_render_outside_zone_guide(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            panel = tmp_path / "panel.png"
+            output = tmp_path / "generated.png"
+            Image.new("RGBA", (10, 10), (255, 0, 0, 255)).save(panel)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(TemplateZone("left_side_panel", "stripe", 5, 5, 10, 10, "#1820c9", 20),),
+            )
+
+            generate_jersey_texture(
+                template,
+                GeneratorInputs(
+                    front_color="#112233",
+                    back_color="#445566",
+                    left_panel_color="",
+                    right_panel_color="#fedcba",
+                    left_panel_image=panel,
+                    trim_placements={
+                        "left_side_panel": TrimPlacementSettings(offset_x=-4)
+                    },
+                ),
+                output,
+                size=(20, 20),
+            )
+            image = Image.open(output).convert("RGBA")
+
+        self.assertEqual(image.getpixel((2, 8)), (255, 0, 0, 255))
+
     def test_generate_jersey_texture_places_front_wordmark(self) -> None:
         try:
             from PIL import Image
@@ -1114,6 +1149,42 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(placements[0].clip_y, 200)
         self.assertEqual(placements[0].rotation_degrees, 25)
         self.assertEqual(placements[0].width, 30)
+
+    def test_side_panel_image_supports_independent_width_and_height_scale(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            image_path = Path(tmp_dir) / "panel.png"
+            Image.new("RGBA", (20, 10), (255, 0, 0, 255)).save(image_path)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone("left_side_panel", "stripe", 100, 200, 100, 80, "#0000ff", 10),
+                ),
+            )
+            placements = image_placement_rects(
+                template,
+                GeneratorInputs(
+                    front_color="#ffffff",
+                    back_color="#ffffff",
+                    left_panel_color="#ffffff",
+                    right_panel_color="#ffffff",
+                    left_panel_image=image_path,
+                    trim_placements={
+                        "left_side_panel": TrimPlacementSettings(
+                            scale_width_percent=150,
+                            scale_height_percent=300,
+                        )
+                    },
+                ),
+            )
+
+        self.assertEqual(len(placements), 1)
+        self.assertEqual(placements[0].width, 30)
+        self.assertEqual(placements[0].height, 30)
 
     def test_render_jersey_region_map_marks_panels_and_decals(self) -> None:
         try:

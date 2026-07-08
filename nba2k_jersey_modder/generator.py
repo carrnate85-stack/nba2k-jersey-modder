@@ -121,6 +121,8 @@ class TrimPlacementSettings:
     offset_x: int = 0
     offset_y: int = 0
     scale_percent: int = 100
+    scale_width_percent: int | None = None
+    scale_height_percent: int | None = None
     flip_x: bool = False
     rotation_degrees: float = 0.0
 
@@ -849,12 +851,25 @@ def _editable_panel_rect(
         zone.width,
         zone.height,
     )
-    scale = max(1, int(settings.scale_percent)) / 100
-    width = max(1, round(fit_width * scale))
-    height = max(1, round(fit_height * scale))
+    width_scale = _independent_scale_percent(
+        settings.scale_width_percent,
+        settings.scale_percent,
+    )
+    height_scale = _independent_scale_percent(
+        settings.scale_height_percent,
+        settings.scale_percent,
+    )
+    width = max(1, round(fit_width * width_scale / 100))
+    height = max(1, round(fit_height * height_scale / 100))
     x = zone.x + (zone.width - width) // 2 + settings.offset_x
     y = zone.y + (zone.height - height) // 2 + settings.offset_y
     return x, y, width, height, float(settings.rotation_degrees)
+
+
+def _independent_scale_percent(value: int | None, fallback: int) -> int:
+    if value is None:
+        value = fallback
+    return max(1, int(value))
 
 
 def _zone_image_stretches(zone: TemplateZone) -> bool:
@@ -874,7 +889,7 @@ def _zone_image_is_web_editable(zone: TemplateZone) -> bool:
 
 
 def _zone_image_clips_to_zone(zone: TemplateZone) -> bool:
-    return _zone_image_stretches(zone) or _zone_image_is_side_panel(zone)
+    return _zone_image_stretches(zone)
 
 
 def _zone_image_offset(

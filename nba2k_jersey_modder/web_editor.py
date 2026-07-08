@@ -367,12 +367,13 @@ INDEX_HTML = """<!doctype html>
       ctx.translate(cx, cy);
       ctx.rotate(angle);
       ctx.strokeRect(-item.width / 2, -item.height / 2, item.width, item.height);
-      if (item.clipBox) {
+      const guideBox = item.clipBox || item.guideBox;
+      if (guideBox) {
         ctx.restore();
         ctx.save();
         ctx.setLineDash([16, 10]);
         ctx.strokeStyle = "#31d0ff";
-        ctx.strokeRect(item.clipBox.x, item.clipBox.y, item.clipBox.width, item.clipBox.height);
+        ctx.strokeRect(guideBox.x, guideBox.y, guideBox.width, guideBox.height);
         ctx.setLineDash([]);
         ctx.translate(cx, cy);
         ctx.rotate(angle);
@@ -510,7 +511,6 @@ INDEX_HTML = """<!doctype html>
           item.width = 2048;
           item.height = Math.max(1, drag.original.height + dy);
         } else {
-          const ratio = drag.original.height / Math.max(1, drag.original.width);
           const handle = drag.handle || {sx: 1, sy: 1};
           const currentLocal = localPoint(point, drag.original);
           const opposite = {
@@ -519,8 +519,14 @@ INDEX_HTML = """<!doctype html>
           };
           const widthFromX = Math.max(1, (currentLocal.x - opposite.x) * handle.sx);
           const heightFromY = Math.max(1, (currentLocal.y - opposite.y) * handle.sy);
-          item.width = Math.max(widthFromX, heightFromY / ratio);
-          item.height = Math.max(1, item.width * ratio);
+          if (item.lockAspect === false) {
+            item.width = widthFromX;
+            item.height = heightFromY;
+          } else {
+            const ratio = drag.original.height / Math.max(1, drag.original.width);
+            item.width = Math.max(widthFromX, heightFromY / ratio);
+            item.height = Math.max(1, item.width * ratio);
+          }
           const active = {
             x: opposite.x + handle.sx * item.width,
             y: opposite.y + handle.sy * item.height,
