@@ -6650,6 +6650,7 @@ class JerseyModderApp(tk.Tk):
                     "--",
                     str(color_path),
                     str(normal_path),
+                    "0",
                 ],
                 cwd=str(PROJECT_ROOT),
             )

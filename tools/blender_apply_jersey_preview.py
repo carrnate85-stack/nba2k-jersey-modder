@@ -21,6 +21,8 @@ def _material_targets() -> list[bpy.types.Material]:
         for slot in obj.material_slots:
             if slot.material and slot.material not in materials:
                 materials.append(slot.material)
+    if preferred_objects:
+        return materials
     jersey_materials = [mat for mat in materials if "jersey" in mat.name.lower()]
     return jersey_materials or materials[:1]
 
@@ -36,8 +38,21 @@ def _image_node(nodes, image_path: Path, label: str, colorspace: str):
     return node
 
 
-def _apply_material_textures(material: bpy.types.Material, color_path: Path, normal_path: Path) -> None:
+def _clear_preview_nodes(material: bpy.types.Material) -> None:
+    nodes = material.node_tree.nodes
+    for node in list(nodes):
+        if node.name.startswith("NBA 2K Preview"):
+            nodes.remove(node)
+
+
+def _apply_material_textures(
+    material: bpy.types.Material,
+    color_path: Path,
+    normal_path: Path | None,
+    normal_strength: float,
+) -> None:
     material.use_nodes = True
+    _clear_preview_nodes(material)
     nodes = material.node_tree.nodes
     links = material.node_tree.links
     bsdf = nodes.get("Principled BSDF")
@@ -45,13 +60,16 @@ def _apply_material_textures(material: bpy.types.Material, color_path: Path, nor
         bsdf = nodes.new("ShaderNodeBsdfPrincipled")
 
     color_node = _image_node(nodes, color_path, "NBA 2K Preview Color", "sRGB")
+    links.new(color_node.outputs["Color"], bsdf.inputs["Base Color"])
+
+    if normal_path is None or normal_strength <= 0:
+        return
+
     normal_image_node = _image_node(nodes, normal_path, "NBA 2K Preview Normal", "Non-Color")
     normal_node = nodes.new("ShaderNodeNormalMap")
     normal_node.name = "NBA 2K Preview Normal Map"
     normal_node.label = "NBA 2K Preview Normal Map"
-    normal_node.inputs["Strength"].default_value = 0.75
-
-    links.new(color_node.outputs["Color"], bsdf.inputs["Base Color"])
+    normal_node.inputs["Strength"].default_value = normal_strength
     links.new(normal_image_node.outputs["Color"], normal_node.inputs["Color"])
     links.new(normal_node.outputs["Normal"], bsdf.inputs["Normal"])
 
@@ -73,16 +91,17 @@ def main() -> None:
         raise SystemExit("Expected color texture path and normal texture path after --")
     color_path = Path(args[0])
     normal_path = Path(args[1])
+    normal_strength = float(args[2]) if len(args) >= 3 else 0.0
     if not color_path.exists():
         raise SystemExit(f"Color texture not found: {color_path}")
-    if not normal_path.exists():
+    if normal_strength > 0 and not normal_path.exists():
         raise SystemExit(f"Normal texture not found: {normal_path}")
 
     materials = _material_targets()
     if not materials:
         raise SystemExit("No mesh material found to apply preview textures.")
     for material in materials:
-        _apply_material_textures(material, color_path, normal_path)
+        _apply_material_textures(material, color_path, normal_path, normal_strength)
         print(f"[NBA 2K Preview] Applied textures to material: {material.name}")
     _setup_view()
 
