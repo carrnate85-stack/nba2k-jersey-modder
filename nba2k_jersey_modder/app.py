@@ -81,6 +81,9 @@ BLENDER_EXECUTABLE_CANDIDATES = (
     Path(r"C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"),
 )
 JERSEY_CUT_OPTIONS = ("Retro U",)
+JERSEY_CUT_TEMPLATE_OPTIONS = {
+    "Retro U": MASTER_TEMPLATE_ZONES,
+}
 TRIM_GENERATOR_KEYS = {
     "left_arm_hole_trim": "left_arm_hole_trim_image",
     "right_arm_hole_trim": "right_arm_hole_trim_image",
@@ -162,6 +165,7 @@ class JerseyModderApp(tk.Tk):
             "collar_trim_image": None,
         }
         self.generator_garment_var = tk.StringVar(value="Jersey")
+        self.generator_jersey_cut_var = tk.StringVar(value="Retro U")
         self.generator_shorts_template_var = tk.StringVar(value="Retro shorts")
         self.generator_remove_white_var = tk.BooleanVar(value=False)
         self.generator_remove_black_var = tk.BooleanVar(value=False)
@@ -188,6 +192,8 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_preview_image: tk.PhotoImage | None = None
         self.texture_creator_preview_info_var = tk.StringVar(value="No output generated.")
         self.texture_creator_garment_var = tk.StringVar(value="Jersey")
+        self.texture_creator_jersey_cut_var = tk.StringVar(value="Retro U")
+        self.texture_creator_shorts_template_var = tk.StringVar(value="Retro shorts")
         self.texture_creator_texture_type_var = tk.StringVar(value="Color Texture")
         self.texture_creator_source_var = tk.StringVar(value="Current generator design")
         self.texture_creator_normal_strength_var = tk.IntVar(value=15)
@@ -1624,7 +1630,18 @@ class JerseyModderApp(tk.Tk):
             width=12,
         )
         self.generator_garment_box.grid(row=0, column=1, sticky="ew", padx=(8, 12))
-        ttk.Label(template_frame, text="Shorts").grid(row=0, column=2, sticky=tk.W)
+        self.generator_jersey_cut_label = ttk.Label(template_frame, text="Jersey")
+        self.generator_jersey_cut_label.grid(row=0, column=2, sticky=tk.W)
+        self.generator_jersey_cut_box = ttk.Combobox(
+            template_frame,
+            textvariable=self.generator_jersey_cut_var,
+            values=JERSEY_CUT_OPTIONS,
+            state="readonly",
+            width=16,
+        )
+        self.generator_jersey_cut_box.grid(row=0, column=3, sticky="ew", padx=(8, 0))
+        self.generator_shorts_template_label = ttk.Label(template_frame, text="Shorts")
+        self.generator_shorts_template_label.grid(row=0, column=2, sticky=tk.W)
         self.generator_shorts_template_box = ttk.Combobox(
             template_frame,
             textvariable=self.generator_shorts_template_var,
@@ -1634,6 +1651,10 @@ class JerseyModderApp(tk.Tk):
         )
         self.generator_shorts_template_box.grid(row=0, column=3, sticky="ew", padx=(8, 0))
         self.generator_garment_box.bind("<<ComboboxSelected>>", self._on_generator_template_changed)
+        self.generator_jersey_cut_box.bind(
+            "<<ComboboxSelected>>",
+            self._on_generator_template_changed,
+        )
         self.generator_shorts_template_box.bind(
             "<<ComboboxSelected>>",
             self._on_generator_template_changed,
@@ -1823,7 +1844,29 @@ class JerseyModderApp(tk.Tk):
             width=22,
         )
         garment.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=(0, 8))
-        ttk.Label(options, text="Texture").grid(row=1, column=0, sticky=tk.W, pady=(0, 8))
+        self.texture_creator_cut_label = ttk.Label(options, text="Jersey")
+        self.texture_creator_cut_label.grid(row=1, column=0, sticky=tk.W, pady=(0, 8))
+        self.texture_creator_jersey_cut_box = ttk.Combobox(
+            options,
+            textvariable=self.texture_creator_jersey_cut_var,
+            values=JERSEY_CUT_OPTIONS,
+            state="readonly",
+            width=22,
+        )
+        self.texture_creator_jersey_cut_box.grid(
+            row=1, column=1, sticky="ew", padx=(10, 0), pady=(0, 8)
+        )
+        self.texture_creator_shorts_template_box = ttk.Combobox(
+            options,
+            textvariable=self.texture_creator_shorts_template_var,
+            values=tuple(SHORTS_TEMPLATE_OPTIONS),
+            state="readonly",
+            width=22,
+        )
+        self.texture_creator_shorts_template_box.grid(
+            row=1, column=1, sticky="ew", padx=(10, 0), pady=(0, 8)
+        )
+        ttk.Label(options, text="Texture").grid(row=2, column=0, sticky=tk.W, pady=(0, 8))
         texture_type = ttk.Combobox(
             options,
             textvariable=self.texture_creator_texture_type_var,
@@ -1831,8 +1874,8 @@ class JerseyModderApp(tk.Tk):
             state="readonly",
             width=22,
         )
-        texture_type.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(0, 8))
-        ttk.Label(options, text="Source").grid(row=2, column=0, sticky=tk.W)
+        texture_type.grid(row=2, column=1, sticky="ew", padx=(10, 0), pady=(0, 8))
+        ttk.Label(options, text="Source").grid(row=3, column=0, sticky=tk.W)
         source = ttk.Combobox(
             options,
             textvariable=self.texture_creator_source_var,
@@ -1840,8 +1883,18 @@ class JerseyModderApp(tk.Tk):
             state="readonly",
             width=22,
         )
-        source.grid(row=2, column=1, sticky="ew", padx=(10, 0))
+        source.grid(row=3, column=1, sticky="ew", padx=(10, 0))
+        garment.bind("<<ComboboxSelected>>", self._on_texture_creator_template_changed)
+        self.texture_creator_jersey_cut_box.bind(
+            "<<ComboboxSelected>>",
+            self._on_texture_creator_template_changed,
+        )
+        self.texture_creator_shorts_template_box.bind(
+            "<<ComboboxSelected>>",
+            self._on_texture_creator_template_changed,
+        )
         options.columnconfigure(1, weight=1)
+        self._sync_texture_creator_template_controls()
 
         normal_options = ttk.LabelFrame(controls, text="Normal map", padding=10)
         normal_options.grid(row=3, column=0, sticky="ew", pady=(12, 0))
@@ -2039,7 +2092,10 @@ class JerseyModderApp(tk.Tk):
                 SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
             )
             return zones_path
-        return MASTER_TEMPLATE_ZONES
+        return JERSEY_CUT_TEMPLATE_OPTIONS.get(
+            self.generator_jersey_cut_var.get(),
+            MASTER_TEMPLATE_ZONES,
+        )
 
     def _current_generator_template(self) -> JerseyTemplate:
         return load_template(self._current_generator_template_path())
@@ -2049,7 +2105,16 @@ class JerseyModderApp(tk.Tk):
 
     def _sync_generator_template_controls(self, *, refresh_preview: bool) -> None:
         is_shorts = self.generator_garment_var.get() == "Shorts"
-        self.generator_shorts_template_box.configure(state="readonly" if is_shorts else "disabled")
+        if is_shorts:
+            self.generator_jersey_cut_label.grid_remove()
+            self.generator_jersey_cut_box.grid_remove()
+            self.generator_shorts_template_label.grid()
+            self.generator_shorts_template_box.grid()
+        else:
+            self.generator_shorts_template_label.grid_remove()
+            self.generator_shorts_template_box.grid_remove()
+            self.generator_jersey_cut_label.grid()
+            self.generator_jersey_cut_box.grid()
         self.generator_base_colors_label.configure(
             text="Shorts colors" if is_shorts else "Base colors"
         )
@@ -6571,7 +6636,7 @@ class JerseyModderApp(tk.Tk):
                     )
                     return
                 image = render_jersey_region_map(
-                    load_template(MASTER_TEMPLATE_ZONES),
+                    self._texture_creator_template(),
                     self._generator_inputs(),
                     JERSEY_REGION_TEMPLATE_IMAGE,
                 )
@@ -6585,7 +6650,7 @@ class JerseyModderApp(tk.Tk):
                     )
                     return
                 image = render_jersey_normal_map(
-                    load_template(MASTER_TEMPLATE_ZONES),
+                    self._texture_creator_template(),
                     self._generator_inputs(),
                     JERSEY_NORMAL_TEMPLATE_IMAGE,
                     normal_strength=self._texture_creator_normal_strength(),
@@ -6653,7 +6718,7 @@ class JerseyModderApp(tk.Tk):
         normal_path = output_dir / "jersey_preview_normal.png"
 
         try:
-            template = load_template(MASTER_TEMPLATE_ZONES)
+            template = self._texture_creator_template()
             inputs = self._generator_inputs()
             color_image = render_jersey_texture(template, inputs)
             normal_image = render_jersey_normal_map(
@@ -6721,12 +6786,29 @@ class JerseyModderApp(tk.Tk):
 
     def _texture_creator_template(self) -> JerseyTemplate:
         if self.texture_creator_garment_var.get() == "Shorts":
-            template_path = SHORTS_TEMPLATE_OPTIONS.get(
-                self.generator_shorts_template_var.get(),
-                next(iter(SHORTS_TEMPLATE_OPTIONS.values())),
+            _image_path, zones_path = SHORTS_TEMPLATE_OPTIONS.get(
+                self.texture_creator_shorts_template_var.get(),
+                SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
             )
-            return load_template(template_path)
-        return load_template(MASTER_TEMPLATE_ZONES)
+            return load_template(zones_path)
+        zones_path = JERSEY_CUT_TEMPLATE_OPTIONS.get(
+            self.texture_creator_jersey_cut_var.get(),
+            MASTER_TEMPLATE_ZONES,
+        )
+        return load_template(zones_path)
+
+    def _on_texture_creator_template_changed(self, _event: tk.Event | None = None) -> None:
+        self._sync_texture_creator_template_controls()
+
+    def _sync_texture_creator_template_controls(self) -> None:
+        is_shorts = self.texture_creator_garment_var.get() == "Shorts"
+        self.texture_creator_cut_label.configure(text="Shorts" if is_shorts else "Jersey")
+        if is_shorts:
+            self.texture_creator_jersey_cut_box.grid_remove()
+            self.texture_creator_shorts_template_box.grid()
+        else:
+            self.texture_creator_shorts_template_box.grid_remove()
+            self.texture_creator_jersey_cut_box.grid()
 
     def upload_texture_creator_source(self) -> None:
         selected = filedialog.askopenfilename(
