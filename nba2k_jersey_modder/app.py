@@ -1840,12 +1840,12 @@ class JerseyModderApp(tk.Tk):
         )
         row += 1
         for key, label in (
+            ("front_wordmark_image", "Front wordmark image"),
             ("left_panel_image", "Left side panel image"),
             ("right_panel_image", "Right side panel image"),
-            ("front_wordmark_image", "Front wordmark image"),
+            ("collar_trim_image", "Collar trim image"),
             ("left_arm_hole_trim_image", "Left arm hole image"),
             ("right_arm_hole_trim_image", "Right arm hole image"),
-            ("collar_trim_image", "Collar trim image"),
         ):
             self._add_generator_upload_row(controls, row, key, label)
             if key in {
