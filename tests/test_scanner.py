@@ -2188,6 +2188,36 @@ class GeneratorTests(unittest.TestCase):
         self.assertGreater(high_center[0], 175)
         self.assertGreater(high_center[1], 175)
 
+    def test_recolor_font_image_can_thicken_outline_inward(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        image = Image.new("RGBA", (15, 15), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((1, 1, 13, 13), fill=(120, 120, 120, 255))
+        draw.rectangle((5, 5, 9, 9), fill=(240, 240, 240, 255))
+
+        normal = _recolor_font_image(image, (0, 0, 255), (255, 255, 0))
+        thickened = _recolor_font_image(
+            image,
+            (0, 0, 255),
+            (255, 255, 0),
+            outline_thickness=1,
+        )
+
+        self.assertGreater(normal.getpixel((5, 7))[0], 220)
+        thickened_edge = thickened.getpixel((5, 7))[:3]
+        thickened_center = thickened.getpixel((7, 7))[:3]
+        self.assertLess(thickened_edge[0], 40)
+        self.assertLess(thickened_edge[1], 40)
+        self.assertGreater(thickened_edge[2], 220)
+        self.assertGreater(thickened_center[0], 220)
+        self.assertGreater(thickened_center[1], 220)
+        self.assertLess(thickened_center[2], 40)
+        self.assertEqual(thickened.getpixel((0, 7))[3], 0)
+
     def test_recolor_font_image_preserves_antialiased_alpha(self) -> None:
         try:
             from PIL import Image, ImageDraw

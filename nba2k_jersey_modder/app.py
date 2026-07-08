@@ -315,6 +315,8 @@ class JerseyModderApp(tk.Tk):
         self.number_recolor_no_dark_var = tk.BooleanVar(value=True)
         self.number_recolor_edge_protection_var = tk.IntVar(value=75)
         self.number_recolor_edge_protection_label_var = tk.StringVar(value="75%")
+        self.number_recolor_outline_thickness_var = tk.IntVar(value=0)
+        self.number_recolor_outline_thickness_label_var = tk.StringVar(value="0 px")
         self.tweak_file_path: Path | None = None
         self.tweak_info: FrontNumberTweak | None = None
         self.tweak_x_var = tk.DoubleVar(value=0.0)
@@ -1419,6 +1421,10 @@ class JerseyModderApp(tk.Tk):
             command=lambda: self.choose_number_recolor_color("light"),
         ).pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Entry(light_row, textvariable=self.number_recolor_light_var, width=10).pack(side=tk.RIGHT)
+        self.number_recolor_light_var.trace_add(
+            "write",
+            lambda *_args: self._on_number_recolor_hex_changed("light"),
+        )
 
         edge_protection_row = ttk.Frame(recolor)
         edge_protection_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
@@ -1437,8 +1443,25 @@ class JerseyModderApp(tk.Tk):
             command=self._on_number_recolor_edge_protection_changed,
         ).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 8))
 
+        thickness_row = ttk.Frame(recolor)
+        thickness_row.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(thickness_row, text="Outline thickness").pack(side=tk.LEFT)
+        ttk.Label(
+            thickness_row,
+            textvariable=self.number_recolor_outline_thickness_label_var,
+            style="Muted.TLabel",
+            width=5,
+        ).pack(side=tk.RIGHT)
+        ttk.Scale(
+            thickness_row,
+            from_=0,
+            to=3,
+            variable=self.number_recolor_outline_thickness_var,
+            command=self._on_number_recolor_outline_thickness_changed,
+        ).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 8))
+
         dark_row = ttk.Frame(recolor)
-        dark_row.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        dark_row.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         ttk.Label(dark_row, text="Dark / outline").pack(side=tk.LEFT)
         ttk.Checkbutton(
             dark_row,
@@ -1454,8 +1477,12 @@ class JerseyModderApp(tk.Tk):
             command=lambda: self.choose_number_recolor_color("dark"),
         ).pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Entry(dark_row, textvariable=self.number_recolor_dark_var, width=10).pack(side=tk.RIGHT)
+        self.number_recolor_dark_var.trace_add(
+            "write",
+            lambda *_args: self._on_number_recolor_hex_changed("dark"),
+        )
         action_row = ttk.Frame(recolor)
-        action_row.grid(row=3, column=0, sticky="ew")
+        action_row.grid(row=4, column=0, sticky="ew")
         ttk.Button(
             action_row,
             text="Apply Recolor",
@@ -4890,6 +4917,7 @@ class JerseyModderApp(tk.Tk):
             light = self._number_recolor_rgb("light")
             dark = self._number_recolor_rgb("dark")
             edge_protection = self._number_recolor_edge_protection()
+            outline_thickness = self._number_recolor_outline_thickness()
             recolored_paths: dict[str, Path] = {}
             from PIL import Image
 
@@ -4902,6 +4930,7 @@ class JerseyModderApp(tk.Tk):
                         dark,
                         light,
                         edge_protection=edge_protection,
+                        outline_thickness=outline_thickness,
                     )
                 output_path = self._number_creator_digit_output_path(
                     digit,
@@ -4924,12 +4953,24 @@ class JerseyModderApp(tk.Tk):
             f"{self.number_recolor_edge_protection_var.get()}%"
         )
 
+    def _on_number_recolor_outline_thickness_changed(self, _value: str | None = None) -> None:
+        self.number_recolor_outline_thickness_label_var.set(
+            f"{self._number_recolor_outline_thickness()} px"
+        )
+
     def _number_recolor_edge_protection(self) -> float:
         value = self.number_recolor_edge_protection_var.get()
         value = min(100, max(0, value))
         self.number_recolor_edge_protection_var.set(value)
         self._on_number_recolor_edge_protection_changed()
         return value / 100
+
+    def _number_recolor_outline_thickness(self) -> int:
+        value = int(round(self.number_recolor_outline_thickness_var.get()))
+        value = min(3, max(0, value))
+        self.number_recolor_outline_thickness_var.set(value)
+        self.number_recolor_outline_thickness_label_var.set(f"{value} px")
+        return value
 
     def restore_number_font_original_colors(self) -> None:
         if self.number_creator_font_info is None or not self.number_creator_original_digit_paths:
@@ -4959,6 +5000,21 @@ class JerseyModderApp(tk.Tk):
         variable.set(normalized)
         self._refresh_number_recolor_swatches()
         return _hex_to_rgb(normalized)
+
+    def _on_number_recolor_hex_changed(self, target: str) -> None:
+        variable = (
+            self.number_recolor_light_var
+            if target == "light"
+            else self.number_recolor_dark_var
+        )
+        if not self._normalize_hex_color(variable.get()):
+            self._refresh_number_recolor_swatches()
+            return
+        if target == "light" and self.number_recolor_no_light_var.get():
+            self.number_recolor_no_light_var.set(False)
+        elif target == "dark" and self.number_recolor_no_dark_var.get():
+            self.number_recolor_no_dark_var.set(False)
+        self._refresh_number_recolor_swatches()
 
     def _refresh_number_recolor_swatches(self) -> None:
         if hasattr(self, "number_recolor_light_swatch"):
@@ -9450,17 +9506,27 @@ def _recolor_font_image(
     light_color: tuple[int, int, int] | None,
     *,
     edge_protection: float = 0.75,
+    outline_thickness: int = 0,
 ):
     rgba = image.convert("RGBA")
     if dark_color is None and light_color is None:
         return rgba
     edge_protection = _clamp(edge_protection, 0.0, 1.0)
+    outline_thickness = max(0, min(3, int(outline_thickness)))
     rgba_data = getattr(rgba, "get_flattened_data", rgba.getdata)
     pixels = list(rgba_data())
     distances = _font_alpha_edge_distances(rgba)
     fill_mixes = _font_fill_region_mixes(pixels, distances, edge_protection)
     if fill_mixes is None:
         return rgba
+    if outline_thickness:
+        fill_mixes = _thicken_font_outline_mixes(
+            pixels,
+            fill_mixes,
+            rgba.width,
+            rgba.height,
+            outline_thickness,
+        )
 
     recolored = []
     for index, (red, green, blue, alpha) in enumerate(pixels):
@@ -9474,6 +9540,38 @@ def _recolor_font_image(
         recolored.append((*_blend_rgb(outline, fill, mix), alpha))
     rgba.putdata(recolored)
     return rgba
+
+
+def _thicken_font_outline_mixes(
+    pixels: list[tuple[int, int, int, int]],
+    fill_mixes: list[float],
+    width: int,
+    height: int,
+    amount: int,
+) -> list[float]:
+    mixes = list(fill_mixes)
+    outline = {
+        index
+        for index, (_red, _green, _blue, alpha) in enumerate(pixels)
+        if alpha > 0 and mixes[index] <= 0.52
+    }
+    visible = {index for index, pixel in enumerate(pixels) if pixel[3] > 0}
+    for _step in range(amount):
+        next_outline = set(outline)
+        for index in outline:
+            x = index % width
+            y = index // width
+            for ny in range(max(0, y - 1), min(height, y + 2)):
+                for nx in range(max(0, x - 1), min(width, x + 2)):
+                    neighbor = ny * width + nx
+                    if neighbor in visible and mixes[neighbor] > 0.52:
+                        next_outline.add(neighbor)
+        if len(next_outline) == len(outline):
+            break
+        outline = next_outline
+    for index in outline:
+        mixes[index] = 0.0
+    return mixes
 
 
 def _font_fill_region_mixes(
