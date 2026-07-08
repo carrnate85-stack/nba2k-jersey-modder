@@ -1370,7 +1370,7 @@ class JerseyModderApp(tk.Tk):
         recolor.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         light_row = ttk.Frame(recolor)
         light_row.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Label(light_row, text="Light / fill").pack(side=tk.LEFT)
+        ttk.Label(light_row, text="Fill").pack(side=tk.LEFT)
         ttk.Checkbutton(
             light_row,
             text="No change",
@@ -1426,7 +1426,7 @@ class JerseyModderApp(tk.Tk):
 
         dark_row = ttk.Frame(recolor)
         dark_row.grid(row=3, column=0, sticky="ew", pady=(0, 8))
-        ttk.Label(dark_row, text="Dark / outline").pack(side=tk.LEFT)
+        ttk.Label(dark_row, text="Outline").pack(side=tk.LEFT)
         ttk.Checkbutton(
             dark_row,
             text="No change",
@@ -5142,7 +5142,7 @@ class JerseyModderApp(tk.Tk):
         )
         normalized = self._normalize_hex_color(variable.get())
         if normalized is None or not normalized:
-            raise ValueError("Enter valid light and dark hex colors.")
+            raise ValueError("Enter valid fill and outline hex colors.")
         variable.set(normalized)
         self._refresh_number_recolor_swatches()
         return _hex_to_rgb(normalized)
