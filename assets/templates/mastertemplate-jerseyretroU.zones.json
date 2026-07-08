@@ -105,9 +105,9 @@
       "name": "left_arm_hole_trim",
       "zone_type": "trim",
       "x": 381,
-      "y": 56,
+      "y": 66,
       "width": 1255,
-      "height": 53,
+      "height": 40,
       "color": "#11ecfb",
       "layer": 30
     },
@@ -115,9 +115,9 @@
       "name": "right_arm_hole_trim",
       "zone_type": "trim",
       "x": 381,
-      "y": 183,
+      "y": 192,
       "width": 1258,
-      "height": 54,
+      "height": 41,
       "color": "#11fb10",
       "layer": 30
     },
@@ -125,9 +125,9 @@
       "name": "collar_trim",
       "zone_type": "trim",
       "x": 371,
-      "y": 319,
+      "y": 326,
       "width": 1307,
-      "height": 48,
+      "height": 39,
       "color": "#d014e3",
       "layer": 30
     }
