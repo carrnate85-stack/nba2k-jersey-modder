@@ -4062,10 +4062,12 @@ class JerseyModderApp(tk.Tk):
             return
         self.generator_color_vars[key].set(color)
         swatch.configure(text="", background=color)
+        self._schedule_generator_preview_refresh()
 
     def clear_generator_color(self, key: str, swatch: tk.Label) -> None:
         self.generator_color_vars[key].set("")
         swatch.configure(text="None", background="#f0f0f0")
+        self._schedule_generator_preview_refresh()
 
     def normalize_generator_color_entry(self, key: str, swatch: tk.Label) -> None:
         color = self._normalize_hex_color(self.generator_color_vars[key].get())
@@ -4077,6 +4079,7 @@ class JerseyModderApp(tk.Tk):
             swatch.configure(text="", background=color)
         else:
             swatch.configure(text="None", background="#f0f0f0")
+        self._schedule_generator_preview_refresh()
 
     def upload_generator_image(self, key: str) -> None:
         selected = filedialog.askopenfilename(
