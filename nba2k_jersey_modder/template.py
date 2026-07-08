@@ -11,10 +11,12 @@ MASTER_TEMPLATE_ZONES = PACKAGE_ROOT / "assets" / "templates" / "mastertemplate-
 JERSEY_REGION_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "jersey_region.template.png"
 JERSEY_REGION_TEMPLATE_ZONES = PACKAGE_ROOT / "assets" / "templates" / "jersey_region.template.zones.json"
 JERSEY_NORMAL_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "jersey_normal.template.png"
+JERSEY_UV_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "mastertemplate-jerseyretroU.uv.png"
 JERSEY_TEMPLATE_OPTIONS = {
     "Jersey color": (MASTER_TEMPLATE_IMAGE, MASTER_TEMPLATE_ZONES),
     "Jersey region": (JERSEY_REGION_TEMPLATE_IMAGE, JERSEY_REGION_TEMPLATE_ZONES),
     "Jersey normal": (JERSEY_NORMAL_TEMPLATE_IMAGE, MASTER_TEMPLATE_ZONES),
+    "Jersey UV": (JERSEY_UV_TEMPLATE_IMAGE, MASTER_TEMPLATE_ZONES),
 }
 SHORTS_TEMPLATE_RETRO_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "shortstemplate1.png"
 SHORTS_TEMPLATE_RETRO_ZONES = PACKAGE_ROOT / "assets" / "templates" / "shortstemplate1.zones.json"
@@ -198,6 +200,35 @@ def find_hex_color_zone_bbox(
         return None
     left, top, right, bottom, _area = bbox
     return left, top, right - left + 1, bottom - top + 1
+
+
+def create_uv_overlay_from_template(
+    image_path: Path,
+    output_path: Path,
+    *,
+    contrast_threshold: int = 14,
+) -> None:
+    try:
+        from PIL import Image, ImageChops, ImageFilter
+    except ImportError as exc:
+        raise RuntimeError("UV map creation requires Pillow.") from exc
+
+    with Image.open(image_path) as opened:
+        image = opened.convert("RGBA")
+
+    alpha = image.getchannel("A")
+    grayscale = image.convert("L")
+    local_average = grayscale.filter(ImageFilter.GaussianBlur(radius=3))
+    darker_than_area = ImageChops.subtract(local_average, grayscale)
+    mask = darker_than_area.point(
+        lambda value: 0 if value < contrast_threshold else min(220, (value - contrast_threshold) * 8)
+    )
+    mask = ImageChops.multiply(mask, alpha)
+    mask = mask.filter(ImageFilter.MaxFilter(size=3))
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    overlay.putalpha(mask)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    overlay.save(output_path)
 
 
 def _detect_color_zones(image_path: Path, profile: dict) -> list[TemplateZone]:

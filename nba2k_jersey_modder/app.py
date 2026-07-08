@@ -48,11 +48,13 @@ from .template import (
     JERSEY_REGION_TEMPLATE_IMAGE,
     JERSEY_NORMAL_TEMPLATE_IMAGE,
     JERSEY_TEMPLATE_OPTIONS,
+    JERSEY_UV_TEMPLATE_IMAGE,
     JerseyTemplate,
     MASTER_TEMPLATE_IMAGE,
     MASTER_TEMPLATE_ZONES,
     SHORTS_TEMPLATE_OPTIONS,
     TemplateZone,
+    create_uv_overlay_from_template,
     find_hex_color_zone_bbox,
     load_template,
     save_template,
@@ -83,6 +85,12 @@ BLENDER_EXECUTABLE_CANDIDATES = (
 JERSEY_CUT_OPTIONS = ("Retro U",)
 JERSEY_CUT_TEMPLATE_OPTIONS = {
     "Retro U": MASTER_TEMPLATE_ZONES,
+}
+JERSEY_CUT_IMAGE_OPTIONS = {
+    "Retro U": MASTER_TEMPLATE_IMAGE,
+}
+JERSEY_CUT_UV_OPTIONS = {
+    "Retro U": JERSEY_UV_TEMPLATE_IMAGE,
 }
 TRIM_GENERATOR_KEYS = {
     "left_arm_hole_trim": "left_arm_hole_trim_image",
@@ -205,6 +213,10 @@ class JerseyModderApp(tk.Tk):
         self.generator_number_preview_x_var = tk.IntVar(value=1160)
         self.generator_number_preview_y_var = tk.IntVar(value=780)
         self.generator_number_preview_scale_var = tk.IntVar(value=100)
+        self.generator_uv_overlay_var = tk.BooleanVar(value=False)
+        self.generator_uv_overlay_opacity_var = tk.IntVar(value=45)
+        self.generator_uv_overlay_opacity_label_var = tk.StringVar(value="45%")
+        self.generator_uv_overlay_image: tk.PhotoImage | None = None
         self.generator_preview_rect: tuple[int, int, int, int] | None = None
         self.generator_preview_scale = 1.0
         self.generator_image_rects: dict[str, tuple[int, int, int, int]] = {}
@@ -521,6 +533,9 @@ class JerseyModderApp(tk.Tk):
             side=tk.LEFT, padx=(8, 0)
         )
         ttk.Button(toolbar, text="Save Master", command=self.save_master_template_zones).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+        ttk.Button(toolbar, text="Save UV Map", command=self.save_template_uv_map).pack(
             side=tk.LEFT, padx=(8, 0)
         )
         ttk.Button(toolbar, text="Fit", command=self.fit_template_to_view).pack(
@@ -1662,6 +1677,35 @@ class JerseyModderApp(tk.Tk):
         template_frame.columnconfigure(1, weight=1)
         template_frame.columnconfigure(3, weight=1)
         row += 1
+        uv_overlay_frame = ttk.Frame(controls)
+        uv_overlay_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        ttk.Checkbutton(
+            uv_overlay_frame,
+            text="UV overlay",
+            variable=self.generator_uv_overlay_var,
+            command=self._redraw_generator_preview_overlays,
+        ).grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(uv_overlay_frame, text="Opacity").grid(
+            row=0,
+            column=1,
+            sticky=tk.W,
+            padx=(12, 6),
+        )
+        ttk.Scale(
+            uv_overlay_frame,
+            from_=0,
+            to=100,
+            orient=tk.HORIZONTAL,
+            variable=self.generator_uv_overlay_opacity_var,
+            command=self._on_generator_uv_overlay_opacity_changed,
+        ).grid(row=0, column=2, sticky="ew")
+        ttk.Label(
+            uv_overlay_frame,
+            textvariable=self.generator_uv_overlay_opacity_label_var,
+            width=5,
+        ).grid(row=0, column=3, sticky=tk.E, padx=(8, 0))
+        uv_overlay_frame.columnconfigure(2, weight=1)
+        row += 1
 
         ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
         row += 1
@@ -2097,11 +2141,42 @@ class JerseyModderApp(tk.Tk):
             MASTER_TEMPLATE_ZONES,
         )
 
+    def _current_generator_template_image_path(self) -> Path:
+        if self.generator_garment_var.get() == "Shorts":
+            image_path, _zones_path = SHORTS_TEMPLATE_OPTIONS.get(
+                self.generator_shorts_template_var.get(),
+                SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
+            )
+            return image_path
+        return JERSEY_CUT_IMAGE_OPTIONS.get(
+            self.generator_jersey_cut_var.get(),
+            MASTER_TEMPLATE_IMAGE,
+        )
+
+    def _current_generator_uv_map_path(self) -> Path:
+        if self.generator_garment_var.get() == "Shorts":
+            image_path = self._current_generator_template_image_path()
+            return image_path.with_name(f"{image_path.stem}.uv.png")
+        return JERSEY_CUT_UV_OPTIONS.get(
+            self.generator_jersey_cut_var.get(),
+            JERSEY_UV_TEMPLATE_IMAGE,
+        )
+
     def _current_generator_template(self) -> JerseyTemplate:
         return load_template(self._current_generator_template_path())
 
     def _on_generator_template_changed(self, _event: tk.Event | None = None) -> None:
         self._sync_generator_template_controls(refresh_preview=True)
+
+    def _on_generator_uv_overlay_opacity_changed(self, _value: str | None = None) -> None:
+        try:
+            value = int(float(self.generator_uv_overlay_opacity_var.get()))
+        except tk.TclError:
+            value = 45
+        value = max(0, min(100, value))
+        self.generator_uv_overlay_opacity_var.set(value)
+        self.generator_uv_overlay_opacity_label_var.set(f"{value}%")
+        self._redraw_generator_preview_overlays()
 
     def _sync_generator_template_controls(self, *, refresh_preview: bool) -> None:
         is_shorts = self.generator_garment_var.get() == "Shorts"
@@ -7210,11 +7285,48 @@ class JerseyModderApp(tk.Tk):
             image=self.generated_preview_image,
             anchor=tk.CENTER,
         )
+        self._draw_generator_uv_overlay()
         self._draw_generator_image_boxes()
 
     def _redraw_generator_preview_overlays(self) -> None:
         if hasattr(self, "generator_preview"):
+            self._draw_generator_uv_overlay()
             self._draw_generator_image_boxes()
+
+    def _draw_generator_uv_overlay(self) -> None:
+        self.generator_preview.delete("generator_uv_overlay")
+        self.generator_uv_overlay_image = None
+        if self.generator_preview_rect is None or not self.generator_uv_overlay_var.get():
+            return
+        try:
+            opacity = int(float(self.generator_uv_overlay_opacity_var.get()))
+        except tk.TclError:
+            opacity = 45
+        opacity = max(0, min(100, opacity))
+        if opacity <= 0:
+            return
+        uv_path = self._current_generator_uv_map_path()
+        if not uv_path.exists():
+            return
+        try:
+            from PIL import Image, ImageTk
+
+            with Image.open(uv_path) as opened:
+                overlay = opened.convert("RGBA")
+        except Exception:
+            return
+        left, top, width, height = self.generator_preview_rect
+        overlay = overlay.resize((width, height), Image.Resampling.LANCZOS)
+        alpha = overlay.getchannel("A").point(lambda value: round(value * opacity / 100))
+        overlay.putalpha(alpha)
+        self.generator_uv_overlay_image = ImageTk.PhotoImage(overlay)
+        self.generator_preview.create_image(
+            left + width // 2,
+            top + height // 2,
+            image=self.generator_uv_overlay_image,
+            anchor=tk.CENTER,
+            tags=("generator_uv_overlay",),
+        )
 
     def _draw_generator_image_boxes(self) -> None:
         self.generator_preview.delete("generator_overlay")
@@ -8077,6 +8189,47 @@ class JerseyModderApp(tk.Tk):
         self.template_status.configure(
             text=f"Saved {len(self.template_zones)} zones to {self._current_template_master_label()}."
         )
+
+    def save_template_uv_map(self) -> None:
+        if self.template_garment_var.get() == "Shorts":
+            messagebox.showinfo("Save UV Map", "UV maps are only set up for jerseys right now.")
+            return
+        source_path = self.template_image_path
+        if source_path is None:
+            source_path, _zones_path = JERSEY_TEMPLATE_OPTIONS["Jersey color"]
+        if self.template_jersey_template_var.get() == "Jersey UV":
+            source_path = JERSEY_CUT_IMAGE_OPTIONS.get(
+                self.template_jersey_cut_var.get(),
+                MASTER_TEMPLATE_IMAGE,
+            )
+        output_path = JERSEY_CUT_UV_OPTIONS.get(
+            self.template_jersey_cut_var.get(),
+            JERSEY_UV_TEMPLATE_IMAGE,
+        )
+        if not source_path.exists():
+            messagebox.showinfo("Save UV Map", "Load a template image first.")
+            return
+        try:
+            create_uv_overlay_from_template(source_path, output_path)
+            image = tk.PhotoImage(file=str(output_path))
+        except (RuntimeError, OSError, tk.TclError) as exc:
+            messagebox.showerror("Save UV Map failed", str(exc))
+            return
+        self.template_jersey_template_var.set("Jersey UV")
+        self.template_image_path = output_path
+        self.template_original_size = (image.width(), image.height())
+        self.template_zoom = 1.0
+        try:
+            template = load_template(JERSEY_CUT_TEMPLATE_OPTIONS.get(
+                self.template_jersey_cut_var.get(),
+                MASTER_TEMPLATE_ZONES,
+            ))
+            self.template_zones = list(template.zones)
+        except (OSError, ValueError, TypeError):
+            pass
+        self._sync_template_master_controls()
+        self._render_template_image(fit=True)
+        self.template_status.configure(text=f"Saved UV map to {output_path.name}.")
 
     def _is_editing_master_template(self) -> bool:
         image_path, _zones_path = self._current_template_master_paths()
