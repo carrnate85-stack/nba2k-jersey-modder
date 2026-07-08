@@ -211,6 +211,8 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_normal_strength_label_var = tk.StringVar(value="15%")
         self.texture_creator_blender_normal_var = tk.BooleanVar(value=False)
         self.blender_preview_live_refresh = False
+        self.blender_preview_refresh_after_id: str | None = None
+        self.blender_preview_refresh_running = False
         self.generator_number_preview_image: tk.PhotoImage | None = None
         self.generator_number_preview_enabled_var = tk.BooleanVar(value=True)
         self.generator_number_preview_text_var = tk.StringVar(value="15")
@@ -230,6 +232,8 @@ class JerseyModderApp(tk.Tk):
         self.generator_preview_refresh_after_id: str | None = None
         self.generator_preview_refresh_running = False
         self.generator_overlay_refresh_after_id: str | None = None
+        self.texture_creator_refresh_after_id: str | None = None
+        self.texture_creator_refresh_running = False
         self.web_editor_server: WebEditorServer | None = None
         self.trim_creator_image_path: Path | None = None
         self.trim_creator_preview_image: tk.PhotoImage | None = None
@@ -1957,6 +1961,8 @@ class JerseyModderApp(tk.Tk):
             width=22,
         )
         source.grid(row=3, column=1, sticky="ew", padx=(10, 0))
+        texture_type.bind("<<ComboboxSelected>>", self._on_texture_creator_options_changed)
+        source.bind("<<ComboboxSelected>>", self._on_texture_creator_options_changed)
         garment.bind("<<ComboboxSelected>>", self._on_texture_creator_template_changed)
         self.texture_creator_jersey_cut_box.bind(
             "<<ComboboxSelected>>",
@@ -6803,6 +6809,19 @@ class JerseyModderApp(tk.Tk):
         self.generator_status.configure(text="Web editor edits reset.")
 
     def create_texture_from_generator(self) -> None:
+        self._render_texture_creator_from_generator(
+            select_tab=True,
+            update_status=True,
+            show_errors=True,
+        )
+
+    def _render_texture_creator_from_generator(
+        self,
+        *,
+        select_tab: bool,
+        update_status: bool,
+        show_errors: bool,
+    ) -> bool:
         output_dir = Path(tempfile.gettempdir()) / "nba2k_jersey_modder" / "texture_creator"
         output_dir.mkdir(parents=True, exist_ok=True)
         garment = self.texture_creator_garment_var.get()
@@ -6810,11 +6829,12 @@ class JerseyModderApp(tk.Tk):
         try:
             if texture_type == "Region Texture":
                 if garment != "Jersey":
-                    messagebox.showinfo(
-                        "Texture Creator",
-                        "Region texture creation is currently built for jersey textures. Shorts region creation can be added next.",
-                    )
-                    return
+                    if show_errors:
+                        messagebox.showinfo(
+                            "Texture Creator",
+                            "Region texture creation is currently built for jersey textures. Shorts region creation can be added next.",
+                        )
+                    return False
                 image = render_jersey_region_map(
                     self._texture_creator_template(),
                     self._generator_inputs(),
@@ -6824,11 +6844,12 @@ class JerseyModderApp(tk.Tk):
                 image.save(output_path)
             elif texture_type == "Normal Map":
                 if garment != "Jersey":
-                    messagebox.showinfo(
-                        "Texture Creator",
-                        "Normal map creation is currently built for jersey textures. Shorts normal maps can be added next.",
-                    )
-                    return
+                    if show_errors:
+                        messagebox.showinfo(
+                            "Texture Creator",
+                            "Normal map creation is currently built for jersey textures. Shorts normal maps can be added next.",
+                        )
+                    return False
                 image = render_jersey_normal_map(
                     self._texture_creator_template(),
                     self._generator_inputs(),
@@ -6850,17 +6871,21 @@ class JerseyModderApp(tk.Tk):
                 )
                 image.save(output_path)
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
-            messagebox.showerror("Texture creation failed", str(exc))
-            return
+            if show_errors:
+                messagebox.showerror("Texture creation failed", str(exc))
+            return False
 
         self.texture_creator_source_var.set("Current generator design")
         self.texture_creator_source_path = None
         self.texture_creator_preview_path = output_path
         self._show_texture_creator_preview()
-        self.texture_creator_status.configure(
-            text=f"Created {garment.lower()} {texture_type.lower()} from the generator."
-        )
-        self.tabs.select(self.texture_creator_tab)
+        if update_status:
+            self.texture_creator_status.configure(
+                text=f"Created {garment.lower()} {texture_type.lower()} from the generator."
+            )
+        if select_tab:
+            self.tabs.select(self.texture_creator_tab)
+        return True
 
     def open_blender_preview(self) -> None:
         if self.texture_creator_garment_var.get() != "Jersey":
@@ -6995,10 +7020,25 @@ class JerseyModderApp(tk.Tk):
             return
         if self.texture_creator_garment_var.get() != "Jersey":
             return
+        if self.blender_preview_refresh_after_id is not None:
+            self.after_cancel(self.blender_preview_refresh_after_id)
+        self.blender_preview_refresh_after_id = self.after(
+            250,
+            self._run_scheduled_blender_preview_refresh,
+        )
+
+    def _run_scheduled_blender_preview_refresh(self) -> None:
+        self.blender_preview_refresh_after_id = None
+        if self.blender_preview_refresh_running:
+            self._refresh_blender_preview_files_if_active()
+            return
+        self.blender_preview_refresh_running = True
         try:
             self._write_blender_preview_files()
         except Exception:
-            return
+            pass
+        finally:
+            self.blender_preview_refresh_running = False
 
     def _blender_preview_normal_node_strength(self) -> float:
         return 0.35 if self.texture_creator_blender_normal_var.get() else 0.0
@@ -7023,6 +7063,7 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_normal_strength_label_var.set(
             f"{self._texture_creator_normal_strength()}%"
         )
+        self._schedule_texture_creator_auto_refresh()
         self._refresh_blender_preview_files_if_active()
 
     def _on_texture_creator_blender_normal_changed(self) -> None:
@@ -7043,6 +7084,39 @@ class JerseyModderApp(tk.Tk):
 
     def _on_texture_creator_template_changed(self, _event: tk.Event | None = None) -> None:
         self._sync_texture_creator_template_controls()
+        self._schedule_texture_creator_auto_refresh()
+
+    def _on_texture_creator_options_changed(self, _event: tk.Event | None = None) -> None:
+        self._schedule_texture_creator_auto_refresh()
+
+    def _schedule_texture_creator_auto_refresh(self) -> None:
+        if self.texture_creator_source_var.get() != "Current generator design":
+            return
+        if self.texture_creator_refresh_after_id is not None:
+            self.after_cancel(self.texture_creator_refresh_after_id)
+        self.texture_creator_refresh_after_id = self.after(
+            180,
+            self._run_scheduled_texture_creator_auto_refresh,
+        )
+
+    def _run_scheduled_texture_creator_auto_refresh(self) -> None:
+        self.texture_creator_refresh_after_id = None
+        if self.texture_creator_refresh_running:
+            self._schedule_texture_creator_auto_refresh()
+            return
+        self.texture_creator_refresh_running = True
+        try:
+            updated = self._render_texture_creator_from_generator(
+                select_tab=False,
+                update_status=False,
+                show_errors=False,
+            )
+            if updated and hasattr(self, "texture_creator_status"):
+                self.texture_creator_status.configure(
+                    text="Texture Creator preview updated from the generator."
+                )
+        finally:
+            self.texture_creator_refresh_running = False
 
     def _sync_texture_creator_template_controls(self) -> None:
         is_shorts = self.texture_creator_garment_var.get() == "Shorts"
@@ -7237,6 +7311,7 @@ class JerseyModderApp(tk.Tk):
 
         self.generated_texture_path = output_path
         self._show_generated_preview(output_path)
+        self._schedule_texture_creator_auto_refresh()
         self._refresh_blender_preview_files_if_active()
         if update_status:
             self.generator_status.configure(text=f"Generated {output_path}.")
