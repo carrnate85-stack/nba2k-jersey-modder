@@ -2158,11 +2158,12 @@ class JerseyModderApp(tk.Tk):
         label_widget = ttk.Label(frame, text=label)
         label_widget.pack(side=tk.LEFT)
         self.generator_color_labels[key] = label_widget
+        initial_color = self.generator_color_vars[key].get()
         swatch = tk.Label(
             frame,
-            text="",
+            text="" if initial_color else "None",
             width=7,
-            background=self.generator_color_vars[key].get(),
+            background=initial_color or "#f0f0f0",
             relief=tk.SOLID,
             borderwidth=1,
         )
