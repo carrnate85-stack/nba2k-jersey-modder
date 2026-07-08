@@ -70,8 +70,16 @@ from .tweak_iff import (
 from .web_editor import WebEditorServer
 
 HEX_COLOR_RE = re.compile(r"^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
-FABRIC_OVERLAY_DIR = Path(__file__).resolve().parent.parent / "assets" / "overlays"
-TRIM_LIBRARY_DIR = Path(__file__).resolve().parent.parent / "trim_library"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+FABRIC_OVERLAY_DIR = PROJECT_ROOT / "assets" / "overlays"
+TRIM_LIBRARY_DIR = PROJECT_ROOT / "trim_library"
+BLENDER_PREVIEW_BLEND = PROJECT_ROOT / "blendermodels" / "jerseyretroU.blend"
+BLENDER_PREVIEW_SCRIPT = PROJECT_ROOT / "tools" / "blender_apply_jersey_preview.py"
+BLENDER_EXECUTABLE_CANDIDATES = (
+    Path(r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe"),
+    Path(r"C:\Program Files\Blender Foundation\Blender 5.0\blender.exe"),
+    Path(r"C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"),
+)
 TRIM_GENERATOR_KEYS = {
     "left_arm_hole_trim": "left_arm_hole_trim_image",
     "right_arm_hole_trim": "right_arm_hole_trim_image",
@@ -1848,14 +1856,19 @@ class JerseyModderApp(tk.Tk):
         ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
         ttk.Button(
             actions,
+            text="Open Blender Preview",
+            command=self.open_blender_preview,
+        ).grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            actions,
             text="Save PNG As",
             command=self.save_texture_creator_png_as,
-        ).grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        ).grid(row=3, column=0, sticky="ew", pady=(0, 8))
         ttk.Button(
             actions,
             text="Save DDS BC1 As",
             command=self.save_texture_creator_dds_as,
-        ).grid(row=3, column=0, sticky="ew")
+        ).grid(row=4, column=0, sticky="ew")
         actions.columnconfigure(0, weight=1)
 
         self.texture_creator_status = ttk.Label(
@@ -6577,6 +6590,87 @@ class JerseyModderApp(tk.Tk):
             text=f"Created {garment.lower()} {texture_type.lower()} from the generator."
         )
         self.tabs.select(self.texture_creator_tab)
+
+    def open_blender_preview(self) -> None:
+        if self.texture_creator_garment_var.get() != "Jersey":
+            messagebox.showinfo(
+                "Blender Preview",
+                "The current Blender preview is built for the retro jersey model. Shorts preview can be added once a shorts model is available.",
+            )
+            return
+        if not BLENDER_PREVIEW_BLEND.exists():
+            messagebox.showerror(
+                "Blender Preview",
+                f"Could not find the preview model:\n{BLENDER_PREVIEW_BLEND}",
+            )
+            return
+        if not BLENDER_PREVIEW_SCRIPT.exists():
+            messagebox.showerror(
+                "Blender Preview",
+                f"Could not find the Blender preview helper:\n{BLENDER_PREVIEW_SCRIPT}",
+            )
+            return
+        blender_path = self._find_blender_executable()
+        if blender_path is None:
+            messagebox.showinfo("Blender Preview", "Choose your blender.exe to open the preview.")
+            selected = filedialog.askopenfilename(
+                title="Choose blender.exe",
+                filetypes=(("Blender", "blender.exe"), ("All files", "*.*")),
+            )
+            if not selected:
+                return
+            blender_path = Path(selected)
+
+        output_dir = Path(tempfile.gettempdir()) / "nba2k_jersey_modder" / "blender_preview"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        color_path = output_dir / "jersey_preview_color.png"
+        normal_path = output_dir / "jersey_preview_normal.png"
+
+        try:
+            template = load_template(MASTER_TEMPLATE_ZONES)
+            inputs = self._generator_inputs()
+            color_image = render_jersey_texture(template, inputs)
+            normal_image = render_jersey_normal_map(
+                template,
+                inputs,
+                JERSEY_NORMAL_TEMPLATE_IMAGE,
+                normal_strength=self._texture_creator_normal_strength(),
+            )
+            color_image.save(color_path)
+            normal_image.save(normal_path)
+            subprocess.Popen(
+                [
+                    str(blender_path),
+                    str(BLENDER_PREVIEW_BLEND),
+                    "--python",
+                    str(BLENDER_PREVIEW_SCRIPT),
+                    "--",
+                    str(color_path),
+                    str(normal_path),
+                ],
+                cwd=str(PROJECT_ROOT),
+            )
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror("Blender Preview failed", str(exc))
+            return
+
+        self.texture_creator_source_var.set("Current generator design")
+        self.texture_creator_preview_path = color_path
+        self.texture_creator_source_path = None
+        self._show_texture_creator_preview()
+        self.texture_creator_status.configure(
+            text=f"Opened Blender preview with {color_path.name} and {normal_path.name}."
+        )
+        self.tabs.select(self.texture_creator_tab)
+
+    def _find_blender_executable(self) -> Path | None:
+        from_path = shutil.which("blender")
+        if from_path:
+            return Path(from_path)
+        for candidate in BLENDER_EXECUTABLE_CANDIDATES:
+            if candidate.exists():
+                return candidate
+        return None
 
     def _texture_creator_normal_strength(self) -> int:
         try:
