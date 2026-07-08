@@ -2350,6 +2350,9 @@ class JerseyModderApp(tk.Tk):
     def _trim_preview_background_color(self) -> str:
         return "#ffffff" if self.trim_creator_preview_bg_var.get() == "White" else "#000000"
 
+    def _trim_creator_preview_background(self) -> str:
+        return self._trim_preview_background_color()
+
     def _show_trim_creator_strip_preview(self, path: Path) -> None:
         self.trim_creator_current_strip_preview_path = path
         self.trim_creator_strip_preview.update_idletasks()
