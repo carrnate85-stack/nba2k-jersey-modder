@@ -744,30 +744,20 @@ class JerseyModderApp(tk.Tk):
             toolbar,
             text="Upload Jersey Mockup",
             command=self.load_trim_creator_mockup,
-        ).grid(row=0, column=0, sticky="ew")
+        ).grid(row=0, column=0, sticky="w")
         ttk.Button(
             toolbar,
-            text="Zoom -",
-            command=lambda: self.zoom_trim_creator_preview(0.67),
-        ).grid(row=0, column=1, sticky="ew", padx=(12, 0))
-        ttk.Label(toolbar, textvariable=self.trim_creator_zoom_label_var).grid(
-            row=0,
-            column=2,
-            padx=(6, 0),
-        )
-        ttk.Button(
-            toolbar,
-            text="Zoom +",
-            command=lambda: self.zoom_trim_creator_preview(1.5),
-        ).grid(row=0, column=3, sticky="ew", padx=(6, 0))
+            text="Save Trim PNG As",
+            command=self.save_selected_trim_strip_as,
+        ).grid(row=0, column=1, sticky="w", padx=(8, 0))
         self.trim_creator_status = ttk.Label(
             toolbar,
             text="Upload a jersey mockup image to detect collar and armhole trim.",
             style="Muted.TLabel",
             wraplength=360,
         )
-        self.trim_creator_status.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(6, 0))
-        toolbar.columnconfigure(0, weight=1)
+        self.trim_creator_status.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        toolbar.columnconfigure(1, weight=1)
         toolbar.bind(
             "<Configure>",
             lambda event: self.trim_creator_status.configure(
@@ -781,6 +771,20 @@ class JerseyModderApp(tk.Tk):
         trim_preview_panel.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         preview_controls = ttk.Frame(trim_preview_panel)
         preview_controls.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        ttk.Button(
+            preview_controls,
+            text="Zoom -",
+            command=lambda: self.zoom_trim_creator_preview(0.67),
+        ).pack(side=tk.LEFT)
+        ttk.Label(preview_controls, textvariable=self.trim_creator_zoom_label_var).pack(
+            side=tk.LEFT,
+            padx=(6, 0),
+        )
+        ttk.Button(
+            preview_controls,
+            text="Zoom +",
+            command=lambda: self.zoom_trim_creator_preview(1.5),
+        ).pack(side=tk.LEFT, padx=(6, 0))
         ttk.Label(preview_controls, text="Background").pack(side=tk.RIGHT, padx=(8, 0))
         preview_bg = ttk.Combobox(
             preview_controls,
@@ -843,7 +847,6 @@ class JerseyModderApp(tk.Tk):
         selected_actions = ttk.LabelFrame(left, text="Selected strip", padding=8)
         selected_actions.grid(row=3, column=0, sticky="ew")
         strip_actions = (
-            ("Save As", self.save_selected_trim_strip_as),
             ("Remove", self.remove_selected_trim_strips),
             ("Preview / Crop", self.open_selected_trim_crop_editor),
             ("Use in Generator", self.use_selected_trim_strip_in_generator),
