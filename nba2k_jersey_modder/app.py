@@ -417,20 +417,20 @@ class JerseyModderApp(tk.Tk):
         self.tabs = ttk.Notebook(root)
         self.tabs.pack(fill=tk.BOTH, expand=True)
 
-        self._build_textures_tab()
-        self._build_rdat_tab()
+        self._build_generator_tab()
         self._build_trim_creator_tab()
         self._build_trim_library_tab()
         self._build_logo_creator_tab()
         self._build_number_set_creator_tab()
         self._build_tweak_editor_tab()
-        self._build_generator_tab()
         self._build_texture_creator_tab()
+        self._build_rdat_tab()
+        self._build_textures_tab()
         self._build_template_tab()
 
     def _build_textures_tab(self) -> None:
         tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(tab, text="Textures")
+        self.tabs.add(tab, text="IFF Textures")
 
         columns = ("dds", "txtr", "status", "dds_offset", "txtr_offset", "source")
         self.textures = ttk.Treeview(tab, columns=columns, show="headings")
