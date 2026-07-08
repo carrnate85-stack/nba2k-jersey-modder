@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -74,6 +75,100 @@ def _apply_material_textures(
     links.new(normal_node.outputs["Normal"], bsdf.inputs["Normal"])
 
 
+def _preview_settings_from_scene() -> tuple[Path, Path | None, float]:
+    scene = bpy.context.scene
+    settings_path = scene.get("nba2k_preview_settings_path", "")
+    if settings_path:
+        path = Path(settings_path)
+        if path.exists():
+            try:
+                settings = json.loads(path.read_text(encoding="utf-8"))
+                color_path = Path(settings.get("color_path", ""))
+                normal_path = Path(settings.get("normal_path", ""))
+                normal_strength = float(settings.get("normal_strength", 0.0))
+                scene["nba2k_preview_color_path"] = str(color_path)
+                scene["nba2k_preview_normal_path"] = str(normal_path)
+                scene["nba2k_preview_normal_strength"] = normal_strength
+                if color_path.exists():
+                    return color_path, normal_path, normal_strength
+            except Exception as exc:  # noqa: BLE001 - Blender operator boundary.
+                print(f"[NBA 2K Preview] Could not read preview settings: {exc}")
+
+    color_path = Path(scene.get("nba2k_preview_color_path", ""))
+    normal_path = Path(scene.get("nba2k_preview_normal_path", ""))
+    normal_strength = float(scene.get("nba2k_preview_normal_strength", 0.0))
+    return color_path, normal_path, normal_strength
+
+
+def refresh_preview_from_scene() -> int:
+    color_path, normal_path, normal_strength = _preview_settings_from_scene()
+    if not color_path.exists():
+        raise FileNotFoundError(f"Color texture not found: {color_path}")
+    if normal_strength <= 0:
+        normal_path = None
+    elif normal_path is not None and not normal_path.exists():
+        raise FileNotFoundError(f"Normal texture not found: {normal_path}")
+
+    materials = _material_targets()
+    if not materials:
+        raise RuntimeError("No mesh material found to apply preview textures.")
+    for material in materials:
+        _apply_material_textures(material, color_path, normal_path, normal_strength)
+        print(f"[NBA 2K Preview] Refreshed material: {material.name}")
+    _setup_view()
+    return len(materials)
+
+
+class NBA2K_OT_refresh_preview(bpy.types.Operator):
+    bl_idname = "nba2k.refresh_preview"
+    bl_label = "Refresh Jersey Preview"
+    bl_description = "Reload the latest preview texture files exported by NBA 2K Jersey Modder"
+
+    def execute(self, context):
+        try:
+            count = refresh_preview_from_scene()
+        except Exception as exc:  # noqa: BLE001 - Blender operator boundary.
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Refreshed {count} material(s).")
+        return {"FINISHED"}
+
+
+class NBA2K_PT_preview_panel(bpy.types.Panel):
+    bl_label = "NBA 2K Preview"
+    bl_idname = "NBA2K_PT_preview_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Jersey Modder"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        layout.operator("nba2k.refresh_preview", icon="FILE_REFRESH")
+        color_path = Path(scene.get("nba2k_preview_color_path", ""))
+        normal_strength = float(scene.get("nba2k_preview_normal_strength", 0.0))
+        if color_path:
+            layout.label(text=f"Color: {color_path.name}")
+        layout.label(
+            text="Normal: On" if normal_strength > 0 else "Normal: Off"
+        )
+
+
+PREVIEW_CLASSES = (
+    NBA2K_OT_refresh_preview,
+    NBA2K_PT_preview_panel,
+)
+
+
+def register_preview_ui() -> None:
+    for cls in PREVIEW_CLASSES:
+        try:
+            bpy.utils.unregister_class(cls)
+        except RuntimeError:
+            pass
+        bpy.utils.register_class(cls)
+
+
 def _setup_view() -> None:
     for area in bpy.context.screen.areas:
         if area.type == "VIEW_3D":
@@ -92,18 +187,20 @@ def main() -> None:
     color_path = Path(args[0])
     normal_path = Path(args[1])
     normal_strength = float(args[2]) if len(args) >= 3 else 0.0
+    settings_path = Path(args[3]) if len(args) >= 4 else None
     if not color_path.exists():
         raise SystemExit(f"Color texture not found: {color_path}")
     if normal_strength > 0 and not normal_path.exists():
         raise SystemExit(f"Normal texture not found: {normal_path}")
 
-    materials = _material_targets()
-    if not materials:
-        raise SystemExit("No mesh material found to apply preview textures.")
-    for material in materials:
-        _apply_material_textures(material, color_path, normal_path, normal_strength)
-        print(f"[NBA 2K Preview] Applied textures to material: {material.name}")
-    _setup_view()
+    scene = bpy.context.scene
+    scene["nba2k_preview_color_path"] = str(color_path)
+    scene["nba2k_preview_normal_path"] = str(normal_path)
+    scene["nba2k_preview_normal_strength"] = normal_strength
+    if settings_path is not None:
+        scene["nba2k_preview_settings_path"] = str(settings_path)
+    register_preview_ui()
+    refresh_preview_from_scene()
 
 
 main()

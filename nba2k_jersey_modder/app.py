@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 import os
 from pathlib import Path
 import re
@@ -209,6 +210,7 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_normal_strength_var = tk.IntVar(value=15)
         self.texture_creator_normal_strength_label_var = tk.StringVar(value="15%")
         self.texture_creator_blender_normal_var = tk.BooleanVar(value=False)
+        self.blender_preview_live_refresh = False
         self.generator_number_preview_image: tk.PhotoImage | None = None
         self.generator_number_preview_enabled_var = tk.BooleanVar(value=True)
         self.generator_number_preview_text_var = tk.StringVar(value="15")
@@ -1987,6 +1989,7 @@ class JerseyModderApp(tk.Tk):
             normal_options,
             text="Use in Blender preview",
             variable=self.texture_creator_blender_normal_var,
+            command=self._on_texture_creator_blender_normal_changed,
         ).pack(side=tk.LEFT, padx=(12, 0))
 
         actions = ttk.Frame(controls)
@@ -6889,26 +6892,8 @@ class JerseyModderApp(tk.Tk):
                 return
             blender_path = Path(selected)
 
-        output_dir = Path(tempfile.gettempdir()) / "nba2k_jersey_modder" / "blender_preview"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        color_path = output_dir / "jersey_preview_color.png"
-        normal_path = output_dir / "jersey_preview_normal.png"
-
         try:
-            template = self._texture_creator_template()
-            inputs = self._generator_inputs()
-            color_image = render_jersey_texture(template, inputs)
-            normal_image = render_jersey_normal_map(
-                template,
-                inputs,
-                JERSEY_NORMAL_TEMPLATE_IMAGE,
-                normal_strength=self._texture_creator_normal_strength(),
-            )
-            color_image.save(color_path)
-            normal_image.save(normal_path)
-            blender_normal_strength = (
-                "0.35" if self.texture_creator_blender_normal_var.get() else "0"
-            )
+            color_path, normal_path, settings_path = self._write_blender_preview_files()
             subprocess.Popen(
                 [
                     str(blender_path),
@@ -6918,10 +6903,12 @@ class JerseyModderApp(tk.Tk):
                     "--",
                     str(color_path),
                     str(normal_path),
-                    blender_normal_strength,
+                    str(self._blender_preview_normal_node_strength()),
+                    str(settings_path),
                 ],
                 cwd=str(PROJECT_ROOT),
             )
+            self.blender_preview_live_refresh = True
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
             messagebox.showerror("Blender Preview failed", str(exc))
             return
@@ -6939,6 +6926,54 @@ class JerseyModderApp(tk.Tk):
             text=f"Opened Blender preview {preview_mode}."
         )
         self.tabs.select(self.texture_creator_tab)
+
+    def _blender_preview_output_paths(self) -> tuple[Path, Path, Path]:
+        output_dir = Path(tempfile.gettempdir()) / "nba2k_jersey_modder" / "blender_preview"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return (
+            output_dir / "jersey_preview_color.png",
+            output_dir / "jersey_preview_normal.png",
+            output_dir / "preview_settings.json",
+        )
+
+    def _write_blender_preview_files(self) -> tuple[Path, Path, Path]:
+        color_path, normal_path, settings_path = self._blender_preview_output_paths()
+        template = self._texture_creator_template()
+        inputs = self._generator_inputs()
+        color_image = render_jersey_texture(template, inputs)
+        normal_image = render_jersey_normal_map(
+            template,
+            inputs,
+            JERSEY_NORMAL_TEMPLATE_IMAGE,
+            normal_strength=self._texture_creator_normal_strength(),
+        )
+        color_image.save(color_path)
+        normal_image.save(normal_path)
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "color_path": str(color_path),
+                    "normal_path": str(normal_path),
+                    "normal_strength": self._blender_preview_normal_node_strength(),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return color_path, normal_path, settings_path
+
+    def _refresh_blender_preview_files_if_active(self) -> None:
+        if not self.blender_preview_live_refresh:
+            return
+        if self.texture_creator_garment_var.get() != "Jersey":
+            return
+        try:
+            self._write_blender_preview_files()
+        except Exception:
+            return
+
+    def _blender_preview_normal_node_strength(self) -> float:
+        return 0.35 if self.texture_creator_blender_normal_var.get() else 0.0
 
     def _find_blender_executable(self) -> Path | None:
         from_path = shutil.which("blender")
@@ -6960,6 +6995,10 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_normal_strength_label_var.set(
             f"{self._texture_creator_normal_strength()}%"
         )
+        self._refresh_blender_preview_files_if_active()
+
+    def _on_texture_creator_blender_normal_changed(self) -> None:
+        self._refresh_blender_preview_files_if_active()
 
     def _texture_creator_template(self) -> JerseyTemplate:
         if self.texture_creator_garment_var.get() == "Shorts":
@@ -7170,6 +7209,7 @@ class JerseyModderApp(tk.Tk):
 
         self.generated_texture_path = output_path
         self._show_generated_preview(output_path)
+        self._refresh_blender_preview_files_if_active()
         if update_status:
             self.generator_status.configure(text=f"Generated {output_path}.")
         if select_tab:
