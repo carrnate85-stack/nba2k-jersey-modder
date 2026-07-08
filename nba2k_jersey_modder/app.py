@@ -80,6 +80,7 @@ BLENDER_EXECUTABLE_CANDIDATES = (
     Path(r"C:\Program Files\Blender Foundation\Blender 5.0\blender.exe"),
     Path(r"C:\Program Files\Blender Foundation\Blender 4.4\blender.exe"),
 )
+JERSEY_CUT_OPTIONS = ("Retro U",)
 TRIM_GENERATOR_KEYS = {
     "left_arm_hole_trim": "left_arm_hole_trim_image",
     "right_arm_hole_trim": "right_arm_hole_trim_image",
@@ -144,6 +145,7 @@ class JerseyModderApp(tk.Tk):
         self.template_preview_id: int | None = None
         self.template_mouse_coord_var = tk.StringVar(value="Mouse: --")
         self.template_garment_var = tk.StringVar(value="Jersey")
+        self.template_jersey_cut_var = tk.StringVar(value="Retro U")
         self.template_jersey_template_var = tk.StringVar(value="Jersey color")
         self.template_shorts_template_var = tk.StringVar(value="Retro shorts")
         self.zone_x_var = tk.IntVar(value=0)
@@ -458,6 +460,24 @@ class JerseyModderApp(tk.Tk):
             width=10,
         )
         self.template_garment_box.pack(side=tk.LEFT, padx=(6, 8))
+        self.template_cut_slot = ttk.Frame(toolbar)
+        self.template_cut_slot.pack(side=tk.LEFT, padx=(0, 8))
+        self.template_jersey_cut_box = ttk.Combobox(
+            self.template_cut_slot,
+            textvariable=self.template_jersey_cut_var,
+            values=JERSEY_CUT_OPTIONS,
+            state="readonly",
+            width=14,
+        )
+        self.template_shorts_template_box = ttk.Combobox(
+            self.template_cut_slot,
+            textvariable=self.template_shorts_template_var,
+            values=tuple(SHORTS_TEMPLATE_OPTIONS),
+            state="readonly",
+            width=14,
+        )
+        self.template_map_label = ttk.Label(toolbar, text="Map")
+        self.template_map_label.pack(side=tk.LEFT, padx=(0, 6))
         self.template_jersey_template_box = ttk.Combobox(
             toolbar,
             textvariable=self.template_jersey_template_var,
@@ -466,15 +486,11 @@ class JerseyModderApp(tk.Tk):
             width=14,
         )
         self.template_jersey_template_box.pack(side=tk.LEFT, padx=(0, 8))
-        self.template_shorts_template_box = ttk.Combobox(
-            toolbar,
-            textvariable=self.template_shorts_template_var,
-            values=tuple(SHORTS_TEMPLATE_OPTIONS),
-            state="disabled",
-            width=14,
-        )
-        self.template_shorts_template_box.pack(side=tk.LEFT, padx=(0, 8))
         self.template_garment_box.bind("<<ComboboxSelected>>", self._on_template_master_choice_changed)
+        self.template_jersey_cut_box.bind(
+            "<<ComboboxSelected>>",
+            self._on_template_master_choice_changed,
+        )
         self.template_jersey_template_box.bind(
             "<<ComboboxSelected>>",
             self._on_template_master_choice_changed,
@@ -483,6 +499,7 @@ class JerseyModderApp(tk.Tk):
             "<<ComboboxSelected>>",
             self._on_template_master_choice_changed,
         )
+        self._sync_template_master_controls()
         ttk.Button(
             toolbar,
             text="Load Master Template",
@@ -7573,13 +7590,29 @@ class JerseyModderApp(tk.Tk):
     def _current_template_master_label(self) -> str:
         if self.template_garment_var.get() == "Shorts":
             return self.template_shorts_template_var.get()
-        return self.template_jersey_template_var.get()
+        return (
+            f"{self.template_jersey_cut_var.get()} / "
+            f"{self.template_jersey_template_var.get()}"
+        )
 
     def _on_template_master_choice_changed(self, _event: tk.Event | None = None) -> None:
-        is_shorts = self.template_garment_var.get() == "Shorts"
-        self.template_jersey_template_box.configure(state="disabled" if is_shorts else "readonly")
-        self.template_shorts_template_box.configure(state="readonly" if is_shorts else "disabled")
+        self._sync_template_master_controls()
         self.load_master_template()
+
+    def _sync_template_master_controls(self) -> None:
+        is_shorts = self.template_garment_var.get() == "Shorts"
+        if is_shorts:
+            if self.template_jersey_cut_box.winfo_manager():
+                self.template_jersey_cut_box.pack_forget()
+            if not self.template_shorts_template_box.winfo_manager():
+                self.template_shorts_template_box.pack(side=tk.LEFT)
+            self.template_jersey_template_box.configure(state="disabled")
+        else:
+            if self.template_shorts_template_box.winfo_manager():
+                self.template_shorts_template_box.pack_forget()
+            if not self.template_jersey_cut_box.winfo_manager():
+                self.template_jersey_cut_box.pack(side=tk.LEFT)
+            self.template_jersey_template_box.configure(state="readonly")
 
     def choose_zone_color(self) -> None:
         color = colorchooser.askcolor(color=self.zone_color_var.get())[1]
