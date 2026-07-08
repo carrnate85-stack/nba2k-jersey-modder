@@ -267,6 +267,7 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_preview_bg_var = tk.StringVar(value="Black")
         self.trim_creator_upscale_var = tk.StringVar(value="2x")
         self.trim_creator_sharpen_var = tk.BooleanVar(value=True)
+        self.trim_creator_color_correct_after_stage_var = tk.BooleanVar(value=False)
         self.trim_creator_zoom_label_var = tk.StringVar(value="100%")
         self.trim_library_target_var = tk.StringVar(value="collar_trim")
         self.trim_library_preview_image: tk.PhotoImage | None = None
@@ -823,8 +824,23 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_strip_preview.grid(row=1, column=0, sticky="ew")
         trim_preview_panel.columnconfigure(0, weight=1)
 
+        cleanup_panel = ttk.LabelFrame(left, text="Cleanup", padding=8)
+        cleanup_panel.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        ttk.Checkbutton(
+            cleanup_panel,
+            text="Sharpen upscaled trims",
+            variable=self.trim_creator_sharpen_var,
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Checkbutton(
+            cleanup_panel,
+            text="Color correction after staging",
+            variable=self.trim_creator_color_correct_after_stage_var,
+            command=self._on_trim_creator_color_correct_toggle,
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        cleanup_panel.columnconfigure(0, weight=1)
+
         trim_workflow = ttk.Frame(left)
-        trim_workflow.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        trim_workflow.grid(row=4, column=0, sticky="ew", pady=(0, 10))
         trim_workflow_actions = (
             ("Stage Current Trim", self.generate_trim_creator_line_strip),
             ("Send Staged to Generator", self.send_staged_trims_to_generator),
@@ -842,7 +858,7 @@ class JerseyModderApp(tk.Tk):
         trim_workflow.columnconfigure(0, weight=1)
 
         staged_trims = ttk.LabelFrame(left, text="Staged Trims", padding=8)
-        staged_trims.grid(row=4, column=0, sticky="nsew", pady=(0, 10))
+        staged_trims.grid(row=5, column=0, sticky="nsew", pady=(0, 10))
         self.trim_creator_list = ttk.Treeview(
             staged_trims,
             columns=("bbox", "file"),
@@ -863,7 +879,7 @@ class JerseyModderApp(tk.Tk):
         staged_trims.columnconfigure(0, weight=1)
 
         selected_actions = ttk.Frame(left)
-        selected_actions.grid(row=5, column=0, sticky="ew")
+        selected_actions.grid(row=6, column=0, sticky="ew")
         strip_actions = (
             ("Remove Selected", self.remove_selected_trim_strips),
             ("Clear Boxes", self.clear_trim_creator_boxes),
@@ -878,7 +894,7 @@ class JerseyModderApp(tk.Tk):
         selected_actions.columnconfigure(0, weight=1)
         selected_actions.columnconfigure(1, weight=1)
 
-        left.rowconfigure(4, weight=1)
+        left.rowconfigure(5, weight=1)
         left.columnconfigure(0, weight=1)
 
         preview_frame = ttk.Frame(tab)
@@ -2569,9 +2585,13 @@ class JerseyModderApp(tk.Tk):
         ]
         self.trim_creator_results.append(result)
         self._populate_trim_creator_results()
-        self.trim_creator_list.selection_set(f"trim:{len(self.trim_creator_results) - 1}")
+        new_iid = f"trim:{len(self.trim_creator_results) - 1}"
+        self.trim_creator_list.selection_set(new_iid)
+        self.trim_creator_list.focus(new_iid)
         self._show_trim_creator_preview()
         self.trim_creator_status.configure(text=f"Staged {_human_label(target_name)} from line.")
+        if self.trim_creator_color_correct_after_stage_var.get():
+            self.open_selected_trim_color_corrector()
 
     def _write_trim_creator_line_strip(self, output_path: Path) -> None:
         if self.trim_creator_image_path is None or self.trim_creator_line is None:
@@ -2726,6 +2746,16 @@ class JerseyModderApp(tk.Tk):
             if 0 <= index < len(self.trim_creator_results):
                 indexes.append(index)
         return sorted(set(indexes))
+
+    def _on_trim_creator_color_correct_toggle(self) -> None:
+        if not self.trim_creator_color_correct_after_stage_var.get():
+            return
+        if self._selected_trim_creator_result() is not None:
+            self.open_selected_trim_color_corrector()
+            return
+        self.trim_creator_status.configure(
+            text="Color correction will open after the next trim is staged."
+        )
 
     def remove_selected_trim_strips(self) -> str:
         indexes = self._selected_trim_creator_indexes()
