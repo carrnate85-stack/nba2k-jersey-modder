@@ -959,21 +959,26 @@ class JerseyModderApp(tk.Tk):
 
         preview_frame = ttk.Frame(tab)
         preview_frame.grid(row=1, column=1, sticky="nsew")
+        ttk.Button(
+            preview_frame,
+            text="Preview / Crop Selected Trim",
+            command=self.open_selected_trim_crop_editor,
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self.trim_creator_canvas = tk.Canvas(preview_frame, background="#20242b")
         self.trim_creator_canvas.configure(cursor="crosshair")
-        self.trim_creator_canvas.grid(row=0, column=0, sticky="nsew")
+        self.trim_creator_canvas.grid(row=1, column=0, sticky="nsew")
         trim_v_scroll = ttk.Scrollbar(
             preview_frame,
             orient=tk.VERTICAL,
             command=self.trim_creator_canvas.yview,
         )
-        trim_v_scroll.grid(row=0, column=1, sticky="ns")
+        trim_v_scroll.grid(row=1, column=1, sticky="ns")
         trim_h_scroll = ttk.Scrollbar(
             preview_frame,
             orient=tk.HORIZONTAL,
             command=self.trim_creator_canvas.xview,
         )
-        trim_h_scroll.grid(row=1, column=0, sticky="ew")
+        trim_h_scroll.grid(row=2, column=0, sticky="ew")
         self.trim_creator_canvas.configure(
             xscrollcommand=trim_h_scroll.set,
             yscrollcommand=trim_v_scroll.set,
@@ -988,7 +993,7 @@ class JerseyModderApp(tk.Tk):
             "<Configure>",
             lambda _event: self._show_trim_creator_preview(),
         )
-        preview_frame.rowconfigure(0, weight=1)
+        preview_frame.rowconfigure(1, weight=1)
         preview_frame.columnconfigure(0, weight=1)
 
         tab.columnconfigure(0, minsize=340)
@@ -1096,11 +1101,6 @@ class JerseyModderApp(tk.Tk):
         ).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(
             toolbar,
-            text="Open Web Selector",
-            command=self.open_logo_creator_web_selector,
-        ).pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(
-            toolbar,
             text="Save Logo PNG As",
             command=self.save_logo_creator_png_as,
         ).pack(side=tk.LEFT, padx=(8, 0))
@@ -1119,8 +1119,14 @@ class JerseyModderApp(tk.Tk):
         left = ttk.Frame(tab)
         left.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
 
+        ttk.Button(
+            left,
+            text="Open Web Selector",
+            command=self.open_logo_creator_web_selector,
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
         reference_frame = ttk.LabelFrame(left, text="Reference", padding=6)
-        reference_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
+        reference_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
         canvas_frame = ttk.Frame(reference_frame)
         canvas_frame.grid(row=0, column=0, sticky="nsew")
         self.logo_creator_canvas = tk.Canvas(canvas_frame, background="#20242b")
@@ -1154,7 +1160,7 @@ class JerseyModderApp(tk.Tk):
         reference_frame.columnconfigure(0, weight=1)
 
         preview_controls = ttk.Frame(left)
-        preview_controls.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        preview_controls.grid(row=2, column=0, sticky="ew", pady=(0, 8))
         self.logo_creator_preview_toggle_button = ttk.Button(
             preview_controls,
             text="Show Preview",
@@ -1173,7 +1179,7 @@ class JerseyModderApp(tk.Tk):
         bg_choice.bind("<<ComboboxSelected>>", lambda _event: self._show_logo_creator_logo_preview())
 
         logo_preview_frame = ttk.LabelFrame(left, text="Created Logo Preview", padding=6)
-        logo_preview_frame.grid(row=2, column=0, sticky="nsew")
+        logo_preview_frame.grid(row=3, column=0, sticky="nsew")
         self.logo_creator_logo_preview_frame = logo_preview_frame
         self.logo_creator_logo_preview = tk.Canvas(
             logo_preview_frame,
@@ -1189,8 +1195,8 @@ class JerseyModderApp(tk.Tk):
         logo_preview_frame.rowconfigure(0, weight=1)
         logo_preview_frame.columnconfigure(0, weight=1)
         self._sync_logo_creator_preview_visibility()
-        left.rowconfigure(0, weight=1)
-        left.rowconfigure(2, weight=0)
+        left.rowconfigure(1, weight=1)
+        left.rowconfigure(3, weight=0)
         left.columnconfigure(0, weight=1)
 
         side = ttk.Frame(tab)
