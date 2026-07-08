@@ -1701,8 +1701,8 @@ class JerseyModderApp(tk.Tk):
         self.generator_color_vars: dict[str, tk.StringVar] = {
             "front_color": tk.StringVar(value="#ffffff"),
             "back_color": tk.StringVar(value="#ffffff"),
-            "left_panel_color": tk.StringVar(value="#ffffff"),
-            "right_panel_color": tk.StringVar(value="#ffffff"),
+            "left_panel_color": tk.StringVar(value=""),
+            "right_panel_color": tk.StringVar(value=""),
             "collar_background_color": tk.StringVar(value="#ffffff"),
             "left_arm_hole_trim_color": tk.StringVar(value="#ffffff"),
             "right_arm_hole_trim_color": tk.StringVar(value="#ffffff"),
