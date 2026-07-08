@@ -4048,21 +4048,13 @@ class JerseyModderApp(tk.Tk):
         if not selected:
             return
         self.logo_creator_image_path = Path(selected)
-        try:
-            self.logo_creator_web_reference_path = self._write_logo_creator_web_reference_copy(
-                self.logo_creator_image_path
-            )
-        except Exception as exc:  # noqa: BLE001 - GUI boundary.
-            self.logo_creator_web_reference_path = None
-            messagebox.showerror("Logo Creator", f"Could not prepare web selector image.\n\n{exc}")
-            return
+        self.logo_creator_web_reference_path = None
         self.logo_creator_lasso_points = []
         self.logo_creator_drag_start = None
         self.logo_creator_output_path = None
         self._show_logo_creator_reference()
-        self.update_logo_creator_preview()
         self.logo_creator_status.configure(
-            text=f"Loaded reference for desktop and web selector: {Path(selected).name}"
+            text=f"Loaded reference: {Path(selected).name}. Select an area or use Preview to create a logo."
         )
         self.tabs.select(self.logo_creator_tab)
 
@@ -4096,11 +4088,14 @@ class JerseyModderApp(tk.Tk):
         canvas_width = max(1, self.logo_creator_canvas.winfo_width())
         canvas_height = max(1, self.logo_creator_canvas.winfo_height())
         with Image.open(self.logo_creator_image_path) as opened:
-            image = opened.convert("RGBA")
-            scale = min(canvas_width / image.width, canvas_height / image.height, 1.0)
-            shown_width = max(1, round(image.width * scale))
-            shown_height = max(1, round(image.height * scale))
-            shown = image.resize((shown_width, shown_height), Image.Resampling.LANCZOS)
+            source_width, source_height = opened.size
+            scale = min(canvas_width / source_width, canvas_height / source_height, 1.0)
+            shown_width = max(1, round(source_width * scale))
+            shown_height = max(1, round(source_height * scale))
+            opened.thumbnail((shown_width, shown_height), Image.Resampling.LANCZOS)
+            shown = opened.convert("RGBA")
+            if shown.size != (shown_width, shown_height):
+                shown = shown.resize((shown_width, shown_height), Image.Resampling.LANCZOS)
         left = max(10, (canvas_width - shown_width) // 2)
         top = max(10, (canvas_height - shown_height) // 2)
         self.logo_creator_image_rect = (left, top, shown_width, shown_height)
@@ -4689,20 +4684,7 @@ class JerseyModderApp(tk.Tk):
         reference_path = self._logo_creator_web_reference_source()
         if reference_path is None:
             raise FileNotFoundError("No logo reference image is loaded.")
-        try:
-            from PIL import Image
-        except ImportError as exc:
-            raise RuntimeError("Logo selector requires Pillow.") from exc
-        output_path = (
-            Path(tempfile.gettempdir())
-            / "nba2k_jersey_modder"
-            / "logo_creator"
-            / "reference.png"
-        )
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with Image.open(reference_path) as opened:
-            opened.convert("RGBA").save(output_path)
-        return output_path.read_bytes(), "image/png"
+        return reference_path.read_bytes(), image_content_type(reference_path)
 
     def _logo_creator_web_reference_source(self) -> Path | None:
         if (
@@ -4714,13 +4696,7 @@ class JerseyModderApp(tk.Tk):
             self.logo_creator_image_path is not None
             and self.logo_creator_image_path.exists()
         ):
-            try:
-                self.logo_creator_web_reference_path = self._write_logo_creator_web_reference_copy(
-                    self.logo_creator_image_path
-                )
-                return self.logo_creator_web_reference_path
-            except Exception:  # noqa: BLE001 - fallback handled by caller.
-                return self.logo_creator_image_path
+            return self.logo_creator_image_path
         return None
 
     def _logo_creator_web_lasso(self, payload: dict) -> None:
@@ -9630,6 +9606,19 @@ def read_image_size(path: Path) -> tuple[int, int]:
 
     with Image.open(path) as image:
         return image.size
+
+
+def image_content_type(path: Path) -> str:
+    extension = path.suffix.lower()
+    if extension in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if extension == ".webp":
+        return "image/webp"
+    if extension == ".gif":
+        return "image/gif"
+    if extension == ".bmp":
+        return "image/bmp"
+    return "image/png"
 
 
 def load_scaled_photo_image(path: Path, width: int, height: int) -> tk.PhotoImage:
