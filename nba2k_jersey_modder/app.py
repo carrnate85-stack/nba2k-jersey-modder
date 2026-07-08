@@ -1347,8 +1347,24 @@ class JerseyModderApp(tk.Tk):
         )
         self.number_creator_status.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(16, 0))
 
+        preview_frame = ttk.Frame(tab)
+        preview_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
+        ttk.Label(
+            preview_frame,
+            text="Number preview",
+            style="Status.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        self.number_creator_preview = tk.Canvas(
+            preview_frame,
+            background="#20242b",
+            highlightthickness=0,
+        )
+        self.number_creator_preview.grid(row=1, column=0, sticky="nsew")
+        preview_frame.rowconfigure(1, weight=1)
+        preview_frame.columnconfigure(0, weight=1)
+
         side = ttk.Frame(tab)
-        side.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
+        side.grid(row=1, column=1, sticky="nsew")
 
         recolor = ttk.LabelFrame(side, text="Number Recolor", padding=8)
         recolor.grid(row=0, column=0, sticky="ew", pady=(0, 10))
@@ -1454,25 +1470,9 @@ class JerseyModderApp(tk.Tk):
         ).grid(row=0, column=0, sticky="ew")
         font_tools.columnconfigure(0, weight=1)
 
-        preview_frame = ttk.Frame(tab)
-        preview_frame.grid(row=1, column=1, sticky="nsew")
-        ttk.Label(
-            preview_frame,
-            text="Font preview",
-            style="Status.TLabel",
-        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
-        self.number_creator_preview = tk.Canvas(
-            preview_frame,
-            background="#20242b",
-            highlightthickness=0,
-        )
-        self.number_creator_preview.grid(row=1, column=0, sticky="nsew")
-        preview_frame.rowconfigure(1, weight=1)
-        preview_frame.columnconfigure(0, weight=1)
-
         side.columnconfigure(0, weight=1)
-        tab.columnconfigure(0, minsize=390)
-        tab.columnconfigure(1, weight=1)
+        tab.columnconfigure(0, weight=1)
+        tab.columnconfigure(1, minsize=390)
         tab.rowconfigure(1, weight=1)
 
     def _build_tweak_editor_tab(self) -> None:
