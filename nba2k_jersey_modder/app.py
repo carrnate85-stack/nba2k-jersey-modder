@@ -747,7 +747,7 @@ class JerseyModderApp(tk.Tk):
         ).grid(row=0, column=0, sticky="ew")
         ttk.Button(
             toolbar,
-            text="Generate From Line",
+            text="Stage Current Trim",
             command=self.generate_trim_creator_line_strip,
         ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
         ttk.Label(toolbar, text="Target").grid(row=0, column=2, sticky="e", padx=(12, 4))
@@ -826,6 +826,8 @@ class JerseyModderApp(tk.Tk):
             ("Correct", self.correct_selected_trim_strip),
             ("Color Correct", self.open_selected_trim_color_corrector),
             ("Upscale", self.upscale_selected_trim_strip),
+            ("Create AI Pack", self.create_trim_ai_reference_pack),
+            ("Import AI Trim", self.import_ai_trim_strip),
         )
         for index, (label, command) in enumerate(strip_actions):
             row, column = divmod(index, 2)
@@ -839,151 +841,57 @@ class JerseyModderApp(tk.Tk):
         selected_actions.columnconfigure(0, weight=1)
         selected_actions.columnconfigure(1, weight=1)
 
-        ttk.Label(left, text="Detected strips", style="Status.TLabel").grid(
-            row=2, column=0, sticky=tk.W, pady=(0, 8)
-        )
+        staged_trims = ttk.LabelFrame(left, text="Staged Trims", padding=8)
+        staged_trims.grid(row=2, column=0, sticky="nsew")
         self.trim_creator_list = ttk.Treeview(
-            left,
+            staged_trims,
             columns=("bbox", "file"),
             show="tree headings",
-            height=16,
+            height=18,
         )
         self.trim_creator_list.heading("#0", text="Trim")
-        self.trim_creator_list.heading("bbox", text="Detected Box")
+        self.trim_creator_list.heading("bbox", text="Selection")
         self.trim_creator_list.heading("file", text="Strip PNG")
         self.trim_creator_list.column("#0", width=120, minwidth=80)
         self.trim_creator_list.column("bbox", width=110, minwidth=80)
         self.trim_creator_list.column("file", width=160, minwidth=110)
-        self.trim_creator_list.grid(row=3, column=0, sticky="nsew")
+        self.trim_creator_list.grid(row=0, column=0, sticky="nsew")
         self.trim_creator_list.bind("<<TreeviewSelect>>", self._on_trim_creator_result_select)
         self.trim_creator_list.bind("<Double-1>", self._open_trim_creator_editor_from_click)
         self.trim_creator_list.bind("<Delete>", lambda _event: self.remove_selected_trim_strips())
+        staged_trims.rowconfigure(0, weight=1)
+        staged_trims.columnconfigure(0, weight=1)
 
-        precision = ttk.LabelFrame(left, text="Line precision", padding=8)
-        precision.grid(row=4, column=0, sticky="ew", pady=(10, 0))
-        ttk.Combobox(
-            precision,
-            textvariable=self.trim_creator_nudge_target_var,
-            values=("Whole line", "Start point", "End point"),
-            state="readonly",
-            width=14,
-        ).grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 6))
-        ttk.Button(
-            precision,
-            text="Up",
-            command=lambda: self.nudge_trim_creator_line(0, -1),
-        ).grid(row=1, column=1, sticky="ew")
-        ttk.Button(
-            precision,
-            text="Left",
-            command=lambda: self.nudge_trim_creator_line(-1, 0),
-        ).grid(row=2, column=0, sticky="ew", padx=(0, 4))
-        ttk.Button(
-            precision,
-            text="Right",
-            command=lambda: self.nudge_trim_creator_line(1, 0),
-        ).grid(row=2, column=2, sticky="ew", padx=(4, 0))
-        ttk.Button(
-            precision,
-            text="Down",
-            command=lambda: self.nudge_trim_creator_line(0, 1),
-        ).grid(row=3, column=1, sticky="ew")
-        ttk.Button(
-            precision,
-            text="Clear Line",
-            command=self.clear_trim_creator_line,
-        ).grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        crop_frame = ttk.Frame(precision)
-        crop_frame.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        ttk.Label(crop_frame, text="Crop top").grid(row=0, column=0, sticky="w")
-        tk.Spinbox(
-            crop_frame,
-            from_=-32,
-            to=63,
-            increment=1,
-            width=5,
-            textvariable=self.trim_creator_crop_top_var,
-            command=self.refresh_trim_creator_line_preview,
-        ).grid(row=0, column=1, sticky="ew", padx=(6, 10))
-        ttk.Label(crop_frame, text="bottom").grid(row=0, column=2, sticky="w")
-        tk.Spinbox(
-            crop_frame,
-            from_=-32,
-            to=63,
-            increment=1,
-            width=5,
-            textvariable=self.trim_creator_crop_bottom_var,
-            command=self.refresh_trim_creator_line_preview,
-        ).grid(row=0, column=3, sticky="ew", padx=(6, 0))
-        ttk.Button(
-            precision,
-            text="Update Preview",
-            command=self.refresh_trim_creator_line_preview,
-        ).grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        upscale_frame = ttk.Frame(precision)
-        upscale_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        ttk.Label(upscale_frame, text="Upscale").pack(side=tk.LEFT)
-        ttk.Combobox(
-            upscale_frame,
-            textvariable=self.trim_creator_upscale_var,
-            values=("1x", "2x", "4x"),
-            state="readonly",
-            width=6,
-        ).pack(side=tk.LEFT, padx=(8, 8))
-        ttk.Checkbutton(
-            upscale_frame,
-            text="Sharpen",
-            variable=self.trim_creator_sharpen_var,
-        ).pack(side=tk.LEFT)
-        ai_frame = ttk.LabelFrame(precision, text="AI Assist", padding=8)
-        ai_frame.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(10, 0))
-        ttk.Button(
-            ai_frame,
-            text="Create AI Trim Pack",
-            command=self.create_trim_ai_reference_pack,
-        ).grid(row=0, column=0, sticky="ew")
-        ttk.Button(
-            ai_frame,
-            text="Import AI Trim",
-            command=self.import_ai_trim_strip,
-        ).grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        ttk.Label(
-            ai_frame,
-            text="Uses the selected strip as the reference and imports the AI-cleaned PNG as a new trim.",
-            style="Muted.TLabel",
-            wraplength=280,
-        ).grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        ai_frame.columnconfigure(0, weight=1)
-        crop_frame.columnconfigure(1, weight=1)
-        crop_frame.columnconfigure(3, weight=1)
-        for index in range(3):
-            precision.columnconfigure(index, weight=1)
-
-        left.rowconfigure(3, weight=1)
+        left.rowconfigure(2, weight=1)
         left.columnconfigure(0, weight=1)
 
         preview_frame = ttk.Frame(tab)
         preview_frame.grid(row=1, column=1, sticky="nsew")
         ttk.Button(
             preview_frame,
+            text="Open Web Selector",
+            command=self.open_trim_creator_web_selector,
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            preview_frame,
             text="Preview / Crop Selected Trim",
             command=self.open_selected_trim_crop_editor,
-        ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self.trim_creator_canvas = tk.Canvas(preview_frame, background="#20242b")
         self.trim_creator_canvas.configure(cursor="crosshair")
-        self.trim_creator_canvas.grid(row=1, column=0, sticky="nsew")
+        self.trim_creator_canvas.grid(row=2, column=0, sticky="nsew")
         trim_v_scroll = ttk.Scrollbar(
             preview_frame,
             orient=tk.VERTICAL,
             command=self.trim_creator_canvas.yview,
         )
-        trim_v_scroll.grid(row=1, column=1, sticky="ns")
+        trim_v_scroll.grid(row=2, column=1, sticky="ns")
         trim_h_scroll = ttk.Scrollbar(
             preview_frame,
             orient=tk.HORIZONTAL,
             command=self.trim_creator_canvas.xview,
         )
-        trim_h_scroll.grid(row=2, column=0, sticky="ew")
+        trim_h_scroll.grid(row=3, column=0, sticky="ew")
         self.trim_creator_canvas.configure(
             xscrollcommand=trim_h_scroll.set,
             yscrollcommand=trim_v_scroll.set,
@@ -998,7 +906,7 @@ class JerseyModderApp(tk.Tk):
             "<Configure>",
             lambda _event: self._show_trim_creator_preview(),
         )
-        preview_frame.rowconfigure(1, weight=1)
+        preview_frame.rowconfigure(2, weight=1)
         preview_frame.columnconfigure(0, weight=1)
 
         tab.columnconfigure(0, minsize=340)
@@ -2489,6 +2397,98 @@ class JerseyModderApp(tk.Tk):
         ).pack(side=tk.LEFT, padx=(8, 0))
         frame.columnconfigure(0, weight=1)
 
+    def open_trim_creator_web_selector(self) -> None:
+        if self.trim_creator_image_path is None:
+            messagebox.showinfo("Trim Creator", "Upload a jersey mockup first.")
+            return
+        try:
+            if self.web_editor_server is None:
+                self.web_editor_server = WebEditorServer(self)
+            url = self.web_editor_server.start().rstrip("/") + "/trim"
+            webbrowser.open(url)
+            self.trim_creator_status.configure(text=f"Trim web selector opened at {url}")
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror("Trim web selector failed", str(exc))
+
+    def _trim_creator_web_project(self) -> dict:
+        if (
+            self.trim_creator_image_path is None
+            or not self.trim_creator_image_path.exists()
+        ):
+            return {
+                "hasImage": False,
+                "width": 0,
+                "height": 0,
+                "imageUrl": "/api/trim/mockup",
+                "message": "No trim mockup is loaded.",
+                "line": None,
+            }
+        try:
+            from PIL import Image
+        except ImportError as exc:
+            raise RuntimeError("Trim selector requires Pillow.") from exc
+        with Image.open(self.trim_creator_image_path) as image:
+            width, height = image.size
+        line = None
+        if self.trim_creator_line is not None:
+            start, end = self.trim_creator_line
+            line = {
+                "start": {"x": start[0], "y": start[1]},
+                "end": {"x": end[0], "y": end[1]},
+            }
+        return {
+            "hasImage": True,
+            "width": width,
+            "height": height,
+            "imageUrl": "/api/trim/mockup",
+            "message": f"Loaded {self.trim_creator_image_path.name}",
+            "line": line,
+        }
+
+    def _trim_creator_mockup_image(self) -> tuple[bytes, str]:
+        if (
+            self.trim_creator_image_path is None
+            or not self.trim_creator_image_path.exists()
+        ):
+            raise FileNotFoundError("No trim mockup image is loaded.")
+        return (
+            self.trim_creator_image_path.read_bytes(),
+            image_content_type(self.trim_creator_image_path),
+        )
+
+    def _trim_creator_web_line(self, payload: dict) -> None:
+        def clean_point(raw: object) -> tuple[int, int]:
+            if not isinstance(raw, dict):
+                raise ValueError("Line point is missing.")
+            x = int(round(float(raw.get("x", 0))))
+            y = int(round(float(raw.get("y", 0))))
+            return self._trim_creator_clamp_point((x, y))
+
+        try:
+            start = clean_point(payload.get("start"))
+            end = clean_point(payload.get("end"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid trim line: {exc}") from exc
+        if start == end:
+            raise ValueError("Trim line points must be different.")
+        self.trim_creator_line = (start, end)
+        self.trim_creator_pending_line_start = None
+        self.trim_creator_line_drag_start = None
+        self.trim_creator_line_drag_original = None
+        self.trim_creator_nudge_target_var.set("Whole line")
+        self.refresh_trim_creator_line_preview()
+        self._show_trim_creator_preview()
+        self.trim_creator_status.configure(
+            text=(
+                "Received web trim line: "
+                f"({start[0]}, {start[1]}) to ({end[0]}, {end[1]})."
+            )
+        )
+
+    def _trim_creator_web_clear(self) -> None:
+        self.clear_trim_creator_line()
+        self.trim_creator_status.configure(text="Trim web line cleared.")
+
     def load_trim_creator_mockup(self) -> None:
         selected = filedialog.askopenfilename(
             title="Upload Jersey Mockup",
@@ -2560,7 +2560,7 @@ class JerseyModderApp(tk.Tk):
         self._populate_trim_creator_results()
         self.trim_creator_list.selection_set(f"trim:{len(self.trim_creator_results) - 1}")
         self._show_trim_creator_preview()
-        self.trim_creator_status.configure(text=f"Generated {_human_label(target_name)} from line.")
+        self.trim_creator_status.configure(text=f"Staged {_human_label(target_name)} from line.")
 
     def _write_trim_creator_line_strip(self, output_path: Path) -> None:
         if self.trim_creator_image_path is None or self.trim_creator_line is None:
@@ -2744,7 +2744,7 @@ class JerseyModderApp(tk.Tk):
     def save_selected_trim_strip_as(self) -> None:
         result = self._selected_trim_creator_result()
         if result is None:
-            messagebox.showinfo("Trim Creator", "Select a detected strip first.")
+            messagebox.showinfo("Trim Creator", "Select a staged trim first.")
             return
         selected = filedialog.asksaveasfilename(
             title="Save Trim Strip",
@@ -3408,11 +3408,11 @@ class JerseyModderApp(tk.Tk):
     def use_selected_trim_strip_in_generator(self) -> None:
         result = self._selected_trim_creator_result()
         if result is None:
-            messagebox.showinfo("Trim Creator", "Select a detected strip first.")
+            messagebox.showinfo("Trim Creator", "Select a staged trim first.")
             return
         key = TRIM_GENERATOR_KEYS.get(result.name)
         if key is None:
-            messagebox.showinfo("Trim Creator", "This detected strip has no generator slot.")
+            messagebox.showinfo("Trim Creator", "This staged trim has no generator slot.")
             return
         self.generator_paths[key] = result.output_path
         self.generator_file_labels[key].configure(text=result.output_path.name)

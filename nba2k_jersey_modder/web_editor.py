@@ -1229,6 +1229,263 @@ NUMBER_SELECTOR_HTML = """<!doctype html>
 """
 
 
+TRIM_SELECTOR_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NBA 2K Trim Selector</title>
+  <style>
+    :root { color-scheme: dark; font-family: Segoe UI, Arial, sans-serif; }
+    body { margin: 0; background: #171a20; color: #edf1f7; overflow: hidden; }
+    header { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #222833; border-bottom: 1px solid #343b49; }
+    button { background: #f0b429; color: #171a20; border: 0; padding: 8px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #303746; color: #edf1f7; border: 1px solid #475064; }
+    .hint { color: #aab3c2; font-size: 13px; margin-left: 4px; }
+    #wrap { height: calc(100vh - 49px); display: grid; grid-template-columns: 1fr 280px; }
+    #stage { min-width: 0; min-height: 0; background: #11141a; position: relative; }
+    canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+    aside { border-left: 1px solid #343b49; padding: 12px; background: #1d222c; overflow: auto; }
+    h2 { font-size: 14px; margin: 0 0 10px; color: #f8fafc; }
+    .buttons { display: flex; gap: 8px; margin-bottom: 8px; }
+    .buttons button { flex: 1; }
+    .small { color: #9aa4b5; font-size: 12px; line-height: 1.4; margin-top: 12px; }
+    .status { color: #d7deeb; font-size: 13px; margin-top: 10px; white-space: pre-line; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Trim Selector</strong>
+    <button id="zoomOut" class="secondary">Zoom -</button>
+    <button id="fit" class="secondary">Fit</button>
+    <button id="zoomIn" class="secondary">Zoom +</button>
+    <button id="clear" class="secondary">Clear</button>
+    <button id="send">Send Line</button>
+    <span class="hint">Click one trim point, then click the second. Wheel zooms. Shift-drag pans.</span>
+  </header>
+  <div id="wrap">
+    <main id="stage"><canvas id="canvas"></canvas></main>
+    <aside>
+      <h2>Line Selection</h2>
+      <div class="buttons">
+        <button id="sendSide">Send</button>
+        <button id="clearSide" class="secondary">Clear</button>
+      </div>
+      <div id="status" class="status">Loading mockup...</div>
+      <div class="small">After sending, the desktop Trim Creator updates the sample line and trim preview. Use the desktop crop controls if you need extra pixels above or below the line.</div>
+    </aside>
+  </div>
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const stage = document.getElementById("stage");
+    const status = document.getElementById("status");
+    const image = new Image();
+    let project = null;
+    let scale = 1;
+    let minScale = 1;
+    let panX = 0;
+    let panY = 0;
+    let line = null;
+    let pendingStart = null;
+    let panning = false;
+    let panStart = null;
+    let dirty = false;
+
+    function resizeCanvas() {
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(stage.clientWidth * ratio));
+      canvas.height = Math.max(1, Math.floor(stage.clientHeight * ratio));
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      draw();
+    }
+
+    async function loadProject() {
+      try {
+        const response = await fetch("/api/trim/project", {cache: "no-store"});
+        if (!response.ok) throw new Error(`Project failed: ${response.status}`);
+        project = await response.json();
+        line = project.line || null;
+        pendingStart = null;
+        if (!project.hasImage) {
+          status.textContent = project.message || "Upload a jersey mockup in the desktop Trim Creator first.";
+          draw();
+          return;
+        }
+        await new Promise((resolve, reject) => {
+          image.onload = resolve;
+          image.onerror = () => reject(new Error("Mockup image failed to load."));
+          image.src = project.imageUrl + "?t=" + Date.now();
+        });
+        fitImage();
+        status.textContent = line
+          ? `Line loaded. Start (${line.start.x}, ${line.start.y}) End (${line.end.x}, ${line.end.y})`
+          : `Ready. ${project.message || ""}`;
+      } catch (error) {
+        status.textContent = `Could not load mockup: ${error.message}`;
+      }
+    }
+
+    function fitImage() {
+      if (!project?.hasImage) return;
+      const width = stage.clientWidth;
+      const height = stage.clientHeight;
+      minScale = Math.min((width - 32) / project.width, (height - 32) / project.height);
+      minScale = Math.max(0.05, Math.min(1, minScale));
+      scale = minScale;
+      panX = (width - project.width * scale) / 2;
+      panY = (height - project.height * scale) / 2;
+      draw();
+    }
+
+    function drawPoint(point, fillStyle) {
+      const x = panX + point.x * scale;
+      const y = panY + point.y * scale;
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = fillStyle;
+      ctx.strokeStyle = "#11141a";
+      ctx.lineWidth = 2;
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    function draw() {
+      const width = stage.clientWidth;
+      const height = stage.clientHeight;
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#11141a";
+      ctx.fillRect(0, 0, width, height);
+      if (!project?.hasImage || !image.complete) return;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(image, panX, panY, project.width * scale, project.height * scale);
+      ctx.save();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#ffcc33";
+      if (line) {
+        ctx.beginPath();
+        ctx.moveTo(panX + line.start.x * scale, panY + line.start.y * scale);
+        ctx.lineTo(panX + line.end.x * scale, panY + line.end.y * scale);
+        ctx.stroke();
+        drawPoint(line.start, "#ffcc33");
+        drawPoint(line.end, "#ffcc33");
+      } else if (pendingStart) {
+        drawPoint(pendingStart, "#ffcc33");
+      }
+      ctx.restore();
+    }
+
+    function scheduleDraw() {
+      if (dirty) return;
+      dirty = true;
+      requestAnimationFrame(() => {
+        dirty = false;
+        draw();
+      });
+    }
+
+    function canvasPoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {x: event.clientX - rect.left, y: event.clientY - rect.top};
+    }
+
+    function imagePoint(event) {
+      const point = canvasPoint(event);
+      return {
+        x: Math.max(0, Math.min(project.width - 1, Math.round((point.x - panX) / scale))),
+        y: Math.max(0, Math.min(project.height - 1, Math.round((point.y - panY) / scale))),
+      };
+    }
+
+    function zoomAt(factor, center) {
+      if (!project?.hasImage) return;
+      const beforeX = (center.x - panX) / scale;
+      const beforeY = (center.y - panY) / scale;
+      scale = Math.max(minScale * 0.5, Math.min(16, scale * factor));
+      panX = center.x - beforeX * scale;
+      panY = center.y - beforeY * scale;
+      scheduleDraw();
+    }
+
+    canvas.addEventListener("pointerdown", event => {
+      if (!project?.hasImage) return;
+      canvas.setPointerCapture(event.pointerId);
+      if (event.shiftKey || event.button === 1 || event.button === 2) {
+        panning = true;
+        const point = canvasPoint(event);
+        panStart = {x: point.x, y: point.y, panX, panY};
+        return;
+      }
+      const point = imagePoint(event);
+      if (!pendingStart) {
+        pendingStart = point;
+        line = null;
+        status.textContent = `Start set at (${point.x}, ${point.y}). Click the second point.`;
+      } else {
+        line = {start: pendingStart, end: point};
+        pendingStart = null;
+        status.textContent = `Line ready. Start (${line.start.x}, ${line.start.y}) End (${line.end.x}, ${line.end.y})`;
+      }
+      scheduleDraw();
+    });
+
+    canvas.addEventListener("pointermove", event => {
+      if (!panning || !panStart) return;
+      const point = canvasPoint(event);
+      panX = panStart.panX + point.x - panStart.x;
+      panY = panStart.panY + point.y - panStart.y;
+      scheduleDraw();
+    });
+
+    canvas.addEventListener("pointerup", () => {
+      panning = false;
+      panStart = null;
+    });
+
+    canvas.addEventListener("wheel", event => {
+      event.preventDefault();
+      zoomAt(event.deltaY < 0 ? 1.18 : 1 / 1.18, canvasPoint(event));
+    }, {passive: false});
+
+    canvas.addEventListener("contextmenu", event => event.preventDefault());
+
+    async function sendLine() {
+      if (!line) {
+        status.textContent = "Click two points before sending.";
+        return;
+      }
+      await fetch("/api/trim/line", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(line),
+      });
+      status.textContent = "Line sent to desktop Trim Creator.";
+    }
+
+    async function clearLine() {
+      line = null;
+      pendingStart = null;
+      await fetch("/api/trim/clear", {method: "POST"});
+      status.textContent = "Line cleared.";
+      scheduleDraw();
+    }
+
+    document.getElementById("zoomOut").onclick = () => zoomAt(1 / 1.25, {x: stage.clientWidth / 2, y: stage.clientHeight / 2});
+    document.getElementById("zoomIn").onclick = () => zoomAt(1.25, {x: stage.clientWidth / 2, y: stage.clientHeight / 2});
+    document.getElementById("fit").onclick = fitImage;
+    document.getElementById("clear").onclick = clearLine;
+    document.getElementById("clearSide").onclick = clearLine;
+    document.getElementById("send").onclick = sendLine;
+    document.getElementById("sendSide").onclick = sendLine;
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+    loadProject();
+  </script>
+</body>
+</html>
+"""
+
+
 class WebEditorServer:
     def __init__(self, app, host: str = "127.0.0.1", port: int = 8765) -> None:
         self.app = app
@@ -1289,12 +1546,23 @@ class WebEditorServer:
                 if self.path.startswith("/number"):
                     self._send(NUMBER_SELECTOR_HTML.encode("utf-8"), "text/html; charset=utf-8")
                     return
+                if self.path.startswith("/trim"):
+                    self._send(TRIM_SELECTOR_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                    return
                 if self.path.startswith("/api/logo/project"):
                     data = app._run_on_ui_thread(app._logo_creator_web_project)
                     self._send_json(data)
                     return
                 if self.path.startswith("/api/logo/reference"):
                     data, content_type = app._run_on_ui_thread(app._logo_creator_reference_image)
+                    self._send(data, content_type)
+                    return
+                if self.path.startswith("/api/trim/project"):
+                    data = app._run_on_ui_thread(app._trim_creator_web_project)
+                    self._send_json(data)
+                    return
+                if self.path.startswith("/api/trim/mockup"):
+                    data, content_type = app._run_on_ui_thread(app._trim_creator_mockup_image)
                     self._send(data, content_type)
                     return
                 if self.path.startswith("/api/number/project"):
@@ -1339,6 +1607,16 @@ class WebEditorServer:
                     return
                 if self.path.startswith("/api/logo/clear"):
                     app._run_on_ui_thread(app._logo_creator_web_clear)
+                    self._send_json({"ok": True})
+                    return
+                if self.path.startswith("/api/trim/line"):
+                    length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                    app._run_on_ui_thread(lambda: app._trim_creator_web_line(payload))
+                    self._send_json({"ok": True})
+                    return
+                if self.path.startswith("/api/trim/clear"):
+                    app._run_on_ui_thread(app._trim_creator_web_clear)
                     self._send_json({"ok": True})
                     return
                 if self.path.startswith("/api/number/selection"):
