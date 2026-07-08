@@ -282,8 +282,8 @@ class JerseyModderApp(tk.Tk):
         self.logo_ai_staged_paths: list[tuple[str, Path]] = []
         self.logo_creator_type_var = tk.StringVar(value="")
         self.logo_creator_bg_var = tk.StringVar(value="Black")
-        self.logo_creator_auto_bg_var = tk.BooleanVar(value=True)
-        self.logo_creator_remove_white_var = tk.BooleanVar(value=True)
+        self.logo_creator_auto_bg_var = tk.BooleanVar(value=False)
+        self.logo_creator_remove_white_var = tk.BooleanVar(value=False)
         self.logo_creator_remove_black_var = tk.BooleanVar(value=False)
         self.logo_creator_remove_sampled_color_var = tk.BooleanVar(value=False)
         self.logo_creator_sampled_color_var = tk.StringVar(value="#ffffff")
