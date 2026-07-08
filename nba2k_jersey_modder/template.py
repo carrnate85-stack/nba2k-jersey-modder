@@ -6,8 +6,8 @@ from pathlib import Path
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-MASTER_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "mastertemplate2.png"
-MASTER_TEMPLATE_ZONES = PACKAGE_ROOT / "assets" / "templates" / "mastertemplate2.zones.json"
+MASTER_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "mastertemplate-jerseyretroU.png"
+MASTER_TEMPLATE_ZONES = PACKAGE_ROOT / "assets" / "templates" / "mastertemplate-jerseyretroU.zones.json"
 JERSEY_REGION_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "jersey_region.template.png"
 JERSEY_REGION_TEMPLATE_ZONES = PACKAGE_ROOT / "assets" / "templates" / "jersey_region.template.zones.json"
 JERSEY_NORMAL_TEMPLATE_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "jersey_normal.template.png"

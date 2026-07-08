@@ -578,7 +578,7 @@ def _fill_for_zone(zone: TemplateZone, inputs: GeneratorInputs) -> str | None:
         return _active_color(inputs.left_panel_color)
     if zone.name == "shorts_right_panel":
         return _active_color(inputs.right_panel_color)
-    if zone.name == "front_jersey_base":
+    if zone.name.startswith("front_jersey_base"):
         return _active_color(inputs.front_color)
     if zone.name.startswith("back_jersey_base"):
         return _active_color(inputs.back_color)
