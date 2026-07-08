@@ -173,11 +173,22 @@ def _setup_view() -> None:
     for area in bpy.context.screen.areas:
         if area.type == "VIEW_3D":
             area.spaces.active.shading.type = "MATERIAL"
-    if not bpy.context.scene.camera and bpy.data.objects:
+    _ensure_preview_light()
+
+
+def _ensure_preview_light() -> None:
+    if not bpy.data.objects:
+        return
+    light = bpy.data.objects.get("NBA 2K Preview Light")
+    if light is None:
         bpy.ops.object.light_add(type="AREA", location=(0, -3, 4))
-        bpy.context.object.name = "NBA 2K Preview Light"
-        bpy.context.object.data.energy = 450
-        bpy.context.object.data.size = 4
+        light = bpy.context.object
+        light.name = "NBA 2K Preview Light"
+    light.location = (0, -3, 4)
+    if light.type == "LIGHT":
+        light.data.type = "AREA"
+        light.data.energy = 450
+        light.data.size = 4
 
 
 def main() -> None:
