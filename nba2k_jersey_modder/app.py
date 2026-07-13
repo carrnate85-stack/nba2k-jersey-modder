@@ -431,6 +431,43 @@ class JerseyModderApp(tk.Tk):
             lambda: self.generate_jersey_preview(select_tab=False, update_status=False)
         )
 
+    def _create_scrollable_pane(self, parent: tk.Widget) -> tuple[ttk.Frame, ttk.Frame]:
+        outer = ttk.Frame(parent)
+        canvas = tk.Canvas(outer, borderwidth=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=inner, anchor=tk.NW)
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        outer.rowconfigure(0, weight=1)
+        outer.columnconfigure(0, weight=1)
+
+        def update_scroll_region(_event: tk.Event | None = None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def fit_inner_width(event: tk.Event) -> None:
+            canvas.itemconfigure(window_id, width=event.width)
+
+        def wheel_scroll(event: tk.Event) -> str | None:
+            if inner.winfo_reqheight() <= canvas.winfo_height():
+                return None
+            canvas.yview_scroll(int(-event.delta / 120), "units")
+            return "break"
+
+        def enable_wheel(_event: tk.Event) -> None:
+            canvas.bind_all("<MouseWheel>", wheel_scroll)
+
+        def disable_wheel(_event: tk.Event) -> None:
+            canvas.unbind_all("<MouseWheel>")
+
+        inner.bind("<Configure>", update_scroll_region)
+        canvas.bind("<Configure>", fit_inner_width)
+        outer.bind("<Enter>", enable_wheel)
+        outer.bind("<Leave>", disable_wheel)
+        return outer, inner
+
     def _build_textures_tab(self) -> None:
         tab = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(tab, text="IFF Textures")
@@ -768,8 +805,8 @@ class JerseyModderApp(tk.Tk):
             ),
         )
 
-        left = ttk.Frame(tab)
-        left.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
+        left_shell, left = self._create_scrollable_pane(tab)
+        left_shell.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
         ttk.Label(left, text="Trim type", style="Status.TLabel").grid(
             row=0,
             column=0,
@@ -1138,8 +1175,8 @@ class JerseyModderApp(tk.Tk):
         left.rowconfigure(3, weight=0)
         left.columnconfigure(0, weight=1)
 
-        side = ttk.Frame(tab)
-        side.grid(row=1, column=1, sticky="nsew")
+        side_shell, side = self._create_scrollable_pane(tab)
+        side_shell.grid(row=1, column=1, sticky="nsew")
         ttk.Label(side, text="Logo type", style="Status.TLabel").grid(
             row=0,
             column=0,
@@ -1363,8 +1400,8 @@ class JerseyModderApp(tk.Tk):
         preview_frame.rowconfigure(1, weight=1)
         preview_frame.columnconfigure(0, weight=1)
 
-        side = ttk.Frame(tab)
-        side.grid(row=1, column=1, sticky="nsew")
+        side_shell, side = self._create_scrollable_pane(tab)
+        side_shell.grid(row=1, column=1, sticky="nsew")
 
         recolor = ttk.LabelFrame(side, text="Number Recolor", padding=8)
         recolor.grid(row=0, column=0, sticky="ew", pady=(0, 10))
