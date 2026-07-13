@@ -200,6 +200,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_logo_target_names: dict[str, str] = {}
         self.generator_logo_type_var = tk.StringVar(value="")
         self.generator_color_labels: dict[str, ttk.Label] = {}
+        self.generator_color_swatches: dict[str, tk.Label] = {}
         self.fabric_overlay_var = tk.StringVar(value="None")
         self.fabric_overlay_blend_var = tk.StringVar(value="multiply")
         self.fabric_overlay_opacity_var = tk.IntVar(value=0)
@@ -378,6 +379,9 @@ class JerseyModderApp(tk.Tk):
         menu = tk.Menu(self)
         file_menu = tk.Menu(menu, tearoff=False)
         file_menu.add_command(label="Import .iff...", command=self.open_iff)
+        file_menu.add_command(label="Open Project...", command=self.open_project)
+        file_menu.add_command(label="Save Project As...", command=self.save_project_as)
+        file_menu.add_separator()
         file_menu.add_command(label="Open .rdat...", command=self.open_rdat)
         file_menu.add_command(label="Save .rdat", command=self.save_rdat)
         file_menu.add_command(label="Save .rdat As...", command=self.save_rdat_as)
@@ -2128,6 +2132,7 @@ class JerseyModderApp(tk.Tk):
             relief=tk.SOLID,
             borderwidth=1,
         )
+        self.generator_color_swatches[key] = swatch
         swatch.pack(side=tk.RIGHT)
         ttk.Button(
             frame,
@@ -7655,6 +7660,393 @@ class JerseyModderApp(tk.Tk):
             messagebox.showerror("PSD save failed", str(exc))
             return
         self.generator_status.configure(text=f"Saved layered PSD to {selected}.")
+
+    def save_project_as(self) -> None:
+        selected = filedialog.asksaveasfilename(
+            title="Save Jersey Modder Project",
+            defaultextension=".nba2kproject.json",
+            filetypes=(
+                ("NBA 2K Jersey Modder projects", "*.nba2kproject.json"),
+                ("JSON files", "*.json"),
+                ("All files", "*.*"),
+            ),
+        )
+        if not selected:
+            return
+        project = self._build_project_payload()
+        try:
+            Path(selected).write_text(
+                json.dumps(project, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            messagebox.showerror("Save Project", str(exc))
+            return
+        self.generator_status.configure(text=f"Saved project to {selected}.")
+
+    def open_project(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="Open Jersey Modder Project",
+            filetypes=(
+                ("NBA 2K Jersey Modder projects", "*.nba2kproject.json"),
+                ("JSON files", "*.json"),
+                ("All files", "*.*"),
+            ),
+        )
+        if not selected:
+            return
+        try:
+            payload = json.loads(Path(selected).read_text(encoding="utf-8"))
+            missing = self._apply_project_payload(payload)
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror("Open Project", str(exc))
+            return
+        self.tabs.select(self.generator_tab)
+        self._schedule_generator_preview_refresh()
+        self._refresh_blender_preview_files_if_active()
+        if missing:
+            messagebox.showwarning(
+                "Open Project",
+                "Project loaded, but some asset files were not found:\n\n"
+                + "\n".join(missing[:12])
+                + ("\n..." if len(missing) > 12 else ""),
+            )
+        self.generator_status.configure(text=f"Loaded project: {Path(selected).name}.")
+
+    def _build_project_payload(self) -> dict:
+        return {
+            "app": __app_name__,
+            "projectVersion": 1,
+            "generator": {
+                "garment": self.generator_garment_var.get(),
+                "jerseyCut": self.generator_jersey_cut_var.get(),
+                "shortsTemplate": self.generator_shorts_template_var.get(),
+                "colors": {
+                    key: variable.get()
+                    for key, variable in self.generator_color_vars.items()
+                },
+                "images": {
+                    key: self._project_path_value(path)
+                    for key, path in self.generator_paths.items()
+                },
+                "frontWordmark": {
+                    "offsetX": self._front_wordmark_offset_x(),
+                    "offsetY": self._front_wordmark_offset_y(),
+                    "scalePercent": self._front_wordmark_scale_percent(),
+                },
+                "logos": [
+                    self._logo_placement_to_project(placement)
+                    for placement in self.generator_logo_placements
+                ],
+                "trimPlacements": {
+                    key: self._trim_placement_to_project(placement)
+                    for key, placement in self.generator_trim_placements.items()
+                },
+                "backgroundCleanup": {
+                    "removeWhite": self.generator_remove_white_var.get(),
+                    "removeBlack": self.generator_remove_black_var.get(),
+                    "outsideOnly": self.generator_outside_only_var.get(),
+                    "tolerance": self._generator_background_tolerance(),
+                },
+                "fabricOverlay": {
+                    "preset": self.fabric_overlay_var.get(),
+                    "customPath": self._project_path_value(self.custom_fabric_overlay_path),
+                    "blendMode": self.fabric_overlay_blend_var.get(),
+                    "opacity": self._fabric_overlay_opacity(),
+                },
+                "uvOverlay": {
+                    "enabled": self.generator_uv_overlay_var.get(),
+                    "opacity": self.generator_uv_overlay_opacity_var.get(),
+                },
+                "numberPreview": {
+                    "enabled": self.generator_number_preview_enabled_var.get(),
+                    "text": self.generator_number_preview_text_var.get(),
+                    "x": self.generator_number_preview_x_var.get(),
+                    "y": self.generator_number_preview_y_var.get(),
+                    "scale": self._generator_number_preview_scale(),
+                },
+                "webEditor": {
+                    "layerOrder": list(self.web_editor_layer_order),
+                    "layerCleanup": {
+                        key: self._background_cleanup_to_project(cleanup)
+                        for key, cleanup in self.web_editor_layer_cleanup.items()
+                    },
+                },
+            },
+        }
+
+    def _apply_project_payload(self, payload: dict) -> list[str]:
+        if not isinstance(payload, dict):
+            raise ValueError("Project file is not valid JSON object data.")
+        generator = payload.get("generator")
+        if not isinstance(generator, dict):
+            raise ValueError("Project file is missing generator data.")
+
+        missing: list[str] = []
+        self.generator_garment_var.set(
+            self._project_choice(generator.get("garment"), ("Jersey", "Shorts"), "Jersey")
+        )
+        self.generator_jersey_cut_var.set(
+            self._project_choice(generator.get("jerseyCut"), JERSEY_CUT_OPTIONS, "Retro U")
+        )
+        self.generator_shorts_template_var.set(
+            self._project_choice(
+                generator.get("shortsTemplate"),
+                tuple(SHORTS_TEMPLATE_OPTIONS),
+                "Retro shorts",
+            )
+        )
+        self._sync_generator_template_controls(refresh_preview=False)
+
+        colors = generator.get("colors", {})
+        if isinstance(colors, dict):
+            for key, variable in self.generator_color_vars.items():
+                self._set_generator_color_from_project(key, colors.get(key, variable.get()))
+
+        images = generator.get("images", {})
+        self.generator_paths = {key: None for key in self.generator_paths}
+        if isinstance(images, dict):
+            for key in self.generator_paths:
+                path = self._project_existing_path(images.get(key), missing)
+                self.generator_paths[key] = path
+                if key in self.generator_file_labels:
+                    self.generator_file_labels[key].configure(
+                        text=path.name if path is not None else "none"
+                    )
+
+        front_wordmark = generator.get("frontWordmark", {})
+        if isinstance(front_wordmark, dict):
+            self.front_wordmark_offset_x_var.set(
+                self._project_int(front_wordmark.get("offsetX"), 0, -9999, 9999)
+            )
+            self.front_wordmark_offset_y_var.set(
+                self._project_int(front_wordmark.get("offsetY"), 0, -9999, 9999)
+            )
+            self.front_wordmark_scale_var.set(
+                self._project_int(front_wordmark.get("scalePercent"), 100, 1, 500)
+            )
+
+        self.generator_logo_placements = []
+        logos = generator.get("logos", [])
+        if isinstance(logos, list):
+            for item in logos:
+                if not isinstance(item, dict):
+                    continue
+                path = self._project_existing_path(item.get("path"), missing)
+                target_name = str(item.get("targetName") or "")
+                if path is None or not target_name:
+                    continue
+                self.generator_logo_placements.append(
+                    LogoPlacement(
+                        path=path,
+                        target_name=target_name,
+                        offset_x=self._project_int(item.get("offsetX"), 0, -9999, 9999),
+                        offset_y=self._project_int(item.get("offsetY"), 0, -9999, 9999),
+                        scale_percent=self._project_int(
+                            item.get("scalePercent"),
+                            100,
+                            1,
+                            500,
+                        ),
+                        stretch_x=bool(item.get("stretchX", False)),
+                    )
+                )
+        self._refresh_generator_logo_list()
+
+        self.generator_trim_placements.clear()
+        trims = generator.get("trimPlacements", {})
+        if isinstance(trims, dict):
+            for key, item in trims.items():
+                if isinstance(item, dict):
+                    self.generator_trim_placements[str(key)] = self._trim_placement_from_project(item)
+
+        cleanup = generator.get("backgroundCleanup", {})
+        if isinstance(cleanup, dict):
+            self.generator_remove_white_var.set(bool(cleanup.get("removeWhite", False)))
+            self.generator_remove_black_var.set(bool(cleanup.get("removeBlack", False)))
+            self.generator_outside_only_var.set(bool(cleanup.get("outsideOnly", True)))
+            self.generator_tolerance_var.set(
+                self._project_int(cleanup.get("tolerance"), 32, 0, 255)
+            )
+
+        fabric = generator.get("fabricOverlay", {})
+        if isinstance(fabric, dict):
+            self.fabric_overlay_blend_var.set(str(fabric.get("blendMode") or "multiply"))
+            self.fabric_overlay_opacity_var.set(
+                self._project_int(fabric.get("opacity"), 0, 0, 100)
+            )
+            custom_path = self._project_existing_path(fabric.get("customPath"), missing)
+            self.custom_fabric_overlay_path = custom_path
+            preset = str(fabric.get("preset") or "None")
+            if preset == "Custom upload" and custom_path is None:
+                preset = "None"
+            if preset not in tuple(FABRIC_OVERLAY_PRESETS) + ("Custom upload",):
+                preset = "None"
+            self.fabric_overlay_var.set(preset)
+
+        uv = generator.get("uvOverlay", {})
+        if isinstance(uv, dict):
+            self.generator_uv_overlay_var.set(bool(uv.get("enabled", False)))
+            self.generator_uv_overlay_opacity_var.set(
+                self._project_int(uv.get("opacity"), 45, 0, 100)
+            )
+            self._on_generator_uv_overlay_opacity_changed()
+
+        number = generator.get("numberPreview", {})
+        if isinstance(number, dict):
+            self.generator_number_preview_enabled_var.set(bool(number.get("enabled", True)))
+            self.generator_number_preview_text_var.set(str(number.get("text") or "15"))
+            self.generator_number_preview_x_var.set(
+                self._project_int(number.get("x"), 1160, 0, 2048)
+            )
+            self.generator_number_preview_y_var.set(
+                self._project_int(number.get("y"), 780, 0, 2048)
+            )
+            self.generator_number_preview_scale_var.set(
+                self._project_int(number.get("scale"), 100, 5, 500)
+            )
+
+        web_editor = generator.get("webEditor", {})
+        self.web_editor_layer_order = []
+        self.web_editor_layer_cleanup = {}
+        if isinstance(web_editor, dict):
+            layer_order = web_editor.get("layerOrder", [])
+            if isinstance(layer_order, list):
+                self.web_editor_layer_order = [str(key) for key in layer_order]
+            layer_cleanup = web_editor.get("layerCleanup", {})
+            if isinstance(layer_cleanup, dict):
+                self.web_editor_layer_cleanup = {
+                    str(key): self._background_cleanup_from_project(value)
+                    for key, value in layer_cleanup.items()
+                    if isinstance(value, dict)
+                }
+
+        self.generator_selected_image_key = None
+        self.generator_drag_state = None
+        self._refresh_generator_logo_list()
+        self._sync_generator_template_controls(refresh_preview=False)
+        return missing
+
+    def _project_path_value(self, path: Path | None) -> str | None:
+        return str(path) if path is not None else None
+
+    def _project_existing_path(self, value: object, missing: list[str]) -> Path | None:
+        if not value:
+            return None
+        path = Path(str(value))
+        if path.exists():
+            return path
+        missing.append(str(path))
+        return None
+
+    def _project_choice(self, value: object, choices: tuple[str, ...], fallback: str) -> str:
+        text = str(value) if value is not None else fallback
+        return text if text in choices else fallback
+
+    def _project_int(self, value: object, default: int, minimum: int, maximum: int) -> int:
+        try:
+            parsed = int(float(value))
+        except (TypeError, ValueError):
+            parsed = default
+        return max(minimum, min(maximum, parsed))
+
+    def _set_generator_color_from_project(self, key: str, value: object) -> None:
+        color = self._normalize_hex_color(str(value or ""))
+        if color is None:
+            color = self.generator_color_vars[key].get()
+        self.generator_color_vars[key].set(color)
+        swatch = self.generator_color_swatches.get(key)
+        if swatch is not None:
+            if color:
+                swatch.configure(text="", background=color)
+            else:
+                swatch.configure(text="None", background="#f0f0f0")
+
+    def _logo_placement_to_project(self, placement: LogoPlacement) -> dict:
+        return {
+            "path": self._project_path_value(placement.path),
+            "targetName": placement.target_name,
+            "offsetX": placement.offset_x,
+            "offsetY": placement.offset_y,
+            "scalePercent": placement.scale_percent,
+            "stretchX": placement.stretch_x,
+        }
+
+    def _trim_placement_to_project(self, placement: TrimPlacementSettings) -> dict:
+        return {
+            "offsetX": placement.offset_x,
+            "offsetY": placement.offset_y,
+            "scalePercent": placement.scale_percent,
+            "scaleWidthPercent": placement.scale_width_percent,
+            "scaleHeightPercent": placement.scale_height_percent,
+            "flipX": placement.flip_x,
+            "rotationDegrees": placement.rotation_degrees,
+        }
+
+    def _trim_placement_from_project(self, payload: dict) -> TrimPlacementSettings:
+        return TrimPlacementSettings(
+            offset_x=self._project_int(payload.get("offsetX"), 0, -9999, 9999),
+            offset_y=self._project_int(payload.get("offsetY"), 0, -9999, 9999),
+            scale_percent=self._project_int(payload.get("scalePercent"), 100, 1, 500),
+            scale_width_percent=self._project_optional_int(
+                payload.get("scaleWidthPercent"),
+                1,
+                500,
+            ),
+            scale_height_percent=self._project_optional_int(
+                payload.get("scaleHeightPercent"),
+                1,
+                500,
+            ),
+            flip_x=bool(payload.get("flipX", False)),
+            rotation_degrees=self._project_float(
+                payload.get("rotationDegrees"),
+                0.0,
+                -360.0,
+                360.0,
+            ),
+        )
+
+    def _project_optional_int(
+        self,
+        value: object,
+        minimum: int,
+        maximum: int,
+    ) -> int | None:
+        if value is None:
+            return None
+        return self._project_int(value, 100, minimum, maximum)
+
+    def _project_float(
+        self,
+        value: object,
+        default: float,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = default
+        return max(minimum, min(maximum, parsed))
+
+    def _background_cleanup_to_project(self, cleanup: BackgroundCleanupSettings) -> dict:
+        return {
+            "autoBackground": cleanup.auto_background,
+            "removeWhite": cleanup.remove_white,
+            "removeBlack": cleanup.remove_black,
+            "outsideOnly": cleanup.outside_only,
+            "tolerance": cleanup.tolerance,
+        }
+
+    def _background_cleanup_from_project(self, payload: dict) -> BackgroundCleanupSettings:
+        return BackgroundCleanupSettings(
+            auto_background=bool(payload.get("autoBackground", False)),
+            remove_white=bool(payload.get("removeWhite", False)),
+            remove_black=bool(payload.get("removeBlack", False)),
+            outside_only=bool(payload.get("outsideOnly", True)),
+            tolerance=self._project_int(payload.get("tolerance"), 32, 0, 255),
+        )
 
     def _generator_inputs(self) -> GeneratorInputs:
         return GeneratorInputs(
