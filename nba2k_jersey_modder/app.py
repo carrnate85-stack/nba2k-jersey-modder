@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -381,6 +382,7 @@ class JerseyModderApp(tk.Tk):
         file_menu.add_command(label="Import .iff...", command=self.open_iff)
         file_menu.add_command(label="Open Project...", command=self.open_project)
         file_menu.add_command(label="Save Project As...", command=self.save_project_as)
+        file_menu.add_command(label="Export Package As...", command=self.export_package_as)
         file_menu.add_separator()
         file_menu.add_command(label="Open .rdat...", command=self.open_rdat)
         file_menu.add_command(label="Save .rdat", command=self.save_rdat)
@@ -1878,6 +1880,12 @@ class JerseyModderApp(tk.Tk):
             controls,
             text="Save Layered PSD As",
             command=self.save_layered_psd_as,
+        ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
+        row += 1
+        ttk.Button(
+            controls,
+            text="Export Package As...",
+            command=self.export_package_as,
         ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
 
         controls.columnconfigure(0, weight=1)
@@ -7660,6 +7668,139 @@ class JerseyModderApp(tk.Tk):
             messagebox.showerror("PSD save failed", str(exc))
             return
         self.generator_status.configure(text=f"Saved layered PSD to {selected}.")
+
+    def export_package_as(self) -> None:
+        selected = filedialog.askdirectory(title="Choose Export Package Folder")
+        if not selected:
+            return
+        parent = Path(selected)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        package_dir = _next_available_path(parent / f"nba2k_export_{timestamp}")
+        try:
+            template = self._current_generator_template()
+            inputs = self._generator_inputs()
+            project = self._build_project_payload()
+            garment = self.generator_garment_var.get()
+            normal_strength = self._texture_creator_normal_strength()
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror("Export Package", str(exc))
+            return
+        self.generator_status.configure(text=f"Exporting package to {package_dir}...")
+        thread = threading.Thread(
+            target=self._export_package_worker,
+            args=(package_dir, template, inputs, project, garment, normal_strength),
+            daemon=True,
+        )
+        thread.start()
+
+    def _export_package_worker(
+        self,
+        package_dir: Path,
+        template: JerseyTemplate,
+        inputs: GeneratorInputs,
+        project: dict,
+        garment: str,
+        normal_strength: int,
+    ) -> None:
+        exported: list[Path] = []
+        skipped: list[str] = []
+        try:
+            textures_dir = package_dir / "textures"
+            previews_dir = package_dir / "previews"
+            source_dir = package_dir / "source"
+            textures_dir.mkdir(parents=True, exist_ok=True)
+            previews_dir.mkdir(parents=True, exist_ok=True)
+            source_dir.mkdir(parents=True, exist_ok=True)
+
+            color_stem = "shorts_color" if garment == "Shorts" else "jersey_color"
+            color_png = previews_dir / f"{color_stem}.png"
+            color_dds = textures_dir / f"{color_stem}.dds"
+            color_image = render_jersey_texture(template, inputs)
+            color_image.save(color_png)
+            save_bc1_dds(color_image, color_dds)
+            exported.extend((color_png, color_dds))
+
+            if garment == "Jersey":
+                region_png = previews_dir / "jersey_region.png"
+                region_dds = textures_dir / "jersey_region.dds"
+                region_image = render_jersey_region_map(
+                    template,
+                    inputs,
+                    JERSEY_REGION_TEMPLATE_IMAGE,
+                )
+                region_image.save(region_png)
+                save_bc1_dds(region_image, region_dds)
+                exported.extend((region_png, region_dds))
+
+                normal_png = previews_dir / "jersey_normal.png"
+                normal_dds = textures_dir / "jersey_normal.dds"
+                normal_image = render_jersey_normal_map(
+                    template,
+                    inputs,
+                    JERSEY_NORMAL_TEMPLATE_IMAGE,
+                    normal_strength=normal_strength,
+                )
+                normal_image.save(normal_png)
+                save_bc1_dds(normal_image, normal_dds)
+                exported.extend((normal_png, normal_dds))
+            else:
+                skipped.append("Jersey region and normal maps are skipped for shorts exports.")
+
+            project_path = source_dir / "project.nba2kproject.json"
+            project_path.write_text(json.dumps(project, indent=2), encoding="utf-8")
+            exported.append(project_path)
+
+            notes_path = package_dir / "install_notes.txt"
+            notes_path.write_text(
+                self._export_package_notes(package_dir, exported, skipped),
+                encoding="utf-8",
+            )
+            exported.append(notes_path)
+        except Exception as exc:  # noqa: BLE001 - background GUI boundary.
+            self.after(0, lambda error=exc: self._finish_export_package(package_dir, error))
+            return
+        self.after(0, lambda: self._finish_export_package(package_dir, None))
+
+    def _finish_export_package(self, package_dir: Path, error: Exception | None) -> None:
+        if error is not None:
+            messagebox.showerror("Export Package", str(error))
+            self.generator_status.configure(text="Export package failed.")
+            return
+        self.generator_status.configure(text=f"Exported package to {package_dir}.")
+        messagebox.showinfo("Export Package", f"Export package created:\n{package_dir}")
+
+    def _export_package_notes(
+        self,
+        package_dir: Path,
+        exported: list[Path],
+        skipped: list[str],
+    ) -> str:
+        lines = [
+            "NBA 2K Jersey Modder Export Package",
+            f"Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "This package is for safe review/import. It does not write back into an .iff yet.",
+            "The future .iff builder can use these generated files as its inputs.",
+            "",
+            "Files:",
+        ]
+        for path in exported:
+            try:
+                display = path.relative_to(package_dir)
+            except ValueError:
+                display = path
+            lines.append(f"- {display}")
+        if skipped:
+            lines.extend(["", "Skipped:"])
+            lines.extend(f"- {item}" for item in skipped)
+        lines.extend(
+            [
+                "",
+                "Suggested next step:",
+                "- Inspect the PNG previews, then import the DDS files into the matching game resources.",
+            ]
+        )
+        return "\n".join(lines) + "\n"
 
     def save_project_as(self) -> None:
         selected = filedialog.asksaveasfilename(
