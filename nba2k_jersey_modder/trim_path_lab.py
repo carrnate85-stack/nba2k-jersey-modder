@@ -86,6 +86,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           <option value="straight" selected>Straight segments</option>
           <option value="t">T shape (3 points)</option>
         </select>
+        <label id="tJunctionLabel" for="tJunctionMode">T junction</label>
+        <select id="tJunctionMode">
+          <option value="open" selected>Open - middle band connected</option>
+          <option value="closed">Closed - crossbar continuous</option>
+        </select>
         <label for="angleSnap">Angle snapping while drawing</label>
         <select id="angleSnap">
           <option value="0">Off</option>
@@ -169,7 +174,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function setStatus(message) { statusNode.textContent = message; }
     function activePath() { return paths[activePathIndex] || null; }
     function defaultPath() {
-      return {name: `Trim Path ${paths.length + 1}`, points: [], width: 64, patternScale: 100, patternOffset: 0, curve: "straight", visible: true, linkGroup: null, reverseCrossSection: false, finished: false};
+      return {name: `Trim Path ${paths.length + 1}`, points: [], width: 64, patternScale: 100, patternOffset: 0, curve: "straight", tJunctionMode: "open", visible: true, linkGroup: null, reverseCrossSection: false, finished: false};
     }
     function cleanPath(raw, index) {
       const width = Math.max(2, Math.min(300, Number(raw?.width) || 64));
@@ -180,6 +185,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         patternScale: Math.max(25, Math.min(400, Number(raw?.patternScale) || 100)),
         patternOffset: Math.max(-1024, Math.min(1024, Number(raw?.patternOffset) || 0)),
         curve: ["smooth", "straight", "t"].includes(raw?.curve) ? raw.curve : "straight",
+        tJunctionMode: raw?.tJunctionMode === "closed" ? "closed" : "open",
         visible: raw?.visible !== false,
         linkGroup: raw?.linkGroup ? String(raw.linkGroup) : null,
         reverseCrossSection: Boolean(raw?.reverseCrossSection),
@@ -382,13 +388,21 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         x: (stemEnd.x - junction.x) / stemLength,
         y: (stemEnd.y - junction.y) / stemLength,
       };
+      const overlap = Math.min(.75, path.width * .05);
+      if (path.tJunctionMode === "open") {
+        const stemStart = {
+          x: junction.x - stemDirection.x * overlap,
+          y: junction.y - stemDirection.y * overlap,
+        };
+        // The stem is painted last so its center band reaches the crossbar center band.
+        return [[crossbarStart, crossbarEnd], [stemStart, stemEnd]];
+      }
       const normalAmount = Math.max(
         .05,
         Math.abs(
           stemDirection.x * crossbarNormal.x + stemDirection.y * crossbarNormal.y,
         ),
       );
-      const overlap = Math.min(.75, path.width * .05);
       const boundaryDistance = Math.min(
         stemLength,
         Math.max(0, path.width / 2 - overlap) / normalAmount,
@@ -1152,13 +1166,17 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function syncControls() {
       const path = activePath();
       const disabled = !path;
-      ["curveMode", "trimWidth", "trimWidthNumber", "patternScale", "patternScaleNumber", "patternOffset", "patternOffsetNumber", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
+      ["curveMode", "tJunctionMode", "trimWidth", "trimWidthNumber", "patternScale", "patternScaleNumber", "patternOffset", "patternOffsetNumber", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
       document.getElementById("linkStatus").textContent = "Layer is not linked.";
+      document.getElementById("tJunctionLabel").style.display = path?.curve === "t" ? "block" : "none";
+      document.getElementById("tJunctionMode").style.display = path?.curve === "t" ? "block" : "none";
       if (!path) {
         updateSegmentReadout();
         return;
       }
       document.getElementById("curveMode").value = path.curve;
+      document.getElementById("tJunctionMode").value = path.tJunctionMode;
+      document.getElementById("tJunctionMode").disabled = path.curve !== "t";
       document.getElementById("trimWidth").value = path.width;
       document.getElementById("patternScale").value = path.patternScale;
       document.getElementById("patternOffset").value = path.patternOffset;
@@ -1416,6 +1434,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     document.getElementById("loadJson").onclick = () => document.getElementById("loadJsonInput").click();
     document.getElementById("loadJsonInput").onchange = event => event.target.files[0] && loadJsonFile(event.target.files[0]);
     document.getElementById("curveMode").addEventListener("change", changePathShape);
+    bindPathControl("tJunctionMode", "tJunctionMode");
     bindNumericRange("trimWidth", "trimWidthNumber", "width", 2, 300);
     bindNumericRange("patternScale", "patternScaleNumber", "patternScale", 25, 400);
     bindNumericRange("patternOffset", "patternOffsetNumber", "patternOffset", -1024, 1024);
