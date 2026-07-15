@@ -151,6 +151,20 @@ INDEX_HTML = """<!doctype html>
     const HANDLE_SIZE = 56;
     const HANDLE_HIT_RADIUS = 58;
 
+    function cacheBustedUrl(url) {
+      const separator = url.includes("?") ? "&" : "?";
+      return `${url}${separator}t=${Date.now()}`;
+    }
+
+    function loadImage(url) {
+      return new Promise(resolve => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => resolve(null);
+        image.src = cacheBustedUrl(url);
+      });
+    }
+
     async function loadProject() {
       try {
         loadStatus.textContent = "Loading...";
@@ -158,42 +172,39 @@ INDEX_HTML = """<!doctype html>
         if (!response.ok) throw new Error(`Project failed: ${response.status}`);
         project = await response.json();
         overlays.clear();
-        await Promise.all(project.overlays.map(item => new Promise(resolve => {
-          const img = new Image();
-          img.onload = () => { overlays.set(item.key, img); resolve(); };
-          img.onerror = resolve;
-          img.src = item.imageUrl + "&t=" + Date.now();
-        })));
-        await new Promise(resolve => {
-          baseImage.onload = resolve;
-          baseImage.onerror = resolve;
-          baseImage.src = project.baseUrl + "?t=" + Date.now();
-        });
-        await new Promise(resolve => {
-          regionImage.onload = resolve;
-          regionImage.onerror = resolve;
-          regionImage.src = "/api/region.png?t=" + Date.now();
-        });
+        baseImage = await loadImage(project.baseUrl) || new Image();
+        regionImage = await loadImage("/api/region.png") || new Image();
         uvOverlayAvailable = Boolean(project.uvOverlay?.available);
         if (uvOverlayAvailable) {
           if (!uvOverlayTouched) {
             uvOverlayEnabled = Boolean(project.uvOverlay?.enabled);
             uvOverlayOpacity = Math.max(0, Math.min(100, Number(project.uvOverlay?.opacity ?? uvOverlayOpacity)));
           }
-          await new Promise(resolve => {
-            uvImage.onload = resolve;
-            uvImage.onerror = resolve;
-            uvImage.src = `${project.uvOverlay.imageUrl}?t=${Date.now()}`;
-          });
+          uvImage = await loadImage(project.uvOverlay.imageUrl) || new Image();
         }
         renderUvControls();
+        draw();
+        const failedLayers = [];
+        for (let index = 0; index < project.overlays.length; index += 1) {
+          const item = project.overlays[index];
+          loadStatus.textContent = `Loading image ${index + 1} of ${project.overlays.length}...`;
+          const image = await loadImage(item.imageUrl);
+          if (image) {
+            overlays.set(item.key, image);
+            draw();
+          } else {
+            failedLayers.push(item.label);
+          }
+        }
         if (!project.overlays.some(item => item.key === activeKey)) {
           activeKey = project.overlays[project.overlays.length - 1]?.key || null;
         }
         renderLayerList();
         renderInspector();
         draw();
-        loadStatus.textContent = "Loaded";
+        loadStatus.textContent = failedLayers.length
+          ? `Could not load: ${failedLayers.join(", ")}`
+          : `Loaded ${project.overlays.length} image${project.overlays.length === 1 ? "" : "s"}`;
       } catch (error) {
         loadStatus.textContent = `Could not load editor: ${error.message}`;
       }

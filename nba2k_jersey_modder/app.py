@@ -71,7 +71,7 @@ from .tweak_iff import (
     inspect_front_number_tweak,
     write_front_number_tweak,
 )
-from .web_editor import WebEditorServer
+from .web_editor import WebEditorServer, image_content_type
 
 HEX_COLOR_RE = re.compile(r"^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -375,6 +375,11 @@ class JerseyModderApp(tk.Tk):
         self.style.configure("Title.TLabel", font=("Segoe UI", 16, "bold"))
         self.style.configure("Muted.TLabel", foreground="#5f6673")
         self.style.configure("Status.TLabel", foreground="#323842")
+        self.style.configure(
+            "PreviewToggle.TButton",
+            font=("Segoe UI", 10, "bold"),
+            padding=(10, 7),
+        )
 
     def _build_menu(self) -> None:
         menu = tk.Menu(self)
@@ -1145,11 +1150,22 @@ class JerseyModderApp(tk.Tk):
         preview_controls.grid(row=2, column=0, sticky="ew", pady=(0, 8))
         self.logo_creator_preview_toggle_button = ttk.Button(
             preview_controls,
-            text="Show Preview",
+            text="Show Created Logo Preview",
             command=self.toggle_logo_creator_preview,
+            style="PreviewToggle.TButton",
         )
-        self.logo_creator_preview_toggle_button.pack(side=tk.LEFT)
-        ttk.Label(preview_controls, text="Background").pack(side=tk.LEFT, padx=(12, 0))
+        self.logo_creator_preview_toggle_button.grid(
+            row=0,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            pady=(0, 8),
+        )
+        ttk.Label(preview_controls, text="Preview background").grid(
+            row=1,
+            column=0,
+            sticky=tk.W,
+        )
         bg_choice = ttk.Combobox(
             preview_controls,
             textvariable=self.logo_creator_bg_var,
@@ -1157,8 +1173,9 @@ class JerseyModderApp(tk.Tk):
             state="readonly",
             width=8,
         )
-        bg_choice.pack(side=tk.LEFT, padx=(8, 0))
+        bg_choice.grid(row=1, column=1, sticky=tk.W, padx=(8, 0))
         bg_choice.bind("<<ComboboxSelected>>", lambda _event: self._show_logo_creator_logo_preview())
+        preview_controls.columnconfigure(2, weight=1)
 
         logo_preview_frame = ttk.LabelFrame(left, text="Created Logo Preview", padding=6)
         logo_preview_frame.grid(row=3, column=0, sticky="nsew")
@@ -4639,13 +4656,17 @@ class JerseyModderApp(tk.Tk):
         visible = self.logo_creator_preview_visible_var.get()
         if visible:
             self.logo_creator_logo_preview_frame.grid()
-            self.logo_creator_logo_preview_frame.master.rowconfigure(2, weight=1)
+            self.logo_creator_logo_preview_frame.master.rowconfigure(3, weight=1)
         else:
             self.logo_creator_logo_preview_frame.grid_remove()
-            self.logo_creator_logo_preview_frame.master.rowconfigure(2, weight=0)
+            self.logo_creator_logo_preview_frame.master.rowconfigure(3, weight=0)
         if hasattr(self, "logo_creator_preview_toggle_button"):
             self.logo_creator_preview_toggle_button.configure(
-                text="Hide Preview" if visible else "Show Preview"
+                text=(
+                    "Hide Created Logo Preview"
+                    if visible
+                    else "Show Created Logo Preview"
+                )
             )
         if visible:
             self._show_logo_creator_logo_preview()
@@ -6567,7 +6588,9 @@ class JerseyModderApp(tk.Tk):
         try:
             if self.web_editor_server is None:
                 self.web_editor_server = WebEditorServer(self)
-            url = self.web_editor_server.start()
+            base_url = self.web_editor_server.start().rstrip("/")
+            session = datetime.now().strftime("%Y%m%d%H%M%S%f")
+            url = f"{base_url}/editor?session={session}"
             webbrowser.open(url)
             self.generator_status.configure(text=f"Web editor opened at {url}")
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
@@ -6614,7 +6637,7 @@ class JerseyModderApp(tk.Tk):
                     "y": placement.y,
                     "width": placement.width,
                     "height": placement.height,
-                    "imageUrl": f"/api/image/{placement.key}?",
+                    "imageUrl": f"/api/image/{placement.key}",
                     "blendMode": "normal",
                     "lockX": self._web_editor_overlay_locks_x(placement.key),
                     "lockAspect": not is_side_panel,
@@ -6672,7 +6695,7 @@ class JerseyModderApp(tk.Tk):
                     "y": 0,
                     "width": 2048,
                     "height": 2048,
-                    "imageUrl": "/api/image/fabric_overlay?",
+                    "imageUrl": "/api/image/fabric_overlay",
                     "blendMode": fabric_layer.blend_mode,
                     "lockX": True,
                     "canTransform": False,
@@ -6903,6 +6926,21 @@ class JerseyModderApp(tk.Tk):
             path = None
         if path is None or not path.exists():
             raise FileNotFoundError(f"No image found for {key}.")
+        cleanup = self._web_editor_cleanup_for_key(key)
+        trim_is_flipped = (
+            key in TRIM_GENERATOR_KEYS
+            and self.generator_trim_placements.get(
+                key,
+                TrimPlacementSettings(),
+            ).flip_x
+        )
+        if not (
+            cleanup.auto_background
+            or cleanup.remove_white
+            or cleanup.remove_black
+            or trim_is_flipped
+        ):
+            return path.read_bytes(), image_content_type(path)
         output_path = (
             Path(tempfile.gettempdir())
             / "nba2k_jersey_modder"
