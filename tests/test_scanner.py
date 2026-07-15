@@ -5,6 +5,7 @@ import struct
 import zipfile
 
 from nba2k_jersey_modder.app import (
+    BLENDER_PREVIEW_MODELS,
     JerseyModderApp,
     _fit_transparent_image_to_square,
     _align_image_to_visible_center,
@@ -674,6 +675,29 @@ class TrimCreatorTests(unittest.TestCase):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_blender_preview_models_follow_texture_creator_selection(self) -> None:
+        class Selection:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+        app = object.__new__(JerseyModderApp)
+        app.texture_creator_garment_var = Selection("Shorts")
+        app.texture_creator_shorts_template_var = Selection("Retro shorts")
+        app.texture_creator_jersey_cut_var = Selection("Retro U")
+
+        shorts_scope = app._current_blender_preview_scope()
+        app.texture_creator_garment_var.value = "Jersey"
+        jersey_scope = app._current_blender_preview_scope()
+
+        self.assertEqual(shorts_scope, ("Shorts", "Retro shorts"))
+        self.assertEqual(jersey_scope, ("Jersey", "Retro U"))
+        self.assertEqual(BLENDER_PREVIEW_MODELS[shorts_scope].name, "retroshorts.blend")
+        self.assertTrue(BLENDER_PREVIEW_MODELS[shorts_scope].exists())
+        self.assertTrue(BLENDER_PREVIEW_MODELS[jersey_scope].exists())
+
     def test_retro_shorts_uses_bundled_uv_overlay(self) -> None:
         class Selection:
             def __init__(self, value: str) -> None:

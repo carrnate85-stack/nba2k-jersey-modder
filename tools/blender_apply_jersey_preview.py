@@ -24,8 +24,12 @@ def _material_targets() -> list[bpy.types.Material]:
                 materials.append(slot.material)
     if preferred_objects:
         return materials
-    jersey_materials = [mat for mat in materials if "jersey" in mat.name.lower()]
-    return jersey_materials or materials[:1]
+    uniform_materials = [
+        mat
+        for mat in materials
+        if "jersey" in mat.name.lower() or "shorts" in mat.name.lower()
+    ]
+    return uniform_materials or materials[:1]
 
 
 def _image_node(nodes, image_path: Path, label: str, colorspace: str):
@@ -86,6 +90,12 @@ def _preview_settings_from_scene() -> tuple[Path, Path | None, float]:
                 color_path = Path(settings.get("color_path", ""))
                 normal_path = Path(settings.get("normal_path", ""))
                 normal_strength = float(settings.get("normal_strength", 0.0))
+                scene["nba2k_preview_garment"] = str(
+                    settings.get("garment", "Uniform")
+                )
+                scene["nba2k_preview_template_name"] = str(
+                    settings.get("template_name", "")
+                )
                 scene["nba2k_preview_color_path"] = str(color_path)
                 scene["nba2k_preview_normal_path"] = str(normal_path)
                 scene["nba2k_preview_normal_strength"] = normal_strength
@@ -121,7 +131,7 @@ def refresh_preview_from_scene() -> int:
 
 class NBA2K_OT_refresh_preview(bpy.types.Operator):
     bl_idname = "nba2k.refresh_preview"
-    bl_label = "Refresh Jersey Preview"
+    bl_label = "Refresh Preview"
     bl_description = "Reload the latest preview texture files exported by NBA 2K Jersey Modder"
 
     def execute(self, context):
@@ -145,6 +155,14 @@ class NBA2K_PT_preview_panel(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         layout.operator("nba2k.refresh_preview", icon="FILE_REFRESH")
+        garment = str(scene.get("nba2k_preview_garment", "Uniform"))
+        template_name = str(scene.get("nba2k_preview_template_name", ""))
+        model_label = (
+            f"Model: {garment} / {template_name}"
+            if template_name
+            else f"Model: {garment}"
+        )
+        layout.label(text=model_label)
         color_path = Path(scene.get("nba2k_preview_color_path", ""))
         normal_strength = float(scene.get("nba2k_preview_normal_strength", 0.0))
         if color_path:

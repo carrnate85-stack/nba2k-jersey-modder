@@ -82,7 +82,6 @@ HEX_COLOR_RE = re.compile(r"^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FABRIC_OVERLAY_DIR = PROJECT_ROOT / "assets" / "overlays"
 TRIM_LIBRARY_DIR = PROJECT_ROOT / "trim_library"
-BLENDER_PREVIEW_BLEND = PROJECT_ROOT / "blendermodels" / "jerseyretroU.blend"
 BLENDER_PREVIEW_SCRIPT = PROJECT_ROOT / "tools" / "blender_apply_jersey_preview.py"
 BLENDER_EXECUTABLE_CANDIDATES = (
     Path(r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe"),
@@ -98,6 +97,10 @@ JERSEY_CUT_IMAGE_OPTIONS = {
 }
 JERSEY_CUT_UV_OPTIONS = {
     "Retro U": JERSEY_UV_TEMPLATE_IMAGE,
+}
+BLENDER_PREVIEW_MODELS = {
+    ("Jersey", "Retro U"): PROJECT_ROOT / "blendermodels" / "jerseyretroU.blend",
+    ("Shorts", "Retro shorts"): PROJECT_ROOT / "blendermodels" / "retroshorts.blend",
 }
 TRIM_GENERATOR_KEYS = {
     "left_arm_hole_trim": "left_arm_hole_trim_image",
@@ -232,6 +235,7 @@ class JerseyModderApp(tk.Tk):
         self.texture_creator_normal_strength_label_var = tk.StringVar(value="15%")
         self.texture_creator_blender_normal_var = tk.BooleanVar(value=True)
         self.blender_preview_live_refresh = False
+        self.blender_preview_scope: tuple[str, str] | None = None
         self.blender_preview_refresh_after_id: str | None = None
         self.blender_preview_refresh_running = False
         self.generator_number_preview_image: tk.PhotoImage | None = None
@@ -7839,7 +7843,8 @@ class JerseyModderApp(tk.Tk):
     ) -> bool:
         output_dir = Path(tempfile.gettempdir()) / "nba2k_jersey_modder" / "texture_creator"
         output_dir.mkdir(parents=True, exist_ok=True)
-        garment = self.texture_creator_garment_var.get()
+        garment, template_name = self._current_blender_preview_scope()
+        inputs = self._generator_inputs(garment=garment, template_name=template_name)
         texture_type = self.texture_creator_texture_type_var.get()
         try:
             if texture_type == "Region Texture":
@@ -7852,7 +7857,7 @@ class JerseyModderApp(tk.Tk):
                     return False
                 image = render_jersey_region_map(
                     self._texture_creator_template(),
-                    self._generator_inputs(),
+                    inputs,
                     JERSEY_REGION_TEMPLATE_IMAGE,
                 )
                 output_path = output_dir / "texture_creator_jersey_region.png"
@@ -7867,7 +7872,7 @@ class JerseyModderApp(tk.Tk):
                     return False
                 image = render_jersey_normal_map(
                     self._texture_creator_template(),
-                    self._generator_inputs(),
+                    inputs,
                     JERSEY_NORMAL_TEMPLATE_IMAGE,
                     normal_strength=self._texture_creator_normal_strength(),
                 )
@@ -7882,7 +7887,7 @@ class JerseyModderApp(tk.Tk):
                 output_path = output_dir / output_name
                 image = render_jersey_texture(
                     self._texture_creator_template(),
-                    self._generator_inputs(),
+                    inputs,
                 )
                 image.save(output_path)
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
@@ -7903,16 +7908,18 @@ class JerseyModderApp(tk.Tk):
         return True
 
     def open_blender_preview(self) -> None:
-        if self.texture_creator_garment_var.get() != "Jersey":
+        preview_scope = self._current_blender_preview_scope()
+        preview_model = BLENDER_PREVIEW_MODELS.get(preview_scope)
+        if preview_model is None:
             messagebox.showinfo(
                 "Blender Preview",
-                "The current Blender preview is built for the retro jersey model. Shorts preview can be added once a shorts model is available.",
+                f"No Blender preview model is set up for {preview_scope[0]} / {preview_scope[1]}.",
             )
             return
-        if not BLENDER_PREVIEW_BLEND.exists():
+        if not preview_model.exists():
             messagebox.showerror(
                 "Blender Preview",
-                f"Could not find the preview model:\n{BLENDER_PREVIEW_BLEND}",
+                f"Could not find the preview model:\n{preview_model}",
             )
             return
         if not BLENDER_PREVIEW_SCRIPT.exists():
@@ -7937,7 +7944,7 @@ class JerseyModderApp(tk.Tk):
             subprocess.Popen(
                 [
                     str(blender_path),
-                    str(BLENDER_PREVIEW_BLEND),
+                    str(preview_model),
                     "--python",
                     str(BLENDER_PREVIEW_SCRIPT),
                     "--",
@@ -7949,6 +7956,7 @@ class JerseyModderApp(tk.Tk):
                 cwd=str(PROJECT_ROOT),
             )
             self.blender_preview_live_refresh = True
+            self.blender_preview_scope = preview_scope
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
             messagebox.showerror("Blender Preview failed", str(exc))
             return
@@ -7959,35 +7967,61 @@ class JerseyModderApp(tk.Tk):
         self._show_texture_creator_preview()
         preview_mode = (
             "with the normal map"
-            if self.texture_creator_blender_normal_var.get()
+            if self._blender_preview_normal_node_strength()
             else "color only"
         )
         self.texture_creator_status.configure(
-            text=f"Opened Blender preview {preview_mode}."
+            text=f"Opened {preview_scope[1]} Blender preview {preview_mode}."
         )
         self.tabs.select(self.texture_creator_tab)
 
+    def _current_blender_preview_scope(self) -> tuple[str, str]:
+        garment = self.texture_creator_garment_var.get()
+        template_name = (
+            self.texture_creator_shorts_template_var.get()
+            if garment == "Shorts"
+            else self.texture_creator_jersey_cut_var.get()
+        )
+        return garment, template_name
+
     def _blender_preview_output_paths(self) -> tuple[Path, Path, Path]:
-        output_dir = Path(tempfile.gettempdir()) / "nba2k_jersey_modder" / "blender_preview"
+        garment, template_name = self._current_blender_preview_scope()
+        scope_name = (
+            safe_filename(f"{garment}_{template_name}")
+            .replace(" ", "_")
+            .lower()
+        )
+        output_dir = (
+            Path(tempfile.gettempdir())
+            / "nba2k_jersey_modder"
+            / "blender_preview"
+            / scope_name
+        )
         output_dir.mkdir(parents=True, exist_ok=True)
         return (
-            output_dir / "jersey_preview_color.png",
-            output_dir / "jersey_preview_normal.png",
+            output_dir / "preview_color.png",
+            output_dir / "preview_normal.png",
             output_dir / "preview_settings.json",
         )
 
     def _write_blender_preview_files(self) -> tuple[Path, Path, Path]:
         color_path, normal_path, settings_path = self._blender_preview_output_paths()
+        garment, template_name = self._current_blender_preview_scope()
         template = self._texture_creator_template()
-        inputs = self._generator_inputs()
+        inputs = self._generator_inputs(garment=garment, template_name=template_name)
         color_image = render_jersey_texture(template, inputs)
-        color_image = self._apply_blender_number_preview(color_image)
-        normal_image = render_jersey_normal_map(
-            template,
-            inputs,
-            JERSEY_NORMAL_TEMPLATE_IMAGE,
-            normal_strength=self._texture_creator_normal_strength(),
-        )
+        if garment == "Jersey":
+            color_image = self._apply_blender_number_preview(color_image)
+            normal_image = render_jersey_normal_map(
+                template,
+                inputs,
+                JERSEY_NORMAL_TEMPLATE_IMAGE,
+                normal_strength=self._texture_creator_normal_strength(),
+            )
+        else:
+            from PIL import Image
+
+            normal_image = Image.new("RGB", color_image.size, (128, 128, 255))
         color_image.save(color_path)
         normal_image.save(normal_path)
         settings_path.write_text(
@@ -7996,6 +8030,8 @@ class JerseyModderApp(tk.Tk):
                     "color_path": str(color_path),
                     "normal_path": str(normal_path),
                     "normal_strength": self._blender_preview_normal_node_strength(),
+                    "garment": garment,
+                    "template_name": template_name,
                 },
                 indent=2,
             ),
@@ -8034,7 +8070,7 @@ class JerseyModderApp(tk.Tk):
     def _refresh_blender_preview_files_if_active(self) -> None:
         if not self.blender_preview_live_refresh:
             return
-        if self.texture_creator_garment_var.get() != "Jersey":
+        if self.blender_preview_scope != self._current_blender_preview_scope():
             return
         if self.blender_preview_refresh_after_id is not None:
             self.after_cancel(self.blender_preview_refresh_after_id)
@@ -8057,6 +8093,8 @@ class JerseyModderApp(tk.Tk):
             self.blender_preview_refresh_running = False
 
     def _blender_preview_normal_node_strength(self) -> float:
+        if self.texture_creator_garment_var.get() != "Jersey":
+            return 0.0
         return 0.35 if self.texture_creator_blender_normal_var.get() else 0.0
 
     def _find_blender_executable(self) -> Path | None:
@@ -9050,12 +9088,24 @@ class JerseyModderApp(tk.Tk):
             tolerance=self._project_int(payload.get("tolerance"), 32, 0, 255),
         )
 
-    def _generator_inputs(self) -> GeneratorInputs:
+    def _generator_inputs(
+        self,
+        *,
+        garment: str | None = None,
+        template_name: str | None = None,
+    ) -> GeneratorInputs:
+        garment = garment or self.generator_garment_var.get()
         collar_or_waistband_key = (
             "waistband_color"
-            if self.generator_garment_var.get() == "Shorts"
+            if garment == "Shorts"
             else "collar_background_color"
         )
+        if template_name is None:
+            template_name = (
+                self.generator_shorts_template_var.get()
+                if garment == "Shorts"
+                else self.generator_jersey_cut_var.get()
+            )
         return GeneratorInputs(
             front_color=self._generator_color_value("front_color"),
             back_color=self._generator_color_value("back_color"),
@@ -9080,7 +9130,13 @@ class JerseyModderApp(tk.Tk):
             front_wordmark_scale_percent=self._front_wordmark_scale_percent(),
             logo_placements=tuple(self.generator_logo_placements),
             trim_path_layers=tuple(
-                layer for _index, layer in self._active_generator_trim_path_layers()
+                layer
+                for layer in self.generator_trim_path_layers
+                if self._trim_path_layer_matches_scope(
+                    layer,
+                    garment=garment,
+                    template_name=template_name,
+                )
             ),
             fabric_overlay_image=self._fabric_overlay_path(),
             fabric_overlay_opacity=self._fabric_overlay_opacity(),
