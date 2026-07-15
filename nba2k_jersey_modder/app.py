@@ -1798,7 +1798,7 @@ class JerseyModderApp(tk.Tk):
             controls,
             section_row,
             "Colors",
-            expanded=True,
+            expanded=False,
         )
         section_row += 1
         color_row = 0
@@ -1845,7 +1845,7 @@ class JerseyModderApp(tk.Tk):
             controls,
             section_row,
             "Images",
-            expanded=True,
+            expanded=False,
         )
         section_row += 1
         image_row = 0
@@ -1871,7 +1871,7 @@ class JerseyModderApp(tk.Tk):
             controls,
             section_row,
             "Logos",
-            expanded=True,
+            expanded=False,
         )
         section_row += 1
         self._build_logo_controls(logo_controls, 0)
