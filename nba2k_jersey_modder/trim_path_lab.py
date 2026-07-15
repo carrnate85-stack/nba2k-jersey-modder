@@ -360,6 +360,47 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       return runs;
     }
 
+    function tRenderPointRuns(path) {
+      if (path.curve !== "t" || path.points.length < 3) return pathPointRuns(path);
+      const crossbarStart = path.points[0];
+      const crossbarEnd = path.points[1];
+      const stemEnd = path.points[2];
+      const junction = tJunction(path);
+      const crossbarLength = Math.hypot(
+        crossbarEnd.x - crossbarStart.x,
+        crossbarEnd.y - crossbarStart.y,
+      );
+      const stemLength = Math.hypot(stemEnd.x - junction.x, stemEnd.y - junction.y);
+      if (crossbarLength < .01 || stemLength < .01) {
+        return [[crossbarStart, crossbarEnd]];
+      }
+      const crossbarNormal = {
+        x: -(crossbarEnd.y - crossbarStart.y) / crossbarLength,
+        y: (crossbarEnd.x - crossbarStart.x) / crossbarLength,
+      };
+      const stemDirection = {
+        x: (stemEnd.x - junction.x) / stemLength,
+        y: (stemEnd.y - junction.y) / stemLength,
+      };
+      const normalAmount = Math.max(
+        .05,
+        Math.abs(
+          stemDirection.x * crossbarNormal.x + stemDirection.y * crossbarNormal.y,
+        ),
+      );
+      const overlap = Math.min(.75, path.width * .05);
+      const boundaryDistance = Math.min(
+        stemLength,
+        Math.max(0, path.width / 2 - overlap) / normalAmount,
+      );
+      const stemStart = {
+        x: junction.x + stemDirection.x * boundaryDistance,
+        y: junction.y + stemDirection.y * boundaryDistance,
+      };
+      // Draw the stem first and the crossbar last so its bands stay uninterrupted.
+      return [[stemStart, stemEnd], [crossbarStart, crossbarEnd]];
+    }
+
     function minimumPathPoints(path) {
       return path?.curve === "t" ? 3 : 2;
     }
@@ -658,7 +699,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         renderPatternPolyline(target, path, targetStep);
         return;
       }
-      pathPointRuns(path).forEach(points => {
+      tRenderPointRuns(path).forEach(points => {
         if (points.length < 2) return;
         renderPatternPolyline(target, {...path, points, curve: "straight"}, targetStep);
       });
