@@ -649,7 +649,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           y: junction.y + stemTowardJunction.y * distance + stemNormal.y * stemOffset,
         };
       };
-      const drawStemBand = (band, targetOffset) => {
+      const drawStemBand = (band, targetOffsetForStemOffset) => {
         if (band.color[3] <= 2) return;
         let firstOffset = lateralPosition(band.start);
         let secondOffset = lateralPosition(band.end);
@@ -658,8 +658,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         secondOffset += offsetDirection * .12;
         const polygon = [
           {x: stemEnd.x + stemNormal.x * firstOffset, y: stemEnd.y + stemNormal.y * firstOffset},
-          crossbarConnection(firstOffset, targetOffset),
-          crossbarConnection(secondOffset, targetOffset),
+          crossbarConnection(firstOffset, targetOffsetForStemOffset(firstOffset)),
+          crossbarConnection(secondOffset, targetOffsetForStemOffset(secondOffset)),
           {x: stemEnd.x + stemNormal.x * secondOffset, y: stemEnd.y + stemNormal.y * secondOffset},
         ];
         target.beginPath();
@@ -674,7 +674,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const crossbarPath = {...path, points: [crossbarStart, crossbarEnd], curve: "straight"};
       if (!renderUniformPatternPath(target, crossbarPath, crossbarPath.points)) return false;
       bandPairs.forEach(({leftBand, rightBand}) => {
-        const pairBands = leftBand === rightBand ? [leftBand] : [leftBand, rightBand];
+        const isCenterBand = leftBand === rightBand;
+        const pairBands = isCenterBand ? [leftBand] : [leftBand, rightBand];
         const approachBand = pairBands.reduce((selected, candidate) => {
           const candidateOffsets = bandOffsets(candidate);
           const selectedOffsets = bandOffsets(selected);
@@ -688,7 +689,12 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         const targetOffset = travelAcrossCrossbar > 0
           ? approachOffsets.maximum
           : approachOffsets.minimum;
-        pairBands.forEach(band => drawStemBand(band, targetOffset));
+        const approachSide = travelAcrossCrossbar > 0 ? -1 : 1;
+        const miterTarget = stemOffset => (
+          approachSide * Math.min(halfWidth, Math.abs(stemOffset))
+        );
+        const connectionTarget = isCenterBand ? () => targetOffset : miterTarget;
+        pairBands.forEach(band => drawStemBand(band, connectionTarget));
       });
       return true;
     }
