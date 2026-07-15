@@ -86,7 +86,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           <option value="straight" selected>Straight segments</option>
           <option value="t">T shape (3 points)</option>
         </select>
-        <label id="tJunctionLabel" for="tJunctionMode">T junction</label>
+        <label id="tJunctionLabel" for="tJunctionMode">T junction (T shape only)</label>
         <select id="tJunctionMode">
           <option value="open" selected>Open - middle band connected</option>
           <option value="closed">Closed - crossbar continuous</option>
@@ -527,9 +527,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       return {x: current.x + miter.x * miterLength, y: current.y + miter.y * miterLength};
     }
 
-    function renderUniformPatternPath(target, path, samples) {
-      const points = path.curve === "straight" ? path.points : samples;
-      if (points.length < 2) return false;
+    function patternBands() {
       const sourceHeight = Math.max(1, patternSampleCanvas.height);
       const bands = [];
       const colorsClose = (first, second) => first.every((value, channel) => Math.abs(value - second[channel]) <= 5);
@@ -542,6 +540,14 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           bands.push({start: sourceY, end: sourceY + 1, color});
         }
       }
+      return bands;
+    }
+
+    function renderUniformPatternPath(target, path, samples) {
+      const points = path.curve === "straight" ? path.points : samples;
+      if (points.length < 2) return false;
+      const sourceHeight = Math.max(1, patternSampleCanvas.height);
+      const bands = patternBands();
       const halfWidth = path.width / 2;
       const lateralPosition = sourceY => {
         const amount = sourceY / sourceHeight;
@@ -565,6 +571,64 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         target.fillStyle = `rgba(${band.color[0]}, ${band.color[1]}, ${band.color[2]}, ${band.color[3] / 255})`;
         target.fill();
       });
+      return true;
+    }
+
+    function renderOpenUniformT(target, path) {
+      if (!patternLengthUniform || path.points.length < 3) return false;
+      const sourceHeight = Math.max(1, patternSampleCanvas.height);
+      const bands = patternBands();
+      const layers = [];
+      const colorsClose = (first, second) => first.every(
+        (value, channel) => Math.abs(value - second[channel]) <= 8,
+      );
+      let leftIndex = 0;
+      let rightIndex = bands.length - 1;
+      while (leftIndex <= rightIndex) {
+        const leftBand = bands[leftIndex];
+        const rightBand = bands[rightIndex];
+        if (!colorsClose(leftBand.color, rightBand.color)) return false;
+        if (leftIndex !== rightIndex) {
+          const leftWidth = leftBand.end - leftBand.start;
+          const rightWidth = rightBand.end - rightBand.start;
+          if (Math.abs(leftWidth - rightWidth) > Math.max(2, sourceHeight * .02)) return false;
+        }
+        if (leftBand.color[3] > 2) {
+          layers.push({
+            color: leftBand.color,
+            width: path.width * (rightBand.end - leftBand.start) / sourceHeight,
+          });
+        }
+        leftIndex++;
+        rightIndex--;
+      }
+      if (!layers.length) return false;
+
+      const crossbarStart = path.points[0];
+      const crossbarEnd = path.points[1];
+      const stemEnd = path.points[2];
+      const junction = tJunction(path);
+      const stemLength = Math.hypot(junction.x - stemEnd.x, junction.y - stemEnd.y);
+      if (stemLength < .01) return false;
+      const stemPastJunction = {
+        x: junction.x + (junction.x - stemEnd.x) / stemLength * .5,
+        y: junction.y + (junction.y - stemEnd.y) / stemLength * .5,
+      };
+      target.save();
+      target.lineCap = "butt";
+      target.lineJoin = "miter";
+      target.miterLimit = 4;
+      layers.forEach(layer => {
+        target.beginPath();
+        target.moveTo(crossbarStart.x, crossbarStart.y);
+        target.lineTo(crossbarEnd.x, crossbarEnd.y);
+        target.moveTo(stemEnd.x, stemEnd.y);
+        target.lineTo(stemPastJunction.x, stemPastJunction.y);
+        target.strokeStyle = `rgba(${layer.color[0]}, ${layer.color[1]}, ${layer.color[2]}, ${layer.color[3] / 255})`;
+        target.lineWidth = Math.max(.01, layer.width + .2);
+        target.stroke();
+      });
+      target.restore();
       return true;
     }
 
@@ -713,6 +777,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         renderPatternPolyline(target, path, targetStep);
         return;
       }
+      if (path.tJunctionMode === "open" && renderOpenUniformT(target, path)) return;
       tRenderPointRuns(path).forEach(points => {
         if (points.length < 2) return;
         renderPatternPolyline(target, {...path, points, curve: "straight"}, targetStep);
@@ -1168,8 +1233,6 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const disabled = !path;
       ["curveMode", "tJunctionMode", "trimWidth", "trimWidthNumber", "patternScale", "patternScaleNumber", "patternOffset", "patternOffsetNumber", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
       document.getElementById("linkStatus").textContent = "Layer is not linked.";
-      document.getElementById("tJunctionLabel").style.display = path?.curve === "t" ? "block" : "none";
-      document.getElementById("tJunctionMode").style.display = path?.curve === "t" ? "block" : "none";
       if (!path) {
         updateSegmentReadout();
         return;
@@ -1228,6 +1291,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       updateSegmentReadout();
       updatePathList();
       saveLocalPaths();
+      syncControls();
       queueDraw();
     }
     function bindNumericRange(rangeId, numberId, property, minimum, maximum) {
