@@ -284,6 +284,7 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_color_correct_after_stage_var = tk.BooleanVar(value=False)
         self.trim_creator_zoom_label_var = tk.StringVar(value="100%")
         self.trim_path_source_var = tk.StringVar(value="")
+        self.trim_path_garment_var = tk.StringVar(value="Shorts")
         self.trim_path_template_var = tk.StringVar(value="Retro shorts")
         self.trim_path_lab_session_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
         self.trim_path_source_lookup: dict[str, int] = {}
@@ -1057,8 +1058,8 @@ class JerseyModderApp(tk.Tk):
         ttk.Label(
             tab,
             text=(
-                "Experiment with continuous curved shorts trim. Select a staged Trim Creator "
-                "strip, place multiple path points in the web editor, and export one transparent layer."
+                "Draw continuous trim paths on jersey or shorts previews. Select a staged Trim "
+                "Creator strip, place path points in the web editor, and export transparent layers."
             ),
             style="Muted.TLabel",
             wraplength=900,
@@ -1070,11 +1071,15 @@ class JerseyModderApp(tk.Tk):
             style="PreviewToggle.TButton",
         ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
-        preview_panel = ttk.LabelFrame(tab, text="Shorts Template Guide", padding=10)
-        preview_panel.grid(row=2, column=0, sticky="nsew", padx=(0, 10))
+        self.trim_path_preview_panel = ttk.LabelFrame(
+            tab,
+            text="Shorts Template Guide",
+            padding=10,
+        )
+        self.trim_path_preview_panel.grid(row=2, column=0, sticky="nsew", padx=(0, 10))
         self.trim_path_template_preview = ttk.Label(
-            preview_panel,
-            text="Shorts template preview",
+            self.trim_path_preview_panel,
+            text="Template preview",
             anchor=tk.CENTER,
         )
         self.trim_path_template_preview.pack(fill=tk.BOTH, expand=True)
@@ -1114,20 +1119,42 @@ class JerseyModderApp(tk.Tk):
 
         template_panel = ttk.LabelFrame(controls, text="Template", padding=10)
         template_panel.grid(row=1, column=0, sticky="ew", pady=(0, 10))
-        ttk.Label(template_panel, text="Shorts type", style="Muted.TLabel").grid(
+        ttk.Label(template_panel, text="Garment", style="Muted.TLabel").grid(
             row=0,
             column=0,
             sticky="w",
             pady=(0, 4),
         )
-        template_combo = ttk.Combobox(
+        trim_path_garment_combo = ttk.Combobox(
+            template_panel,
+            textvariable=self.trim_path_garment_var,
+            values=("Jersey", "Shorts"),
+            state="readonly",
+        )
+        trim_path_garment_combo.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        trim_path_garment_combo.bind(
+            "<<ComboboxSelected>>",
+            self._on_trim_path_lab_garment_changed,
+        )
+        self.trim_path_template_label = ttk.Label(
+            template_panel,
+            text="Shorts type",
+            style="Muted.TLabel",
+        )
+        self.trim_path_template_label.grid(
+            row=2,
+            column=0,
+            sticky="w",
+            pady=(0, 4),
+        )
+        self.trim_path_template_combo = ttk.Combobox(
             template_panel,
             textvariable=self.trim_path_template_var,
             values=tuple(SHORTS_TEMPLATE_OPTIONS),
             state="readonly",
         )
-        template_combo.grid(row=1, column=0, sticky="ew")
-        template_combo.bind(
+        self.trim_path_template_combo.grid(row=3, column=0, sticky="ew")
+        self.trim_path_template_combo.bind(
             "<<ComboboxSelected>>",
             lambda _event: self._refresh_trim_path_lab_previews(),
         )
@@ -1161,6 +1188,7 @@ class JerseyModderApp(tk.Tk):
         tab.columnconfigure(0, weight=1)
         tab.columnconfigure(1, minsize=340)
         tab.rowconfigure(2, weight=1)
+        self._sync_trim_path_lab_template_controls()
         self._refresh_trim_path_lab_sources()
         self.after_idle(self._refresh_trim_path_lab_previews)
 
@@ -2759,27 +2787,75 @@ class JerseyModderApp(tk.Tk):
             text=f"Using staged trim: {result.output_path.name}"
         )
 
-    def _trim_path_lab_template_path(self) -> Path:
-        selected = self.trim_path_template_var.get()
-        image_path, _zones_path = SHORTS_TEMPLATE_OPTIONS.get(
-            selected,
-            SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
+    def _trim_path_lab_garment(self) -> str:
+        return "Jersey" if self.trim_path_garment_var.get() == "Jersey" else "Shorts"
+
+    def _trim_path_lab_template_name(self) -> str:
+        garment = self._trim_path_lab_garment()
+        choices = (
+            JERSEY_CUT_OPTIONS
+            if garment == "Jersey"
+            else tuple(SHORTS_TEMPLATE_OPTIONS)
         )
-        return Path(image_path)
+        selected = self.trim_path_template_var.get()
+        return selected if selected in choices else choices[0]
+
+    def _trim_path_lab_template_assets(self) -> tuple[Path, Path, Path]:
+        garment = self._trim_path_lab_garment()
+        template_name = self._trim_path_lab_template_name()
+        if garment == "Jersey":
+            return (
+                Path(JERSEY_CUT_IMAGE_OPTIONS[template_name]),
+                Path(JERSEY_CUT_TEMPLATE_OPTIONS[template_name]),
+                Path(JERSEY_CUT_UV_OPTIONS[template_name]),
+            )
+        image_path, zones_path = SHORTS_TEMPLATE_OPTIONS[template_name]
+        image_path = Path(image_path)
+        return (
+            image_path,
+            Path(zones_path),
+            image_path.with_name(f"{image_path.stem}.uv.png"),
+        )
+
+    def _sync_trim_path_lab_template_controls(self) -> None:
+        garment = self._trim_path_lab_garment()
+        choices = (
+            JERSEY_CUT_OPTIONS
+            if garment == "Jersey"
+            else tuple(SHORTS_TEMPLATE_OPTIONS)
+        )
+        self.trim_path_template_combo.configure(values=choices)
+        if self.trim_path_template_var.get() not in choices:
+            self.trim_path_template_var.set(choices[0])
+        self.trim_path_template_label.configure(text=f"{garment} type")
+        self.trim_path_preview_panel.configure(text=f"{garment} Template Guide")
+
+    def _on_trim_path_lab_garment_changed(self, _event: tk.Event | None = None) -> None:
+        self._sync_trim_path_lab_template_controls()
+        self._refresh_trim_path_lab_previews()
+
+    def _trim_path_lab_template_path(self) -> Path:
+        image_path, _zones_path, _uv_path = self._trim_path_lab_template_assets()
+        return image_path
 
     def _trim_path_lab_panel_zones(self) -> dict[str, dict[str, int]]:
-        selected = self.trim_path_template_var.get()
-        _image_path, zones_path = SHORTS_TEMPLATE_OPTIONS.get(
-            selected,
-            SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
-        )
-        template = load_template(Path(zones_path))
+        garment = self._trim_path_lab_garment()
+        _image_path, zones_path, _uv_path = self._trim_path_lab_template_assets()
+        template = load_template(zones_path)
         zones_by_name = {zone.name: zone for zone in template.zones}
         payload: dict[str, dict[str, int]] = {}
-        for side, name in (
-            ("left", "shorts_left_panel"),
-            ("right", "shorts_right_panel"),
-        ):
+        zone_names = (
+            (
+                ("left", "left_side_panel"),
+                ("right", "right_side_panel"),
+            )
+            if garment == "Jersey"
+            else (
+                ("left", "shorts_left_panel"),
+                ("right", "shorts_right_panel"),
+            )
+        )
+        for side, name in zone_names:
             zone = zones_by_name.get(name)
             if zone is not None:
                 payload[side] = {
@@ -2836,7 +2912,8 @@ class JerseyModderApp(tk.Tk):
             self.trim_path_lab_status.configure(
                 text=(
                     f"Ready with {result.output_path.name}. The transparent PNG output "
-                    "will use the selected shorts template resolution."
+                    f"will use the selected {self._trim_path_lab_garment().lower()} "
+                    "template resolution."
                 )
             )
         except Exception as exc:  # noqa: BLE001 - preview boundary.
@@ -2875,11 +2952,13 @@ class JerseyModderApp(tk.Tk):
     def _trim_path_lab_web_project(self) -> dict:
         template_path = self._trim_path_lab_template_path()
         uv_path = self._trim_path_lab_uv_path()
+        garment = self._trim_path_lab_garment()
+        template_name = self._trim_path_lab_template_name()
         width, height = read_image_size(template_path)
         result = self._trim_path_lab_selected_result()
         return {
             "hasPattern": result is not None,
-            "garment": "Shorts",
+            "garment": garment,
             "sessionId": self.trim_path_lab_session_id,
             "width": width,
             "height": height,
@@ -2890,7 +2969,7 @@ class JerseyModderApp(tk.Tk):
             },
             "patternUrl": "/api/trim-path/pattern",
             "patternName": result.output_path.name if result is not None else "",
-            "templateName": self.trim_path_template_var.get(),
+            "templateName": template_name,
             "panelZones": self._trim_path_lab_panel_zones(),
             "message": (
                 f"Using {result.output_path.name} from Trim Creator."
@@ -2900,16 +2979,15 @@ class JerseyModderApp(tk.Tk):
         }
 
     def _trim_path_lab_background_image(self) -> tuple[bytes, str]:
-        template_name = self.trim_path_template_var.get()
-        if template_name not in SHORTS_TEMPLATE_OPTIONS:
-            template_name = "Retro shorts"
-        image_path, zones_path = SHORTS_TEMPLATE_OPTIONS[template_name]
-        width, height = read_image_size(Path(image_path))
-        template = load_template(Path(zones_path))
+        garment = self._trim_path_lab_garment()
+        template_name = self._trim_path_lab_template_name()
+        image_path, zones_path, _uv_path = self._trim_path_lab_template_assets()
+        width, height = read_image_size(image_path)
+        template = load_template(zones_path)
         preview = render_jersey_texture(
             template,
             self._generator_inputs(
-                garment="Shorts",
+                garment=garment,
                 template_name=template_name,
             ),
             size=(width, height),
@@ -2919,8 +2997,8 @@ class JerseyModderApp(tk.Tk):
         return output.getvalue(), "image/png"
 
     def _trim_path_lab_uv_path(self) -> Path:
-        template_path = self._trim_path_lab_template_path()
-        return template_path.with_name(f"{template_path.stem}.uv.png")
+        _image_path, _zones_path, uv_path = self._trim_path_lab_template_assets()
+        return uv_path
 
     def _trim_path_lab_uv_image(self) -> tuple[bytes, str]:
         path = self._trim_path_lab_uv_path()

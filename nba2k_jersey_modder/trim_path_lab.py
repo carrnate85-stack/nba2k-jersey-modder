@@ -191,6 +191,15 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         const response = await fetch("/api/trim-path/project", {cache: "no-store"});
         if (!response.ok) throw new Error(`Project failed: ${response.status}`);
         const nextProject = await response.json();
+        const previousScope = project ? `${project.garment}:${project.templateName}` : "";
+        const nextScope = `${nextProject.garment}:${nextProject.templateName}`;
+        if (previousScope && previousScope !== nextScope) {
+          saveLocalPaths();
+          paths = [];
+          activePathIndex = -1;
+          selectedPointIndex = -1;
+          drawing = false;
+        }
         if (!nextProject.hasPattern) {
           project = nextProject;
           setStatus(nextProject.message || "Stage a trim in Trim Creator first.");
@@ -218,7 +227,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         document.getElementById("sourceName").textContent = `${project.patternName} | ${project.width} x ${project.height} template`;
         if (!paths.length) restoreLocalPaths();
         fitView();
-        setStatus("Click New Path, then click points along the center of the shorts trim.");
+        setStatus(`Click New Path, then click points along the center of the ${project.garment.toLowerCase()} trim.`);
       } catch (error) {
         setStatus(`Could not load Trim Path Lab: ${error.message}`);
       }
@@ -1101,7 +1110,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     }
     function savePng() {
       if (!paths.some(path => path.points.length >= 2)) { setStatus("Create at least one path before saving."); return; }
-      renderExport().toBlob(blob => downloadBlob(blob, "shorts_trim_paths.png"), "image/png");
+      const garmentName = safeFileName(project?.garment || "uniform");
+      renderExport().toBlob(blob => downloadBlob(blob, `${garmentName}_trim_paths.png`), "image/png");
       setStatus(`Saved ${project.width} x ${project.height} transparent trim PNG.`);
     }
     function safeFileName(value) {
@@ -1139,8 +1149,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       }
     }
     function saveJson() {
-      const payload = {version: 1, width: project.width, height: project.height, patternName: project.patternName, paths};
-      downloadBlob(new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"}), "shorts_trim_paths.json");
+      const payload = {version: 1, garment: project.garment, templateName: project.templateName, width: project.width, height: project.height, patternName: project.patternName, paths};
+      const garmentName = safeFileName(project?.garment || "uniform");
+      downloadBlob(new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"}), `${garmentName}_trim_paths.json`);
     }
     function downloadBlob(blob, filename) {
       const link = document.createElement("a");
@@ -1169,7 +1180,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       reader.readAsText(file);
     }
     function storageKey() {
-      return `nba2k-trim-paths-${project?.sessionId || "current"}-${project?.width || 0}x${project?.height || 0}`;
+      const garment = safeFileName(project?.garment || "uniform");
+      const template = safeFileName(project?.templateName || "default");
+      return `nba2k-trim-paths-${project?.sessionId || "current"}-${garment}-${template}-${project?.width || 0}x${project?.height || 0}`;
     }
     function saveLocalPaths() { if (project?.width) localStorage.setItem(storageKey(), JSON.stringify(paths)); }
     function deserializePaths(rawPaths) {

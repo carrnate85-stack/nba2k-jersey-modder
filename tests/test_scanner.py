@@ -54,6 +54,7 @@ from nba2k_jersey_modder.template import (
     JERSEY_REGION_TEMPLATE_IMAGE,
     JERSEY_REGION_TEMPLATE_ZONES,
     JERSEY_TEMPLATE_OPTIONS,
+    JERSEY_UV_TEMPLATE_IMAGE,
     JerseyTemplate,
     MASTER_TEMPLATE_IMAGE,
     MASTER_TEMPLATE_ZONES,
@@ -712,7 +713,10 @@ class GeneratorTests(unittest.TestCase):
         )
 
         self.assertTrue(updated)
-        self.assertEqual(app.texture_creator_preview_path.name, "texture_creator_shorts_normal.png")
+        self.assertEqual(
+            app.texture_creator_preview_path.name,
+            "texture_creator_shorts_normal.png",
+        )
         self.assertTrue(app.texture_creator_preview_path.exists())
 
     def test_blender_preview_applies_bundled_retro_shorts_normal(self) -> None:
@@ -766,11 +770,15 @@ class GeneratorTests(unittest.TestCase):
             self.skipTest("Pillow not available")
 
         class Selection:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
             def get(self) -> str:
-                return "Retro shorts"
+                return self.value
 
         app = object.__new__(JerseyModderApp)
-        app.trim_path_template_var = Selection()
+        app.trim_path_garment_var = Selection("Shorts")
+        app.trim_path_template_var = Selection("Retro shorts")
         calls: list[tuple[str, str]] = []
 
         def generator_inputs(*, garment: str, template_name: str) -> GeneratorInputs:
@@ -793,6 +801,39 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(content_type, "image/png")
         self.assertEqual(calls, [("Shorts", "Retro shorts")])
         self.assertEqual(left_panel_pixel, (18, 52, 86, 255))
+
+    def test_trim_path_lab_supports_generated_jersey_preview_and_uv(self) -> None:
+        class Selection:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+        app = object.__new__(JerseyModderApp)
+        app.trim_path_garment_var = Selection("Jersey")
+        app.trim_path_template_var = Selection("Retro U")
+        calls: list[tuple[str, str]] = []
+
+        def generator_inputs(*, garment: str, template_name: str) -> GeneratorInputs:
+            calls.append((garment, template_name))
+            return GeneratorInputs(
+                "#ffffff",
+                "#ffffff",
+                "",
+                "",
+            )
+
+        app._generator_inputs = generator_inputs
+        image_data, content_type = app._trim_path_lab_background_image()
+        panel_zones = app._trim_path_lab_panel_zones()
+
+        self.assertEqual(content_type, "image/png")
+        self.assertTrue(image_data.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(calls, [("Jersey", "Retro U")])
+        self.assertEqual(app._trim_path_lab_template_path(), MASTER_TEMPLATE_IMAGE)
+        self.assertEqual(app._trim_path_lab_uv_path(), JERSEY_UV_TEMPLATE_IMAGE)
+        self.assertEqual(set(panel_zones), {"left", "right"})
 
     def test_open_project_defaults_generator_to_jersey(self) -> None:
         class Selection:
@@ -845,11 +886,15 @@ class GeneratorTests(unittest.TestCase):
 
     def test_trim_path_lab_uses_selected_template_uv_overlay(self) -> None:
         class Selection:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
             def get(self) -> str:
-                return "Retro shorts"
+                return self.value
 
         app = object.__new__(JerseyModderApp)
-        app.trim_path_template_var = Selection()
+        app.trim_path_garment_var = Selection("Shorts")
+        app.trim_path_template_var = Selection("Retro shorts")
 
         self.assertEqual(
             app._trim_path_lab_uv_path(),
