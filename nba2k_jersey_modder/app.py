@@ -474,6 +474,13 @@ class JerseyModderApp(tk.Tk):
         self._build_rdat_tab()
         self._build_textures_tab()
         self._build_template_tab()
+        self._advanced_tabs = (
+            self.rdat_tab,
+            self.textures_tab,
+            self.template_tab,
+        )
+        for advanced_tab in self._advanced_tabs:
+            self.tabs.hide(advanced_tab)
         self.after_idle(
             lambda: self.generate_jersey_preview(select_tab=False, update_status=False)
         )
