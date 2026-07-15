@@ -578,19 +578,33 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       if (!patternLengthUniform || path.points.length < 3) return false;
       const sourceHeight = Math.max(1, patternSampleCanvas.height);
       const bands = patternBands();
-      const bandPairs = [];
-      let leftIndex = 0;
-      let rightIndex = bands.length - 1;
-      while (leftIndex <= rightIndex) {
-        const leftBand = bands[leftIndex];
-        const rightBand = bands[rightIndex];
-        // Photo-derived strips often have slightly different shades on each side.
-        // Pair by position so the center band still becomes one uninterrupted T.
-        bandPairs.push({leftBand, rightBand});
-        leftIndex++;
-        rightIndex--;
+      const centerRow = Math.floor((sourceHeight - 1) / 2);
+      const centerBand = bands.find(band => (
+        band.start <= centerRow && centerRow < band.end
+      ));
+      if (!centerBand) return false;
+      const leftSpan = centerBand.start;
+      const rightSpan = sourceHeight - centerBand.end;
+      const layerSteps = Math.min(256, Math.max(1, leftSpan, rightSpan));
+      const nestedLayers = [];
+      let previousBounds = "";
+      for (let step = 0; step <= layerSteps; step++) {
+        const amount = step / layerSteps;
+        const leftBoundary = Math.round(leftSpan * amount);
+        const rightBoundary = Math.round(sourceHeight - rightSpan * amount);
+        const boundsKey = `${leftBoundary}:${rightBoundary}`;
+        if (boundsKey === previousBounds) continue;
+        previousBounds = boundsKey;
+        const leftColor = sampledPatternRow(Math.min(sourceHeight - 1, leftBoundary));
+        const rightColor = sampledPatternRow(Math.max(leftBoundary, rightBoundary - 1));
+        nestedLayers.push({
+          color: leftColor.map((value, channel) => (
+            Math.round((value + rightColor[channel]) / 2)
+          )),
+          width: path.width * (rightBoundary - leftBoundary) / sourceHeight,
+        });
       }
-      if (!bandPairs.length) return false;
+      if (!nestedLayers.length) return false;
 
       const crossbarStart = path.points[0];
       const crossbarEnd = path.points[1];
@@ -610,15 +624,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       target.lineCap = "butt";
       target.lineJoin = "miter";
       target.miterLimit = 4;
-      const centerColor = sampledPatternRow(Math.floor((sourceHeight - 1) / 2));
-      bandPairs.forEach(({leftBand, rightBand}, pairIndex) => {
-        const color = pairIndex === bandPairs.length - 1
-          ? centerColor
-          : leftBand.color.map((value, channel) => (
-              Math.round((value + rightBand.color[channel]) / 2)
-            ));
+      nestedLayers.forEach(({color, width: layerWidth}) => {
         if (color[3] <= 2) return;
-        const layerWidth = path.width * (rightBand.end - leftBand.start) / sourceHeight;
         target.beginPath();
         target.moveTo(crossbarStart.x, crossbarStart.y);
         target.lineTo(crossbarEnd.x, crossbarEnd.y);
