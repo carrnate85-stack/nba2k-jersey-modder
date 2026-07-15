@@ -603,99 +603,36 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const crossbarEnd = path.points[1];
       const stemEnd = path.points[2];
       const junction = tJunction(path);
-      const crossbarLength = Math.hypot(
-        crossbarEnd.x - crossbarStart.x,
-        crossbarEnd.y - crossbarStart.y,
-      );
       const stemLength = Math.hypot(junction.x - stemEnd.x, junction.y - stemEnd.y);
-      if (crossbarLength < .01 || stemLength < .01) return false;
-      const crossbarNormal = {
-        x: -(crossbarEnd.y - crossbarStart.y) / crossbarLength,
-        y: (crossbarEnd.x - crossbarStart.x) / crossbarLength,
-      };
+      if (stemLength < .01) return false;
       const stemTowardJunction = {
         x: (junction.x - stemEnd.x) / stemLength,
         y: (junction.y - stemEnd.y) / stemLength,
       };
-      const stemOutward = {x: -stemTowardJunction.x, y: -stemTowardJunction.y};
-      const stemNormal = {x: -stemOutward.y, y: stemOutward.x};
-      const travelAcrossCrossbar = (
-        stemTowardJunction.x * crossbarNormal.x
-        + stemTowardJunction.y * crossbarNormal.y
-      );
-      if (Math.abs(travelAcrossCrossbar) < .05) return false;
-
-      const halfWidth = path.width / 2;
-      const lateralPosition = sourceY => {
-        const amount = sourceY / sourceHeight;
-        return path.reverseCrossSection
-          ? halfWidth - amount * path.width
-          : -halfWidth + amount * path.width;
+      const stemPastJunction = {
+        x: junction.x + stemTowardJunction.x * .35,
+        y: junction.y + stemTowardJunction.y * .35,
       };
-      const bandOffsets = band => {
-        const first = lateralPosition(band.start);
-        const second = lateralPosition(band.end);
-        return {minimum: Math.min(first, second), maximum: Math.max(first, second)};
-      };
-      const crossbarConnection = (stemOffset, targetOffset) => {
-        const stemNormalAcross = (
-          stemNormal.x * crossbarNormal.x + stemNormal.y * crossbarNormal.y
-        );
-        const distance = (
-          targetOffset - stemOffset * stemNormalAcross
-        ) / travelAcrossCrossbar;
-        return {
-          x: junction.x + stemTowardJunction.x * distance + stemNormal.x * stemOffset,
-          y: junction.y + stemTowardJunction.y * distance + stemNormal.y * stemOffset,
-        };
-      };
-      const drawStemBand = (band, targetOffsetForStemOffset) => {
-        if (band.color[3] <= 2) return;
-        let firstOffset = lateralPosition(band.start);
-        let secondOffset = lateralPosition(band.end);
-        const offsetDirection = Math.sign(secondOffset - firstOffset) || 1;
-        firstOffset -= offsetDirection * .12;
-        secondOffset += offsetDirection * .12;
-        const polygon = [
-          {x: stemEnd.x + stemNormal.x * firstOffset, y: stemEnd.y + stemNormal.y * firstOffset},
-          crossbarConnection(firstOffset, targetOffsetForStemOffset(firstOffset)),
-          crossbarConnection(secondOffset, targetOffsetForStemOffset(secondOffset)),
-          {x: stemEnd.x + stemNormal.x * secondOffset, y: stemEnd.y + stemNormal.y * secondOffset},
-        ];
-        target.beginPath();
-        polygon.forEach((point, index) => index
-          ? target.lineTo(point.x, point.y)
-          : target.moveTo(point.x, point.y));
-        target.closePath();
-        target.fillStyle = `rgba(${band.color[0]}, ${band.color[1]}, ${band.color[2]}, ${band.color[3] / 255})`;
-        target.fill();
-      };
-
-      const crossbarPath = {...path, points: [crossbarStart, crossbarEnd], curve: "straight"};
-      if (!renderUniformPatternPath(target, crossbarPath, crossbarPath.points)) return false;
+      target.save();
+      target.lineCap = "butt";
+      target.lineJoin = "miter";
+      target.miterLimit = 4;
       bandPairs.forEach(({leftBand, rightBand}) => {
-        const isCenterBand = leftBand === rightBand;
-        const pairBands = isCenterBand ? [leftBand] : [leftBand, rightBand];
-        const approachBand = pairBands.reduce((selected, candidate) => {
-          const candidateOffsets = bandOffsets(candidate);
-          const selectedOffsets = bandOffsets(selected);
-          const candidateMiddle = (candidateOffsets.minimum + candidateOffsets.maximum) / 2;
-          const selectedMiddle = (selectedOffsets.minimum + selectedOffsets.maximum) / 2;
-          return travelAcrossCrossbar > 0
-            ? (candidateMiddle < selectedMiddle ? candidate : selected)
-            : (candidateMiddle > selectedMiddle ? candidate : selected);
-        });
-        const approachOffsets = bandOffsets(approachBand);
-        const targetOffset = travelAcrossCrossbar > 0
-          ? approachOffsets.maximum
-          : approachOffsets.minimum;
-        const approachSide = travelAcrossCrossbar > 0 ? -1 : 1;
-        const miterTarget = stemOffset => (
-          approachSide * Math.min(halfWidth, Math.abs(stemOffset))
-        );
-        const connectionTarget = isCenterBand ? () => targetOffset : miterTarget;
-        pairBands.forEach(band => drawStemBand(band, connectionTarget));
+        const color = leftBand.color.map((value, channel) => (
+          Math.round((value + rightBand.color[channel]) / 2)
+        ));
+        if (color[3] <= 2) return;
+        const layerWidth = path.width * (rightBand.end - leftBand.start) / sourceHeight;
+        target.beginPath();
+        target.moveTo(crossbarStart.x, crossbarStart.y);
+        target.lineTo(crossbarEnd.x, crossbarEnd.y);
+        target.moveTo(stemEnd.x, stemEnd.y);
+        target.lineTo(stemPastJunction.x, stemPastJunction.y);
+        target.strokeStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3] / 255})`;
+        target.lineWidth = Math.max(.01, layerWidth + .2);
+        target.stroke();
       });
+      target.restore();
       return true;
     }
 
