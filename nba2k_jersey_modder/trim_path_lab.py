@@ -610,10 +610,13 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       target.lineCap = "butt";
       target.lineJoin = "miter";
       target.miterLimit = 4;
-      bandPairs.forEach(({leftBand, rightBand}) => {
-        const color = leftBand.color.map((value, channel) => (
-          Math.round((value + rightBand.color[channel]) / 2)
-        ));
+      const centerColor = sampledPatternRow(Math.floor((sourceHeight - 1) / 2));
+      bandPairs.forEach(({leftBand, rightBand}, pairIndex) => {
+        const color = pairIndex === bandPairs.length - 1
+          ? centerColor
+          : leftBand.color.map((value, channel) => (
+              Math.round((value + rightBand.color[channel]) / 2)
+            ));
         if (color[3] <= 2) return;
         const layerWidth = path.width * (rightBand.end - leftBand.start) / sourceHeight;
         target.beginPath();
