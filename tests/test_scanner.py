@@ -1068,6 +1068,44 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual((placements[0].x, placements[0].y), (7, 2))
         self.assertEqual((placements[0].width, placements[0].height), (8, 8))
 
+    def test_image_placement_rects_supports_independent_logo_dimensions(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            logo = Path(tmp_dir) / "logo.png"
+            Image.new("RGBA", (4, 4), (255, 200, 0, 255)).save(logo)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone("front_left_chest_logo", "logo", 4, 4, 8, 8, "#ffffff", 50),
+                ),
+            )
+
+            placements = image_placement_rects(
+                template,
+                GeneratorInputs(
+                    front_color="#112233",
+                    back_color="#445566",
+                    left_panel_color="#abcdef",
+                    right_panel_color="#fedcba",
+                    logo_placements=(
+                        LogoPlacement(
+                            logo,
+                            "front_left_chest_logo",
+                            scale_width_percent=200,
+                            scale_height_percent=50,
+                        ),
+                    ),
+                ),
+            )
+
+        self.assertEqual(len(placements), 1)
+        self.assertEqual((placements[0].x, placements[0].y), (4, 7))
+        self.assertEqual((placements[0].width, placements[0].height), (8, 2))
+
     def test_logo_target_zones_uses_defaults_without_custom_logo_zones(self) -> None:
         template = JerseyTemplate(
             image_path="",

@@ -104,6 +104,8 @@ class LogoPlacement:
     offset_x: int = 0
     offset_y: int = 0
     scale_percent: int = 100
+    scale_width_percent: int | None = None
+    scale_height_percent: int | None = None
     stretch_x: bool = False
 
 
@@ -791,9 +793,12 @@ def _overlay_at_zone(
 
     if logo is not None and logo.stretch_x:
         ratio = zone.width / max(1, overlay.width)
-        scale = max(1, int(logo.scale_percent)) / 100
+        height_scale = _independent_scale_percent(
+            logo.scale_height_percent,
+            logo.scale_percent,
+        ) / 100
         overlay = overlay.resize(
-            (zone.width, max(1, round(overlay.height * ratio * scale))),
+            (zone.width, max(1, round(overlay.height * ratio * height_scale))),
             Image.Resampling.LANCZOS,
         )
         return (
@@ -802,17 +807,31 @@ def _overlay_at_zone(
             zone.y + (zone.height - overlay.height) // 2 + logo.offset_y,
         )
 
-    scale = _zone_image_scale(zone, inputs, logo=logo)
     fit_width, fit_height = _contained_image_size(
         overlay.width,
         overlay.height,
         zone.width,
         zone.height,
     )
-    final_size = (
-        max(1, round(fit_width * scale)),
-        max(1, round(fit_height * scale)),
-    )
+    if logo is not None:
+        width_scale = _independent_scale_percent(
+            logo.scale_width_percent,
+            logo.scale_percent,
+        )
+        height_scale = _independent_scale_percent(
+            logo.scale_height_percent,
+            logo.scale_percent,
+        )
+        final_size = (
+            max(1, round(fit_width * width_scale / 100)),
+            max(1, round(fit_height * height_scale / 100)),
+        )
+    else:
+        scale = _zone_image_scale(zone, inputs)
+        final_size = (
+            max(1, round(fit_width * scale)),
+            max(1, round(fit_height * scale)),
+        )
     if overlay.size != final_size:
         overlay = overlay.resize(final_size, Image.Resampling.LANCZOS)
     offset_x, offset_y = _zone_image_offset(zone, inputs, logo=logo)

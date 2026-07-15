@@ -149,6 +149,7 @@ INDEX_HTML = """<!doctype html>
     let activeKey = null;
     let drag = null;
     let pan = null;
+    let nudgeTimer = null;
     const HANDLE_SIZE = 56;
     const HANDLE_HIT_RADIUS = 58;
 
@@ -515,6 +516,39 @@ INDEX_HTML = """<!doctype html>
         }),
       });
     }
+
+    function queueNudgeUpdate(item) {
+      if (nudgeTimer) clearTimeout(nudgeTimer);
+      const update = {...item};
+      nudgeTimer = setTimeout(async () => {
+        nudgeTimer = null;
+        await sendUpdate(update);
+      }, 160);
+    }
+
+    document.addEventListener("keydown", event => {
+      if (!event.key.startsWith("Arrow") || viewMode === "region") return;
+      const activeElement = document.activeElement;
+      if (activeElement && ["INPUT", "SELECT", "TEXTAREA"].includes(activeElement.tagName)) {
+        return;
+      }
+      const item = activeItem();
+      if (!item?.canTransform) return;
+      const amount = event.shiftKey ? 10 : 1;
+      let deltaX = 0;
+      let deltaY = 0;
+      if (event.key === "ArrowLeft") deltaX = -amount;
+      if (event.key === "ArrowRight") deltaX = amount;
+      if (event.key === "ArrowUp") deltaY = -amount;
+      if (event.key === "ArrowDown") deltaY = amount;
+      if (item.lockX) deltaX = 0;
+      if (!deltaX && !deltaY) return;
+      event.preventDefault();
+      item.x += deltaX;
+      item.y += deltaY;
+      draw();
+      queueNudgeUpdate(item);
+    });
 
     canvas.addEventListener("pointermove", event => {
       if (pan) {

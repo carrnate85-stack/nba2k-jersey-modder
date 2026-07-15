@@ -233,6 +233,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_number_preview_x_var = tk.IntVar(value=1160)
         self.generator_number_preview_y_var = tk.IntVar(value=780)
         self.generator_number_preview_scale_var = tk.IntVar(value=100)
+        self.generator_number_preview_height_scale_var = tk.IntVar(value=100)
         self.generator_uv_overlay_var = tk.BooleanVar(value=True)
         self.generator_uv_overlay_opacity_var = tk.IntVar(value=45)
         self.generator_uv_overlay_opacity_label_var = tk.StringVar(value="45%")
@@ -1721,6 +1722,7 @@ class JerseyModderApp(tk.Tk):
             "left_panel_color": tk.StringVar(value=""),
             "right_panel_color": tk.StringVar(value=""),
             "collar_background_color": tk.StringVar(value="#ffffff"),
+            "waistband_color": tk.StringVar(value="#ffffff"),
             "left_arm_hole_trim_color": tk.StringVar(value="#ffffff"),
             "right_arm_hole_trim_color": tk.StringVar(value="#ffffff"),
             "collar_trim_color": tk.StringVar(value="#ffffff"),
@@ -1729,6 +1731,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_color_row_frames: dict[str, ttk.Frame] = {}
         self.generator_upload_row_frames: dict[str, ttk.Frame] = {}
         self.generator_jersey_only_widgets: list[tk.Widget] = []
+        self.generator_shorts_only_widgets: list[tk.Widget] = []
 
         section_row = 0
         _template_section, template_controls = self._add_generator_section(
@@ -1840,10 +1843,13 @@ class JerseyModderApp(tk.Tk):
             ("left_panel_color", "Left side panel"),
             ("right_panel_color", "Right side panel"),
             ("collar_background_color", "Collar background"),
+            ("waistband_color", "Waistband"),
         ):
             self._add_generator_color_row(color_controls, color_row, key, label)
-            if key in {"front_color", "back_color"}:
+            if key in {"front_color", "back_color", "collar_background_color"}:
                 self.generator_jersey_only_widgets.append(self.generator_color_row_frames[key])
+            if key == "waistband_color":
+                self.generator_shorts_only_widgets.append(self.generator_color_row_frames[key])
             color_row += 1
 
         trim_section, trim_controls = self._add_generator_section(
@@ -2340,12 +2346,18 @@ class JerseyModderApp(tk.Tk):
                 widget.grid_remove()
             else:
                 widget.grid()
+        for widget in self.generator_shorts_only_widgets:
+            if is_shorts:
+                widget.grid()
+            else:
+                widget.grid_remove()
         labels = {
             "front_color": "Front",
             "back_color": "Back",
             "left_panel_color": "Left side panel",
             "right_panel_color": "Right side panel",
             "collar_background_color": "Collar background",
+            "waistband_color": "Waistband",
             "left_arm_hole_trim_color": "Left arm hole",
             "right_arm_hole_trim_color": "Right arm hole",
             "collar_trim_color": "Collar trim",
@@ -2355,7 +2367,6 @@ class JerseyModderApp(tk.Tk):
                 {
                     "left_panel_color": "Left shorts panel",
                     "right_panel_color": "Right shorts panel",
-                    "collar_background_color": "Waistband",
                 }
             )
         for key, text in labels.items():
@@ -2468,15 +2479,16 @@ class JerseyModderApp(tk.Tk):
             (
                 ("X", self.generator_number_preview_x_var, 7),
                 ("Y", self.generator_number_preview_y_var, 7),
-                ("Scale %", self.generator_number_preview_scale_var, 6),
+                ("Width %", self.generator_number_preview_scale_var, 6),
+                ("Height %", self.generator_number_preview_height_scale_var, 6),
             )
         ):
             ttk.Label(frame, text=label).grid(row=1, column=column * 2, sticky="w")
             spinbox = tk.Spinbox(
                 frame,
-                from_=0 if label != "Scale %" else 5,
-                to=2048 if label != "Scale %" else 500,
-                increment=1 if label != "Scale %" else 5,
+                from_=5 if label.endswith("%") else 0,
+                to=500 if label.endswith("%") else 2048,
+                increment=5 if label.endswith("%") else 1,
                 width=width,
                 textvariable=variable,
                 command=self._redraw_generator_preview_overlays,
@@ -2488,13 +2500,13 @@ class JerseyModderApp(tk.Tk):
             frame,
             text="Reset",
             command=self.reset_generator_number_preview,
-        ).grid(row=2, column=0, columnspan=6, sticky="ew", pady=(8, 0))
+        ).grid(row=2, column=0, columnspan=8, sticky="ew", pady=(8, 0))
         ttk.Label(
             frame,
             text="Preview only - shown in Blender, not exported",
             style="Muted.TLabel",
-        ).grid(row=3, column=0, columnspan=6, sticky="w", pady=(4, 0))
-        frame.columnconfigure(5, weight=1)
+        ).grid(row=3, column=0, columnspan=8, sticky="w", pady=(4, 0))
+        frame.columnconfigure(7, weight=1)
 
     def _build_fabric_overlay_controls(self, parent: ttk.Frame, row: int) -> None:
         frame = ttk.Frame(parent)
@@ -6640,7 +6652,7 @@ class JerseyModderApp(tk.Tk):
                     "imageUrl": f"/api/image/{placement.key}",
                     "blendMode": "normal",
                     "lockX": self._web_editor_overlay_locks_x(placement.key),
-                    "lockAspect": not is_side_panel,
+                    "lockAspect": not (is_side_panel or logo_index is not None),
                     "canTransform": True,
                     "canRotate": is_side_panel,
                     "rotation": placement.rotation_degrees,
@@ -6759,7 +6771,8 @@ class JerseyModderApp(tk.Tk):
         image = self._build_generator_number_preview_image()
         if image is None:
             return None
-        scale = self._generator_number_preview_scale()
+        width_scale = self._generator_number_preview_scale()
+        height_scale = self._generator_number_preview_height_scale()
         try:
             x = max(0, min(2048, int(self.generator_number_preview_x_var.get())))
             y = max(0, min(2048, int(self.generator_number_preview_y_var.get())))
@@ -6772,11 +6785,12 @@ class JerseyModderApp(tk.Tk):
             "label": "Preview Number",
             "x": x,
             "y": y,
-            "width": max(1, round(image.width * scale / 100)),
-            "height": max(1, round(image.height * scale / 100)),
+            "width": max(1, round(image.width * width_scale / 100)),
+            "height": max(1, round(image.height * height_scale / 100)),
             "imageUrl": "/api/image/preview_number?",
             "blendMode": "normal",
             "lockX": False,
+            "lockAspect": False,
             "canTransform": True,
             "canFlip": False,
             "flipX": False,
@@ -6995,8 +7009,14 @@ class JerseyModderApp(tk.Tk):
                 return
             self.generator_number_preview_x_var.set(max(0, min(2048, round(x))))
             self.generator_number_preview_y_var.set(max(0, min(2048, round(y))))
-            scale = round(100 * width / max(1, image.width))
-            self.generator_number_preview_scale_var.set(max(5, min(500, scale)))
+            width_scale = round(100 * width / max(1, image.width))
+            height_scale = round(100 * height / max(1, image.height))
+            self.generator_number_preview_scale_var.set(
+                max(5, min(500, width_scale))
+            )
+            self.generator_number_preview_height_scale_var.set(
+                max(5, min(500, height_scale))
+            )
             self._redraw_generator_preview_overlays()
             return
         template = self._current_generator_template()
@@ -7032,20 +7052,39 @@ class JerseyModderApp(tk.Tk):
                 return
             logo = self.generator_logo_placements[index]
             if logo.stretch_x:
-                scale = round(logo.scale_percent * height / max(1, current.height))
+                height_scale = _scale_dimension_percent(
+                    logo.scale_height_percent,
+                    logo.scale_percent,
+                    height,
+                    current.height,
+                )
                 updated = replace(
                     logo,
                     offset_x=0,
                     offset_y=logo.offset_y + delta_y,
-                    scale_percent=max(1, min(500, scale)),
+                    scale_percent=height_scale,
+                    scale_height_percent=height_scale,
                 )
             else:
-                scale = round(logo.scale_percent * width / max(1, current.width))
+                width_scale = _scale_dimension_percent(
+                    logo.scale_width_percent,
+                    logo.scale_percent,
+                    width,
+                    current.width,
+                )
+                height_scale = _scale_dimension_percent(
+                    logo.scale_height_percent,
+                    logo.scale_percent,
+                    height,
+                    current.height,
+                )
                 updated = replace(
                     logo,
                     offset_x=logo.offset_x + delta_x,
                     offset_y=logo.offset_y + delta_y,
-                    scale_percent=max(1, min(500, scale)),
+                    scale_percent=width_scale,
+                    scale_width_percent=width_scale,
+                    scale_height_percent=height_scale,
                 )
             self.generator_logo_placements[index] = updated
             self._refresh_generator_logo_list()
@@ -7339,11 +7378,12 @@ class JerseyModderApp(tk.Tk):
         number = self._build_generator_number_preview_image()
         if number is None:
             return color_image
-        scale_percent = self._generator_number_preview_scale()
+        width_scale = self._generator_number_preview_scale()
+        height_scale = self._generator_number_preview_height_scale()
         number = number.resize(
             (
-                max(1, round(number.width * scale_percent / 100)),
-                max(1, round(number.height * scale_percent / 100)),
+                max(1, round(number.width * width_scale / 100)),
+                max(1, round(number.height * height_scale / 100)),
             ),
             Image.Resampling.LANCZOS,
         )
@@ -7994,6 +8034,8 @@ class JerseyModderApp(tk.Tk):
                     "x": self.generator_number_preview_x_var.get(),
                     "y": self.generator_number_preview_y_var.get(),
                     "scale": self._generator_number_preview_scale(),
+                    "scaleWidth": self._generator_number_preview_scale(),
+                    "scaleHeight": self._generator_number_preview_height_scale(),
                 },
                 "webEditor": {
                     "layerOrder": list(self.web_editor_layer_order),
@@ -8031,7 +8073,14 @@ class JerseyModderApp(tk.Tk):
         colors = generator.get("colors", {})
         if isinstance(colors, dict):
             for key, variable in self.generator_color_vars.items():
-                self._set_generator_color_from_project(key, colors.get(key, variable.get()))
+                value = colors.get(key, variable.get())
+                if (
+                    key == "waistband_color"
+                    and key not in colors
+                    and self.generator_garment_var.get() == "Shorts"
+                ):
+                    value = colors.get("collar_background_color", value)
+                self._set_generator_color_from_project(key, value)
 
         images = generator.get("images", {})
         self.generator_paths = {key: None for key in self.generator_paths}
@@ -8075,6 +8124,16 @@ class JerseyModderApp(tk.Tk):
                         scale_percent=self._project_int(
                             item.get("scalePercent"),
                             100,
+                            1,
+                            500,
+                        ),
+                        scale_width_percent=self._project_optional_int(
+                            item.get("scaleWidthPercent"),
+                            1,
+                            500,
+                        ),
+                        scale_height_percent=self._project_optional_int(
+                            item.get("scaleHeightPercent"),
                             1,
                             500,
                         ),
@@ -8132,8 +8191,12 @@ class JerseyModderApp(tk.Tk):
             self.generator_number_preview_y_var.set(
                 self._project_int(number.get("y"), 780, 0, 2048)
             )
+            legacy_scale = self._project_int(number.get("scale"), 100, 5, 500)
             self.generator_number_preview_scale_var.set(
-                self._project_int(number.get("scale"), 100, 5, 500)
+                self._project_int(number.get("scaleWidth"), legacy_scale, 5, 500)
+            )
+            self.generator_number_preview_height_scale_var.set(
+                self._project_int(number.get("scaleHeight"), legacy_scale, 5, 500)
             )
 
         web_editor = generator.get("webEditor", {})
@@ -8199,6 +8262,8 @@ class JerseyModderApp(tk.Tk):
             "offsetX": placement.offset_x,
             "offsetY": placement.offset_y,
             "scalePercent": placement.scale_percent,
+            "scaleWidthPercent": placement.scale_width_percent,
+            "scaleHeightPercent": placement.scale_height_percent,
             "stretchX": placement.stretch_x,
         }
 
@@ -8279,14 +8344,17 @@ class JerseyModderApp(tk.Tk):
         )
 
     def _generator_inputs(self) -> GeneratorInputs:
+        collar_or_waistband_key = (
+            "waistband_color"
+            if self.generator_garment_var.get() == "Shorts"
+            else "collar_background_color"
+        )
         return GeneratorInputs(
             front_color=self._generator_color_value("front_color"),
             back_color=self._generator_color_value("back_color"),
             left_panel_color=self._generator_color_value("left_panel_color"),
             right_panel_color=self._generator_color_value("right_panel_color"),
-            collar_background_color=self._generator_color_value(
-                "collar_background_color"
-            ),
+            collar_background_color=self._generator_color_value(collar_or_waistband_key),
             left_arm_hole_trim_color=self._generator_color_value(
                 "left_arm_hole_trim_color"
             ),
@@ -8543,6 +8611,8 @@ class JerseyModderApp(tk.Tk):
         self._draw_generator_number_preview(left, top)
 
     def _generator_number_preview_available(self) -> bool:
+        if self.generator_garment_var.get() == "Shorts":
+            return False
         if not self.generator_number_preview_enabled_var.get():
             return False
         return bool(self._generator_number_preview_text())
@@ -8563,6 +8633,15 @@ class JerseyModderApp(tk.Tk):
         self.generator_number_preview_scale_var.set(value)
         return value
 
+    def _generator_number_preview_height_scale(self) -> int:
+        try:
+            value = self.generator_number_preview_height_scale_var.get()
+        except tk.TclError:
+            value = 100
+        value = max(5, min(500, value))
+        self.generator_number_preview_height_scale_var.set(value)
+        return value
+
     def _draw_generator_number_preview(self, preview_left: int, preview_top: int) -> None:
         if not self._generator_number_preview_available():
             self.generator_number_preview_image = None
@@ -8578,9 +8657,10 @@ class JerseyModderApp(tk.Tk):
             self.generator_number_preview_image = None
             return
 
-        scale_percent = self._generator_number_preview_scale()
-        texture_width = max(1, round(image.width * scale_percent / 100))
-        texture_height = max(1, round(image.height * scale_percent / 100))
+        width_scale = self._generator_number_preview_scale()
+        height_scale = self._generator_number_preview_height_scale()
+        texture_width = max(1, round(image.width * width_scale / 100))
+        texture_height = max(1, round(image.height * height_scale / 100))
         try:
             x = max(0, min(2048, int(self.generator_number_preview_x_var.get())))
             y = max(0, min(2048, int(self.generator_number_preview_y_var.get())))
@@ -8684,6 +8764,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_number_preview_x_var.set(1160)
         self.generator_number_preview_y_var.set(780)
         self.generator_number_preview_scale_var.set(100)
+        self.generator_number_preview_height_scale_var.set(100)
         self._redraw_generator_preview_overlays()
 
     def _generator_preview_press(self, event: tk.Event) -> None:
@@ -8721,6 +8802,7 @@ class JerseyModderApp(tk.Tk):
                 self.generator_number_preview_x_var.get(),
                 self.generator_number_preview_y_var.get(),
                 self._generator_number_preview_scale(),
+                self._generator_number_preview_height_scale(),
             ),
         }
 
@@ -8741,7 +8823,13 @@ class JerseyModderApp(tk.Tk):
         elif key in SIDE_PANEL_GENERATOR_KEYS:
             self._drag_side_panel(key, mode, delta_x, delta_y, texture_x, texture_y)
         elif key == "preview_number":
-            self._drag_generator_number_preview(mode, delta_x, delta_y, texture_x)
+            self._drag_generator_number_preview(
+                mode,
+                delta_x,
+                delta_y,
+                texture_x,
+                texture_y,
+            )
             self._draw_generator_image_boxes()
             return
         self._schedule_generator_preview_refresh()
@@ -8785,18 +8873,28 @@ class JerseyModderApp(tk.Tk):
         delta_x: int,
         delta_y: int,
         texture_x: float,
+        texture_y: float,
     ) -> None:
         if self.generator_drag_state is None:
             return
-        start_x, start_y, start_scale = self.generator_drag_state["preview_number"]
+        start_x, start_y, start_width_scale, start_height_scale = (
+            self.generator_drag_state["preview_number"]
+        )
         if mode == "move":
             self.generator_number_preview_x_var.set(max(0, min(2048, start_x + delta_x)))
             self.generator_number_preview_y_var.set(max(0, min(2048, start_y + delta_y)))
             return
-        rect_x, _rect_y, rect_width, _rect_height = self.generator_drag_state["rect"]
+        rect_x, rect_y, rect_width, rect_height = self.generator_drag_state["rect"]
         new_width = max(1, texture_x - rect_x)
+        new_height = max(1, texture_y - rect_y)
         self.generator_number_preview_scale_var.set(
-            max(5, min(500, round(start_scale * new_width / max(1, rect_width))))
+            max(5, min(500, round(start_width_scale * new_width / max(1, rect_width))))
+        )
+        self.generator_number_preview_height_scale_var.set(
+            max(
+                5,
+                min(500, round(start_height_scale * new_height / max(1, rect_height))),
+            )
         )
 
     def _drag_logo(
@@ -8834,27 +8932,40 @@ class JerseyModderApp(tk.Tk):
             rect_x, rect_y, rect_width, rect_height = self.generator_drag_state["rect"]
             if logo.stretch_x:
                 new_height = max(1, texture_y - rect_y)
+                height_scale = _scale_dimension_percent(
+                    logo.scale_height_percent,
+                    logo.scale_percent,
+                    new_height,
+                    rect_height,
+                )
                 updated = replace(
                     logo,
                     offset_x=0,
-                    scale_percent=max(
-                        1,
-                        min(
-                            500,
-                            round(logo.scale_percent * new_height / max(1, rect_height)),
-                        ),
-                    ),
+                    scale_percent=height_scale,
+                    scale_height_percent=height_scale,
                 )
                 self.generator_logo_placements[index] = updated
                 self._refresh_generator_logo_list()
                 return
             new_width = max(1, texture_x - rect_x)
+            new_height = max(1, texture_y - rect_y)
+            width_scale = _scale_dimension_percent(
+                logo.scale_width_percent,
+                logo.scale_percent,
+                new_width,
+                rect_width,
+            )
+            height_scale = _scale_dimension_percent(
+                logo.scale_height_percent,
+                logo.scale_percent,
+                new_height,
+                rect_height,
+            )
             updated = replace(
                 logo,
-                scale_percent=max(
-                    1,
-                    min(500, round(logo.scale_percent * new_width / max(1, rect_width))),
-                ),
+                scale_percent=width_scale,
+                scale_width_percent=width_scale,
+                scale_height_percent=height_scale,
             )
         self.generator_logo_placements[index] = updated
         self._refresh_generator_logo_list()
