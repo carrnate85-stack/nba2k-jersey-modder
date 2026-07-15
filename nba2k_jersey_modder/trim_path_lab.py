@@ -138,6 +138,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     const statusNode = document.getElementById("status");
     const backgroundImage = new Image();
     const patternImage = new Image();
+    const patternSampleCanvas = document.createElement("canvas");
+    const patternSampleContext = patternSampleCanvas.getContext("2d", {willReadFrequently: true});
     let project = null;
     let paths = [];
     let activePathIndex = -1;
@@ -193,6 +195,10 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           loadImage(backgroundImage, project.backgroundUrl + "?t=" + Date.now()),
           loadImage(patternImage, project.patternUrl + "?t=" + Date.now()),
         ]);
+        patternSampleCanvas.width = Math.max(1, patternImage.naturalWidth);
+        patternSampleCanvas.height = Math.max(1, patternImage.naturalHeight);
+        patternSampleContext.clearRect(0, 0, patternSampleCanvas.width, patternSampleCanvas.height);
+        patternSampleContext.drawImage(patternImage, 0, 0);
         document.getElementById("patternPreview").src = patternImage.src;
         document.getElementById("sourceName").textContent = `${project.patternName} | ${project.width} x ${project.height} template`;
         if (!paths.length) restoreLocalPaths();
@@ -393,8 +399,20 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           : -halfWidth + amount * path.width;
       };
       for (let sourceY = 0; sourceY < sourceHeight; sourceY++) {
-        const firstOffset = lateralPosition(sourceY);
-        const secondOffset = lateralPosition(sourceY + 1);
+        const sourcePixel = patternSampleContext.getImageData(
+          Math.max(0, Math.min(patternSampleCanvas.width - 1, Math.floor(sourceX))),
+          sourceY,
+          1,
+          1,
+        ).data;
+        if (!sourcePixel[3]) continue;
+        let firstOffset = lateralPosition(sourceY);
+        let secondOffset = lateralPosition(sourceY + 1);
+        const rowWidth = Math.abs(secondOffset - firstOffset);
+        const overlap = Math.min(.65, Math.max(.18, rowWidth * .45));
+        const direction = Math.sign(secondOffset - firstOffset) || 1;
+        firstOffset -= direction * overlap;
+        secondOffset += direction * overlap;
         const polygon = [
           offsetPoint(incomingNormal, firstOffset),
           miterPoint(firstOffset),
@@ -403,26 +421,12 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           miterPoint(secondOffset),
           offsetPoint(incomingNormal, secondOffset),
         ];
-        const minX = Math.min(...polygon.map(point => point.x));
-        const minY = Math.min(...polygon.map(point => point.y));
-        const maxX = Math.max(...polygon.map(point => point.x));
-        const maxY = Math.max(...polygon.map(point => point.y));
         target.save();
         target.beginPath();
         polygon.forEach((corner, index) => index ? target.lineTo(corner.x, corner.y) : target.moveTo(corner.x, corner.y));
         target.closePath();
-        target.clip();
-        target.drawImage(
-          patternImage,
-          Math.floor(sourceX),
-          sourceY,
-          1,
-          1,
-          minX,
-          minY,
-          Math.max(.01, maxX - minX),
-          Math.max(.01, maxY - minY),
-        );
+        target.fillStyle = `rgba(${sourcePixel[0]}, ${sourcePixel[1]}, ${sourcePixel[2]}, ${sourcePixel[3] / 255})`;
+        target.fill();
         target.restore();
       }
     }
