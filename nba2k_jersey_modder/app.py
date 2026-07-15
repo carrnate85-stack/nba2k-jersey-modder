@@ -114,6 +114,10 @@ SIDE_PANEL_GENERATOR_KEYS = {
     "shorts_left_panel": "shorts_left_panel_image",
     "shorts_right_panel": "shorts_right_panel_image",
 }
+WAISTBAND_GENERATOR_KEYS = {
+    "shorts_waistband_left": "waistband_image",
+    "shorts_waistband_right": "waistband_image",
+}
 FABRIC_OVERLAY_PRESETS = {
     "None": None,
     "Light mesh": FABRIC_OVERLAY_DIR / "light_mesh.png",
@@ -193,6 +197,7 @@ class JerseyModderApp(tk.Tk):
             "right_panel_image": None,
             "shorts_left_panel_image": None,
             "shorts_right_panel_image": None,
+            "waistband_image": None,
             "front_wordmark_image": None,
             "left_arm_hole_trim_image": None,
             "right_arm_hole_trim_image": None,
@@ -2049,13 +2054,10 @@ class JerseyModderApp(tk.Tk):
             ("left_panel_color", "Left side panel"),
             ("right_panel_color", "Right side panel"),
             ("collar_background_color", "Collar background"),
-            ("waistband_color", "Waistband"),
         ):
             self._add_generator_color_row(color_controls, color_row, key, label)
             if key in {"front_color", "back_color", "collar_background_color"}:
                 self.generator_jersey_only_widgets.append(self.generator_color_row_frames[key])
-            if key == "waistband_color":
-                self.generator_shorts_only_widgets.append(self.generator_color_row_frames[key])
             color_row += 1
 
         trim_section, trim_controls = self._add_generator_section(
@@ -2101,6 +2103,27 @@ class JerseyModderApp(tk.Tk):
             }:
                 self.generator_jersey_only_widgets.append(self.generator_upload_row_frames[key])
             image_row += 1
+
+        waistband_section, waistband_controls = self._add_generator_section(
+            controls,
+            section_row,
+            "Waistband",
+            expanded=False,
+        )
+        self.generator_shorts_only_widgets.append(waistband_section)
+        section_row += 1
+        self._add_generator_color_row(
+            waistband_controls,
+            0,
+            "waistband_color",
+            "Waistband color",
+        )
+        self._add_generator_upload_row(
+            waistband_controls,
+            1,
+            "waistband_image",
+            "Waistband image",
+        )
 
         _trim_path_section, trim_path_controls = self._add_generator_section(
             controls,
@@ -7296,7 +7319,6 @@ class JerseyModderApp(tk.Tk):
     def _web_editor_project(self) -> dict:
         template = self._current_generator_template()
         inputs = self._generator_inputs()
-        overlays = []
         waistband_boxes = [
             {
                 "x": zone.x,
@@ -7307,6 +7329,7 @@ class JerseyModderApp(tk.Tk):
             for zone in template.zones
             if zone.name.startswith("shorts_waistband")
         ]
+        overlays = []
         for active_index, (_stored_index, layer) in enumerate(
             self._active_generator_trim_path_layers()
         ):
@@ -7337,9 +7360,20 @@ class JerseyModderApp(tk.Tk):
                     "layerLabel": f"Trim path layer {active_index + 1}",
                 }
             )
-        for placement in image_placement_rects(template, inputs):
+        placements = sorted(
+            image_placement_rects(template, inputs),
+            key=lambda placement: (
+                0
+                if placement.key in SIDE_PANEL_GENERATOR_KEYS
+                else 1
+                if placement.key in WAISTBAND_GENERATOR_KEYS
+                else 2
+            ),
+        )
+        for placement in placements:
             is_trim = placement.key in TRIM_GENERATOR_KEYS
             is_side_panel = placement.key in SIDE_PANEL_GENERATOR_KEYS
+            is_waistband = placement.key in WAISTBAND_GENERATOR_KEYS
             logo_index = (
                 int(placement.key.split(":")[1])
                 if placement.key.startswith("logo:")
@@ -7357,7 +7391,7 @@ class JerseyModderApp(tk.Tk):
                     "blendMode": "normal",
                     "lockX": self._web_editor_overlay_locks_x(placement.key),
                     "lockAspect": not (is_side_panel or logo_index is not None),
-                    "canTransform": True,
+                    "canTransform": not is_waistband,
                     "canRotate": is_side_panel,
                     "rotation": placement.rotation_degrees,
                     "canFlip": is_trim,
@@ -7393,6 +7427,8 @@ class JerseyModderApp(tk.Tk):
                         if placement.key == "front_wordmark"
                         else "Side panel layer"
                         if is_side_panel
+                        else "Waistband image layer"
+                        if is_waistband
                         else "Trim layer"
                         if is_trim
                         else f"Logo layer {logo_index + 1}"
@@ -7570,6 +7606,7 @@ class JerseyModderApp(tk.Tk):
             inputs,
             left_panel_image=None,
             right_panel_image=None,
+            waistband_image=None,
             front_wordmark_image=None,
             left_arm_hole_trim_image=None,
             right_arm_hole_trim_image=None,
@@ -7639,6 +7676,8 @@ class JerseyModderApp(tk.Tk):
             path = self.generator_paths[TRIM_GENERATOR_KEYS[key]]
         elif key in SIDE_PANEL_GENERATOR_KEYS:
             path = self.generator_paths[SIDE_PANEL_GENERATOR_KEYS[key]]
+        elif key in WAISTBAND_GENERATOR_KEYS:
+            path = self.generator_paths[WAISTBAND_GENERATOR_KEYS[key]]
         elif key == "fabric_overlay":
             template = self._current_generator_template()
             layer = fabric_overlay_layer(template, self._generator_inputs(), (2048, 2048))
@@ -9342,6 +9381,7 @@ class JerseyModderApp(tk.Tk):
             collar_trim_color=self._generator_color_value("collar_trim_color"),
             left_panel_image=self.generator_paths[left_panel_key],
             right_panel_image=self.generator_paths[right_panel_key],
+            waistband_image=self.generator_paths["waistband_image"],
             front_wordmark_image=self.generator_paths["front_wordmark_image"],
             left_arm_hole_trim_image=self.generator_paths["left_arm_hole_trim_image"],
             right_arm_hole_trim_image=self.generator_paths["right_arm_hole_trim_image"],

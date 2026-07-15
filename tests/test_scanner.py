@@ -1856,6 +1856,49 @@ class GeneratorTests(unittest.TestCase):
 
         self.assertEqual(normal.tobytes(), base.tobytes())
 
+    def test_render_jersey_normal_map_ignores_waistband_images(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            normal_template = tmp_path / "normal.png"
+            waistband_path = tmp_path / "waistband.png"
+            base = Image.new("RGBA", (64, 64), (128, 128, 255, 255))
+            base.save(normal_template)
+            Image.new("RGBA", (64, 16), (255, 255, 255, 255)).save(waistband_path)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone(
+                        "shorts_waistband_left",
+                        "base",
+                        0,
+                        0,
+                        2048,
+                        256,
+                        "#5555aa",
+                        1,
+                    ),
+                ),
+            )
+
+            normal = render_jersey_normal_map(
+                template,
+                GeneratorInputs(
+                    "#ffffff",
+                    "#ffffff",
+                    "#ffffff",
+                    "#ffffff",
+                    waistband_image=waistband_path,
+                ),
+                normal_template,
+            )
+
+        self.assertEqual(normal.tobytes(), base.tobytes())
+
     def test_render_jersey_normal_map_can_disable_logo_strength(self) -> None:
         try:
             from PIL import Image, ImageDraw
@@ -2409,6 +2452,52 @@ class GeneratorTests(unittest.TestCase):
 
         self.assertEqual(image.getpixel((8, 2))[:3], (0, 0, 255))
         self.assertEqual(image.getpixel((8, 8))[:3], (255, 0, 0))
+
+    def test_waistband_image_layers_over_side_panel_and_color(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            panel_path = tmp_path / "panel.png"
+            waistband_path = tmp_path / "waistband.png"
+            Image.new("RGBA", (4, 4), (0, 255, 0, 255)).save(panel_path)
+            waistband = Image.new("RGBA", (4, 4), (0, 0, 0, 0))
+            waistband.putpixel((0, 0), (255, 0, 0, 255))
+            waistband.save(waistband_path)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone(
+                        "shorts_waistband_left", "base", 0, 0, 4, 4, "#5555aa", 1
+                    ),
+                    TemplateZone(
+                        "shorts_left_panel", "stripe", 0, 0, 4, 4, "#ff0000", 5
+                    ),
+                ),
+            )
+
+            output = generate_jersey_texture(
+                template,
+                GeneratorInputs(
+                    front_color="",
+                    back_color="",
+                    left_panel_color="",
+                    right_panel_color="",
+                    collar_background_color="#0000ff",
+                    left_panel_image=panel_path,
+                    waistband_image=waistband_path,
+                ),
+                tmp_path / "generated.png",
+                size=(4, 4),
+            )
+            with Image.open(output) as opened:
+                image = opened.convert("RGBA")
+
+        self.assertEqual(image.getpixel((0, 0))[:3], (255, 0, 0))
+        self.assertEqual(image.getpixel((3, 3))[:3], (0, 0, 255))
 
     def test_generate_jersey_texture_removes_white_image_background(self) -> None:
         try:

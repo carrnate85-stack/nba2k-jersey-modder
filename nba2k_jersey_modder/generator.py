@@ -175,6 +175,7 @@ class GeneratorInputs:
     collar_trim_color: str = "#ffffff"
     left_panel_image: Path | None = None
     right_panel_image: Path | None = None
+    waistband_image: Path | None = None
     front_wordmark_image: Path | None = None
     left_arm_hole_trim_image: Path | None = None
     right_arm_hole_trim_image: Path | None = None
@@ -235,14 +236,20 @@ def render_jersey_layers(
         raise RuntimeError("Jersey generation requires Pillow.") from exc
 
     layers: list[RenderLayer] = []
+    waistband_layers: list[RenderLayer] = []
     zones = sorted(template.zones, key=lambda zone: zone.layer)
     front_wordmark_zone: TemplateZone | None = None
     for zone in zones:
+        zone_layers = (
+            waistband_layers
+            if zone.name.startswith("shorts_waistband")
+            else layers
+        )
         fill = _fill_for_zone(zone, inputs)
         if fill is not None:
             layer = Image.new("RGBA", size, (0, 0, 0, 0))
             ImageDraw.Draw(layer).rectangle(_zone_box(zone), fill=fill)
-            layers.append(RenderLayer(_human_zone_name(zone.name), layer))
+            zone_layers.append(RenderLayer(_human_zone_name(zone.name), layer))
 
         if zone.name == "front_wordmark":
             front_wordmark_zone = zone
@@ -252,7 +259,10 @@ def render_jersey_layers(
         if overlay is not None and overlay.exists():
             layer = Image.new("RGBA", size, (0, 0, 0, 0))
             _paste_image_fit(layer, overlay, zone, inputs, cleanup_key=zone.name)
-            layers.append(RenderLayer(f"{_human_zone_name(zone.name)} Image", layer))
+            zone_layers.append(RenderLayer(f"{_human_zone_name(zone.name)} Image", layer))
+
+    # Waistband color and artwork sit above the shorts side panels.
+    layers.extend(waistband_layers)
 
     dynamic_layers: list[tuple[str, RenderLayer]] = []
     for index, trim_path in enumerate(inputs.trim_path_layers, start=1):
@@ -739,6 +749,8 @@ def _active_color(color: str) -> str | None:
 
 
 def _overlay_for_zone(zone: TemplateZone, inputs: GeneratorInputs) -> Path | None:
+    if zone.name.startswith("shorts_waistband"):
+        return inputs.waistband_image
     if zone.name in {"left_side_panel", "shorts_left_panel"}:
         return inputs.left_panel_image
     if zone.name in {"right_side_panel", "shorts_right_panel"}:
@@ -1032,7 +1044,7 @@ def _independent_scale_percent(value: int | None, fallback: int) -> int:
 
 
 def _zone_image_stretches(zone: TemplateZone) -> bool:
-    return zone.name in {
+    return zone.name.startswith("shorts_waistband") or zone.name in {
         "left_arm_hole_trim",
         "right_arm_hole_trim",
         "collar_trim",
