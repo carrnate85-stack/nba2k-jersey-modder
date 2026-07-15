@@ -1110,7 +1110,7 @@ class JerseyModderApp(tk.Tk):
             text=(
                 "1. Click New Path.\n"
                 "2. Click points down the center of the desired trim.\n"
-                "3. Finish the path and drag points to refine the curve.\n"
+                "3. Right-click to finish, then drag points to refine the curve.\n"
                 "4. Adjust width, pattern scale, or mirror it.\n"
                 "5. Save a full-resolution transparent PNG."
             ),

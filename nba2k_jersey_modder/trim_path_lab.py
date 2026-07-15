@@ -96,8 +96,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <div class="range-row"><input id="patternScale" type="range" min="25" max="400" value="100"><output id="patternScaleValue">100%</output></div>
         <label for="patternOffset">Pattern offset</label>
         <div class="range-row"><input id="patternOffset" type="range" min="-1024" max="1024" value="0"><output id="patternOffsetValue">0 px</output></div>
-        <label class="check"><input id="mirrorPath" type="checkbox"> Mirror to the opposite shorts panel</label>
-        <div class="small">Angles run clockwise: 0 degrees points right and 90 degrees points down. Hold Alt while placing a point to temporarily bypass snapping. Drag a point to reshape the trim; arrow keys nudge it.</div>
+        <label class="check"><input id="mirrorPath" type="checkbox"> Copy to the opposite shorts panel (same facing)</label>
+        <label class="check"><input id="mirrorXPath" type="checkbox"> Mirror on the X axis within the same panel</label>
+        <div class="small">Angles run clockwise: 0 degrees points right and 90 degrees points down. Right-click finishes the path. Hold Alt while placing a point to temporarily bypass snapping. Drag a point to reshape the trim; arrow keys nudge it.</div>
       </div>
       <div class="panel">
         <h2>View</h2>
@@ -142,7 +143,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function setStatus(message) { statusNode.textContent = message; }
     function activePath() { return paths[activePathIndex] || null; }
     function defaultPath() {
-      return {name: `Trim Path ${paths.length + 1}`, points: [], width: 64, patternScale: 100, patternOffset: 0, curve: "smooth", mirror: false, finished: false};
+      return {name: `Trim Path ${paths.length + 1}`, points: [], width: 64, patternScale: 100, patternOffset: 0, curve: "smooth", mirror: false, mirrorX: false, finished: false};
     }
     function cleanPath(raw, index) {
       const width = Math.max(2, Math.min(300, Number(raw?.width) || 64));
@@ -154,6 +155,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         patternOffset: Math.max(-1024, Math.min(1024, Number(raw?.patternOffset) || 0)),
         curve: raw?.curve === "straight" ? "straight" : "smooth",
         mirror: Boolean(raw?.mirror),
+        mirrorX: Boolean(raw?.mirrorX),
         finished: raw?.finished !== false,
       };
     }
@@ -230,38 +232,84 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       ctx.translate(panX, panY);
       ctx.scale(viewScale, viewScale);
       paths.forEach((path, index) => {
-        renderPatternPath(ctx, path, Math.max(1, 1.4 / viewScale));
-        if (path.mirror) renderPatternPath(ctx, mirroredPath(path), Math.max(1, 1.4 / viewScale));
+        renderPathVariants(ctx, path, Math.max(1, 1.4 / viewScale));
         if (index === activePathIndex) drawPathGuide(ctx, path);
       });
       ctx.restore();
     }
 
-    function mirroredPath(path) {
+    function panelPairForPath(path) {
       const left = project?.panelZones?.left;
       const right = project?.panelZones?.right;
-      if (!left || !right || !path.points.length) {
-        return {...path, points: path.points.map(point => ({x: project.width - point.x, y: point.y})), mirror: false, reverseCrossSection: true};
-      }
+      if (!left || !right || !path.points.length) return null;
       const center = path.points.reduce((sum, point) => ({x: sum.x + point.x, y: sum.y + point.y}), {x: 0, y: 0});
       center.x /= path.points.length;
       center.y /= path.points.length;
       const zoneDistance = zone => Math.hypot(center.x - (zone.x + zone.width / 2), center.y - (zone.y + zone.height / 2));
       const source = zoneDistance(left) <= zoneDistance(right) ? left : right;
-      const target = source === left ? right : left;
+      return {source, target: source === left ? right : left};
+    }
+
+    function oppositePanelPath(path) {
+      const pair = panelPairForPath(path);
+      if (!pair) {
+        return {
+          ...path,
+          points: path.points.map(point => ({x: point.x, y: (point.y + project.height / 2) % project.height})),
+          mirror: false,
+          mirrorX: false,
+          reverseCrossSection: Boolean(path.reverseCrossSection),
+        };
+      }
+      const {source, target} = pair;
       return {
         ...path,
         points: path.points.map(point => {
           const normalizedX = (point.x - source.x) / Math.max(1, source.width);
           const normalizedY = (point.y - source.y) / Math.max(1, source.height);
           return {
-            x: target.x + (1 - normalizedX) * target.width,
+            x: target.x + normalizedX * target.width,
             y: target.y + normalizedY * target.height,
           };
         }),
         mirror: false,
+        mirrorX: false,
+        reverseCrossSection: Boolean(path.reverseCrossSection),
+      };
+    }
+
+    function samePanelXMirrorPath(path) {
+      const pair = panelPairForPath(path);
+      const source = pair?.source;
+      if (!source) {
+        return {
+          ...path,
+          points: path.points.map(point => ({x: project.width - point.x, y: point.y})),
+          mirror: false,
+          mirrorX: false,
+          reverseCrossSection: true,
+        };
+      }
+      return {
+        ...path,
+        points: path.points.map(point => {
+          const normalizedX = (point.x - source.x) / Math.max(1, source.width);
+          return {x: source.x + (1 - normalizedX) * source.width, y: point.y};
+        }),
+        mirror: false,
+        mirrorX: false,
         reverseCrossSection: true,
       };
+    }
+
+    function renderPathVariants(target, path, targetStep) {
+      renderPatternPath(target, path, targetStep);
+      const samePanelMirror = path.mirrorX ? samePanelXMirrorPath(path) : null;
+      if (samePanelMirror) renderPatternPath(target, samePanelMirror, targetStep);
+      if (path.mirror) {
+        renderPatternPath(target, oppositePanelPath(path), targetStep);
+        if (samePanelMirror) renderPatternPath(target, oppositePanelPath(samePanelMirror), targetStep);
+      }
     }
 
     function centerlineSamples(path, targetStep) {
@@ -456,7 +504,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     canvas.addEventListener("pointerdown", event => {
       if (!project?.hasPattern) return;
       canvas.setPointerCapture(event.pointerId);
-      if (event.button === 1 || event.button === 2 || event.shiftKey) {
+      if (event.button === 2) {
+        finishPath();
+        return;
+      }
+      if (event.button === 1 || event.shiftKey) {
         panning = true;
         const point = canvasPoint(event);
         panStart = {x: point.x, y: point.y, panX, panY};
@@ -532,7 +584,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       drawing = true;
       syncControls();
       updatePathList();
-      setStatus("Click multiple points along the center of the trim, then click Finish Path.");
+      setStatus("Click multiple points along the trim center, then right-click or click Finish Path.");
       queueDraw();
     }
     function finishPath() {
@@ -608,13 +660,14 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function syncControls() {
       const path = activePath();
       const disabled = !path;
-      ["curveMode", "trimWidth", "patternScale", "patternOffset", "mirrorPath", "duplicatePath", "removePath"].forEach(id => document.getElementById(id).disabled = disabled);
+      ["curveMode", "trimWidth", "patternScale", "patternOffset", "mirrorPath", "mirrorXPath", "duplicatePath", "removePath"].forEach(id => document.getElementById(id).disabled = disabled);
       if (!path) return;
       document.getElementById("curveMode").value = path.curve;
       document.getElementById("trimWidth").value = path.width;
       document.getElementById("patternScale").value = path.patternScale;
       document.getElementById("patternOffset").value = path.patternOffset;
       document.getElementById("mirrorPath").checked = path.mirror;
+      document.getElementById("mirrorXPath").checked = path.mirrorX;
       updateSegmentReadout();
       updateControlLabels();
     }
@@ -642,8 +695,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       output.height = project.height;
       const outputContext = output.getContext("2d");
       paths.forEach(path => {
-        renderPatternPath(outputContext, path, 1);
-        if (path.mirror) renderPatternPath(outputContext, mirroredPath(path), 1);
+        renderPathVariants(outputContext, path, 1);
       });
       return output;
     }
@@ -733,6 +785,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     bindPathControl("patternScale", "patternScale", Number);
     bindPathControl("patternOffset", "patternOffset", Number);
     bindPathControl("mirrorPath", "mirror", Boolean);
+    bindPathControl("mirrorXPath", "mirrorX", Boolean);
     document.getElementById("angleSnap").onchange = () => {
       livePoint = null;
       updateSegmentReadout();
