@@ -13,15 +13,18 @@ def _argv_after_double_dash() -> list[str]:
     return sys.argv[sys.argv.index("--") + 1 :]
 
 
-def _material_targets() -> list[bpy.types.Material]:
+def _material_targets(keyword: str | None = None) -> list[bpy.types.Material]:
     mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
     preferred_objects = [obj for obj in mesh_objects if obj.name.lower() == "player"]
-    objects = preferred_objects or mesh_objects
+    objects = mesh_objects if keyword else (preferred_objects or mesh_objects)
     materials: list[bpy.types.Material] = []
     for obj in objects:
         for slot in obj.material_slots:
             if slot.material and slot.material not in materials:
                 materials.append(slot.material)
+    if keyword:
+        keyword = keyword.casefold()
+        return [material for material in materials if keyword in material.name.casefold()]
     if preferred_objects:
         return materials
     uniform_materials = [
@@ -79,7 +82,7 @@ def _apply_material_textures(
     links.new(normal_node.outputs["Normal"], bsdf.inputs["Normal"])
 
 
-def _preview_settings_from_scene() -> tuple[Path, Path | None, float]:
+def _preview_settings_from_scene() -> dict:
     scene = bpy.context.scene
     settings_path = scene.get("nba2k_preview_settings_path", "")
     if settings_path:
@@ -87,46 +90,108 @@ def _preview_settings_from_scene() -> tuple[Path, Path | None, float]:
         if path.exists():
             try:
                 settings = json.loads(path.read_text(encoding="utf-8"))
-                color_path = Path(settings.get("color_path", ""))
-                normal_path = Path(settings.get("normal_path", ""))
-                normal_strength = float(settings.get("normal_strength", 0.0))
                 scene["nba2k_preview_garment"] = str(
                     settings.get("garment", "Uniform")
                 )
                 scene["nba2k_preview_template_name"] = str(
                     settings.get("template_name", "")
                 )
-                scene["nba2k_preview_color_path"] = str(color_path)
-                scene["nba2k_preview_normal_path"] = str(normal_path)
-                scene["nba2k_preview_normal_strength"] = normal_strength
+                parts = settings.get("parts")
+                if isinstance(parts, list) and parts:
+                    first_part = parts[0]
+                    scene["nba2k_preview_color_path"] = str(first_part.get("color_path", ""))
+                    scene["nba2k_preview_normal_path"] = str(first_part.get("normal_path", ""))
+                    scene["nba2k_preview_normal_strength"] = float(
+                        first_part.get("normal_strength", 0.0)
+                    )
+                    return settings
+                color_path = Path(settings.get("color_path", ""))
                 if color_path.exists():
-                    return color_path, normal_path, normal_strength
+                    settings["parts"] = [
+                        {
+                            "name": str(settings.get("garment", "Uniform")),
+                            "material_keyword": "",
+                            "color_path": str(color_path),
+                            "normal_path": str(settings.get("normal_path", "")),
+                            "normal_strength": float(
+                                settings.get("normal_strength", 0.0)
+                            ),
+                        }
+                    ]
+                    return settings
             except Exception as exc:  # noqa: BLE001 - Blender operator boundary.
                 print(f"[NBA 2K Preview] Could not read preview settings: {exc}")
 
-    color_path = Path(scene.get("nba2k_preview_color_path", ""))
-    normal_path = Path(scene.get("nba2k_preview_normal_path", ""))
-    normal_strength = float(scene.get("nba2k_preview_normal_strength", 0.0))
-    return color_path, normal_path, normal_strength
+    return {
+        "parts": [
+            {
+                "name": "Uniform",
+                "material_keyword": "",
+                "color_path": str(scene.get("nba2k_preview_color_path", "")),
+                "normal_path": str(scene.get("nba2k_preview_normal_path", "")),
+                "normal_strength": float(
+                    scene.get("nba2k_preview_normal_strength", 0.0)
+                ),
+            }
+        ]
+    }
+
+
+def _ensure_appended_preview_model(settings: dict) -> None:
+    append_value = str(settings.get("append_blend", "")).strip()
+    if not append_value or _material_targets("shorts"):
+        return
+    append_path = Path(append_value)
+    if not append_path.exists():
+        raise FileNotFoundError(f"Additional preview model not found: {append_path}")
+    with bpy.data.libraries.load(str(append_path), link=False) as (source, destination):
+        destination.objects = source.objects
+    appended_count = 0
+    for obj in destination.objects:
+        if obj is None or obj.type != "MESH":
+            continue
+        obj.name = f"NBA 2K Preview {obj.name}"
+        bpy.context.scene.collection.objects.link(obj)
+        appended_count += 1
+    if not appended_count:
+        raise RuntimeError(
+            f"No mesh objects found in additional preview model: {append_path}"
+        )
+    print(
+        f"[NBA 2K Preview] Added {appended_count} mesh object(s) "
+        f"from {append_path.name}"
+    )
 
 
 def refresh_preview_from_scene() -> int:
-    color_path, normal_path, normal_strength = _preview_settings_from_scene()
-    if not color_path.exists():
-        raise FileNotFoundError(f"Color texture not found: {color_path}")
-    if normal_strength <= 0:
-        normal_path = None
-    elif normal_path is not None and not normal_path.exists():
-        raise FileNotFoundError(f"Normal texture not found: {normal_path}")
-
-    materials = _material_targets()
-    if not materials:
-        raise RuntimeError("No mesh material found to apply preview textures.")
-    for material in materials:
-        _apply_material_textures(material, color_path, normal_path, normal_strength)
-        print(f"[NBA 2K Preview] Refreshed material: {material.name}")
+    settings = _preview_settings_from_scene()
+    _ensure_appended_preview_model(settings)
+    parts = settings.get("parts")
+    if not isinstance(parts, list) or not parts:
+        raise RuntimeError("Preview settings do not contain any uniform parts.")
+    refreshed = 0
+    for part in parts:
+        name = str(part.get("name", "Uniform"))
+        keyword = str(part.get("material_keyword", ""))
+        color_path = Path(str(part.get("color_path", "")))
+        normal_value = str(part.get("normal_path", ""))
+        normal_path = Path(normal_value) if normal_value else None
+        normal_strength = float(part.get("normal_strength", 0.0))
+        if not color_path.exists():
+            raise FileNotFoundError(f"{name} color texture not found: {color_path}")
+        if normal_strength <= 0:
+            normal_path = None
+        elif normal_path is None or not normal_path.exists():
+            raise FileNotFoundError(f"{name} normal texture not found: {normal_path}")
+        materials = _material_targets(keyword)
+        if not materials:
+            raise RuntimeError(f"No {name.lower()} material found in the preview model.")
+        for material in materials:
+            _apply_material_textures(material, color_path, normal_path, normal_strength)
+            refreshed += 1
+            print(f"[NBA 2K Preview] Refreshed {name} material: {material.name}")
     _setup_view()
-    return len(materials)
+    return refreshed
 
 
 class NBA2K_OT_refresh_preview(bpy.types.Operator):
@@ -166,7 +231,7 @@ class NBA2K_PT_preview_panel(bpy.types.Panel):
         color_path = Path(scene.get("nba2k_preview_color_path", ""))
         normal_strength = float(scene.get("nba2k_preview_normal_strength", 0.0))
         if color_path:
-            layout.label(text=f"Color: {color_path.name}")
+            layout.label(text="Jersey and shorts textures loaded")
         layout.label(
             text="Normal: On" if normal_strength > 0 else "Normal: Off"
         )
@@ -191,7 +256,40 @@ def _setup_view() -> None:
     for area in bpy.context.screen.areas:
         if area.type == "VIEW_3D":
             area.spaces.active.shading.type = "MATERIAL"
+    _frame_uniform_once()
     _ensure_preview_light()
+
+
+def _frame_uniform_once() -> None:
+    scene = bpy.context.scene
+    if scene.get("nba2k_preview_framed", False):
+        return
+    mesh_objects = [obj for obj in scene.objects if obj.type == "MESH"]
+    if not mesh_objects:
+        return
+    selected_before = list(bpy.context.selected_objects)
+    active_before = bpy.context.view_layer.objects.active
+    for obj in bpy.context.selected_objects:
+        obj.select_set(False)
+    for obj in mesh_objects:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = mesh_objects[0]
+    for area in bpy.context.screen.areas:
+        if area.type != "VIEW_3D":
+            continue
+        region = next((item for item in area.regions if item.type == "WINDOW"), None)
+        if region is None:
+            continue
+        with bpy.context.temp_override(area=area, region=region):
+            bpy.ops.view3d.view_selected(use_all_regions=False)
+    for obj in mesh_objects:
+        obj.select_set(False)
+    for obj in selected_before:
+        if obj.name in scene.objects:
+            obj.select_set(True)
+    if active_before and active_before.name in scene.objects:
+        bpy.context.view_layer.objects.active = active_before
+    scene["nba2k_preview_framed"] = True
 
 
 def _ensure_preview_light() -> None:
