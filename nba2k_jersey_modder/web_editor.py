@@ -6,6 +6,8 @@ from pathlib import Path
 import threading
 from urllib.parse import unquote
 
+from .trim_path_lab import TRIM_PATH_LAB_HTML
+
 
 INDEX_HTML = """<!doctype html>
 <html lang="en">
@@ -1632,6 +1634,9 @@ class WebEditorServer:
                 if self.path == "/" or self.path.startswith("/index") or self.path.startswith("/editor"):
                     self._send(INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
                     return
+                if self.path.startswith("/trim-path"):
+                    self._send(TRIM_PATH_LAB_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                    return
                 if self.path.startswith("/logo"):
                     self._send(LOGO_SELECTOR_HTML.encode("utf-8"), "text/html; charset=utf-8")
                     return
@@ -1655,6 +1660,18 @@ class WebEditorServer:
                     return
                 if self.path.startswith("/api/trim/mockup"):
                     data, content_type = app._run_on_ui_thread(app._trim_creator_mockup_image)
+                    self._send(data, content_type)
+                    return
+                if self.path.startswith("/api/trim-path/project"):
+                    data = app._run_on_ui_thread(app._trim_path_lab_web_project)
+                    self._send_json(data)
+                    return
+                if self.path.startswith("/api/trim-path/background"):
+                    data, content_type = app._run_on_ui_thread(app._trim_path_lab_background_image)
+                    self._send(data, content_type)
+                    return
+                if self.path.startswith("/api/trim-path/pattern"):
+                    data, content_type = app._run_on_ui_thread(app._trim_path_lab_pattern_image)
                     self._send(data, content_type)
                     return
                 if self.path.startswith("/api/number/project"):

@@ -272,6 +272,11 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_sharpen_var = tk.BooleanVar(value=True)
         self.trim_creator_color_correct_after_stage_var = tk.BooleanVar(value=False)
         self.trim_creator_zoom_label_var = tk.StringVar(value="100%")
+        self.trim_path_source_var = tk.StringVar(value="")
+        self.trim_path_template_var = tk.StringVar(value="Retro shorts")
+        self.trim_path_source_lookup: dict[str, int] = {}
+        self.trim_path_source_preview_image: tk.PhotoImage | None = None
+        self.trim_path_template_preview_image: tk.PhotoImage | None = None
         self.trim_library_target_var = tk.StringVar(value="collar_trim")
         self.trim_library_preview_image: tk.PhotoImage | None = None
         self.logo_creator_image_path: Path | None = None
@@ -457,6 +462,7 @@ class JerseyModderApp(tk.Tk):
         self._build_generator_tab()
         self._build_logo_creator_tab()
         self._build_trim_creator_tab()
+        self._build_trim_path_lab_tab()
         self._build_number_set_creator_tab()
         self._build_tweak_editor_tab()
         self._build_texture_creator_tab()
@@ -1012,6 +1018,121 @@ class JerseyModderApp(tk.Tk):
         tab.columnconfigure(0, weight=1)
         tab.columnconfigure(1, minsize=340)
         tab.rowconfigure(1, weight=1)
+
+    def _build_trim_path_lab_tab(self) -> None:
+        tab = ttk.Frame(self.tabs, padding=10)
+        self.trim_path_lab_tab = tab
+        self.tabs.add(tab, text="Trim Path Lab")
+
+        ttk.Label(
+            tab,
+            text=(
+                "Experiment with continuous curved shorts trim. Select a staged Trim Creator "
+                "strip, place multiple path points in the web editor, and export one transparent layer."
+            ),
+            style="Muted.TLabel",
+            wraplength=900,
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            tab,
+            text="Open Trim Path Web Editor",
+            command=self.open_trim_path_lab_web_editor,
+            style="PreviewToggle.TButton",
+        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+
+        preview_panel = ttk.LabelFrame(tab, text="Shorts Template Guide", padding=10)
+        preview_panel.grid(row=2, column=0, sticky="nsew", padx=(0, 10))
+        self.trim_path_template_preview = ttk.Label(
+            preview_panel,
+            text="Shorts template preview",
+            anchor=tk.CENTER,
+        )
+        self.trim_path_template_preview.pack(fill=tk.BOTH, expand=True)
+
+        controls_shell, controls = self._create_scrollable_pane(tab)
+        controls_shell.grid(row=2, column=1, sticky="nsew")
+
+        source_panel = ttk.LabelFrame(controls, text="Trim Creator Source", padding=10)
+        source_panel.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(
+            source_panel,
+            text="Staged trim",
+            style="Muted.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        self.trim_path_source_combo = ttk.Combobox(
+            source_panel,
+            textvariable=self.trim_path_source_var,
+            state="readonly",
+        )
+        self.trim_path_source_combo.grid(row=1, column=0, sticky="ew")
+        self.trim_path_source_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: self._refresh_trim_path_lab_previews(),
+        )
+        ttk.Button(
+            source_panel,
+            text="Use Selected Trim from Trim Creator",
+            command=self.use_selected_trim_for_path_lab,
+        ).grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        self.trim_path_source_preview = ttk.Label(
+            source_panel,
+            text="Stage a trim in Trim Creator first.",
+            anchor=tk.CENTER,
+        )
+        self.trim_path_source_preview.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        source_panel.columnconfigure(0, weight=1)
+
+        template_panel = ttk.LabelFrame(controls, text="Template", padding=10)
+        template_panel.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(template_panel, text="Shorts type", style="Muted.TLabel").grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=(0, 4),
+        )
+        template_combo = ttk.Combobox(
+            template_panel,
+            textvariable=self.trim_path_template_var,
+            values=tuple(SHORTS_TEMPLATE_OPTIONS),
+            state="readonly",
+        )
+        template_combo.grid(row=1, column=0, sticky="ew")
+        template_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: self._refresh_trim_path_lab_previews(),
+        )
+        template_panel.columnconfigure(0, weight=1)
+
+        workflow_panel = ttk.LabelFrame(controls, text="Web Editor Workflow", padding=10)
+        workflow_panel.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(
+            workflow_panel,
+            text=(
+                "1. Click New Path.\n"
+                "2. Click points down the center of the desired trim.\n"
+                "3. Finish the path and drag points to refine the curve.\n"
+                "4. Adjust width, pattern scale, or mirror it.\n"
+                "5. Save a full-resolution transparent PNG."
+            ),
+            justify=tk.LEFT,
+            style="Muted.TLabel",
+        ).grid(row=0, column=0, sticky="w")
+        workflow_panel.columnconfigure(0, weight=1)
+
+        self.trim_path_lab_status = ttk.Label(
+            controls,
+            text="Stage a trim in Trim Creator to begin.",
+            style="Status.TLabel",
+            wraplength=320,
+        )
+        self.trim_path_lab_status.grid(row=3, column=0, sticky="ew")
+        controls.columnconfigure(0, weight=1)
+
+        tab.columnconfigure(0, weight=1)
+        tab.columnconfigure(1, minsize=340)
+        tab.rowconfigure(2, weight=1)
+        self._refresh_trim_path_lab_sources()
+        self.after_idle(self._refresh_trim_path_lab_previews)
 
     def _build_trim_library_tab(self) -> None:
         tab = ttk.Frame(self.tabs, padding=10)
@@ -2516,6 +2637,196 @@ class JerseyModderApp(tk.Tk):
         ).pack(side=tk.LEFT, padx=(8, 0))
         frame.columnconfigure(0, weight=1)
 
+    def _refresh_trim_path_lab_sources(self) -> None:
+        if not hasattr(self, "trim_path_source_combo"):
+            return
+        previous_result = self._trim_path_lab_selected_result()
+        self.trim_path_source_lookup = {}
+        choices: list[str] = []
+        for index, result in enumerate(self.trim_creator_results):
+            label = f"{index + 1:02d} - {_human_label(result.name)} - {result.output_path.name}"
+            choices.append(label)
+            self.trim_path_source_lookup[label] = index
+        self.trim_path_source_combo.configure(values=choices)
+
+        selected_label = ""
+        if previous_result is not None:
+            for label, index in self.trim_path_source_lookup.items():
+                if self.trim_creator_results[index] == previous_result:
+                    selected_label = label
+                    break
+        if not selected_label and choices:
+            selected_label = choices[-1]
+        self.trim_path_source_var.set(selected_label)
+        self._refresh_trim_path_lab_previews()
+
+    def _trim_path_lab_selected_result(self) -> TrimStrip | None:
+        index = self.trim_path_source_lookup.get(self.trim_path_source_var.get())
+        if index is None or not (0 <= index < len(self.trim_creator_results)):
+            return None
+        result = self.trim_creator_results[index]
+        return result if result.output_path.exists() else None
+
+    def use_selected_trim_for_path_lab(self) -> None:
+        result = self._selected_trim_creator_result()
+        if result is None:
+            messagebox.showinfo("Trim Path Lab", "Select a staged trim in Trim Creator first.")
+            return
+        self._refresh_trim_path_lab_sources()
+        for label, index in self.trim_path_source_lookup.items():
+            if self.trim_creator_results[index] == result:
+                self.trim_path_source_var.set(label)
+                break
+        self._refresh_trim_path_lab_previews()
+        self.trim_path_lab_status.configure(
+            text=f"Using staged trim: {result.output_path.name}"
+        )
+
+    def _trim_path_lab_template_path(self) -> Path:
+        selected = self.trim_path_template_var.get()
+        image_path, _zones_path = SHORTS_TEMPLATE_OPTIONS.get(
+            selected,
+            SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
+        )
+        return Path(image_path)
+
+    def _trim_path_lab_panel_zones(self) -> dict[str, dict[str, int]]:
+        selected = self.trim_path_template_var.get()
+        _image_path, zones_path = SHORTS_TEMPLATE_OPTIONS.get(
+            selected,
+            SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
+        )
+        template = load_template(Path(zones_path))
+        zones_by_name = {zone.name: zone for zone in template.zones}
+        payload: dict[str, dict[str, int]] = {}
+        for side, name in (
+            ("left", "shorts_left_panel"),
+            ("right", "shorts_right_panel"),
+        ):
+            zone = zones_by_name.get(name)
+            if zone is not None:
+                payload[side] = {
+                    "x": zone.x,
+                    "y": zone.y,
+                    "width": zone.width,
+                    "height": zone.height,
+                }
+        return payload
+
+    def _refresh_trim_path_lab_previews(self) -> None:
+        if not hasattr(self, "trim_path_template_preview"):
+            return
+        try:
+            template_path = self._trim_path_lab_template_path()
+            self.trim_path_template_preview_image = load_scaled_photo_image(
+                template_path,
+                500,
+                500,
+            )
+            self.trim_path_template_preview.configure(
+                image=self.trim_path_template_preview_image,
+                text="",
+            )
+        except Exception as exc:  # noqa: BLE001 - preview boundary.
+            self.trim_path_template_preview_image = None
+            self.trim_path_template_preview.configure(
+                image="",
+                text=f"Template preview failed: {exc}",
+            )
+
+        result = self._trim_path_lab_selected_result()
+        if result is None:
+            self.trim_path_source_preview_image = None
+            self.trim_path_source_preview.configure(
+                image="",
+                text="Stage a trim in Trim Creator first.",
+            )
+            if hasattr(self, "trim_path_lab_status"):
+                self.trim_path_lab_status.configure(
+                    text="Stage or import a trim in Trim Creator, then select it here."
+                )
+            return
+        try:
+            self.trim_path_source_preview_image = load_scaled_photo_image(
+                result.output_path,
+                300,
+                72,
+            )
+            self.trim_path_source_preview.configure(
+                image=self.trim_path_source_preview_image,
+                text="",
+            )
+            self.trim_path_lab_status.configure(
+                text=(
+                    f"Ready with {result.output_path.name}. The transparent PNG output "
+                    "will use the selected shorts template resolution."
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - preview boundary.
+            self.trim_path_source_preview_image = None
+            self.trim_path_source_preview.configure(
+                image="",
+                text=f"Trim preview failed: {exc}",
+            )
+
+    def open_trim_path_lab_web_editor(self) -> None:
+        result = self._trim_path_lab_selected_result()
+        if result is None:
+            selected = self._selected_trim_creator_result()
+            if selected is not None:
+                self.use_selected_trim_for_path_lab()
+                result = self._trim_path_lab_selected_result()
+        if result is None:
+            messagebox.showinfo(
+                "Trim Path Lab",
+                "Stage a trim in Trim Creator first, then select it as the source.",
+            )
+            return
+        try:
+            if self.web_editor_server is None:
+                self.web_editor_server = WebEditorServer(self)
+            base_url = self.web_editor_server.start().rstrip("/")
+            session = datetime.now().strftime("%Y%m%d%H%M%S%f")
+            url = f"{base_url}/trim-path?session={session}"
+            webbrowser.open(url)
+            self.trim_path_lab_status.configure(
+                text=f"Trim Path web editor opened with {result.output_path.name}."
+            )
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror("Trim Path web editor failed", str(exc))
+
+    def _trim_path_lab_web_project(self) -> dict:
+        template_path = self._trim_path_lab_template_path()
+        width, height = read_image_size(template_path)
+        result = self._trim_path_lab_selected_result()
+        return {
+            "hasPattern": result is not None,
+            "width": width,
+            "height": height,
+            "backgroundUrl": "/api/trim-path/background",
+            "patternUrl": "/api/trim-path/pattern",
+            "patternName": result.output_path.name if result is not None else "",
+            "templateName": self.trim_path_template_var.get(),
+            "panelZones": self._trim_path_lab_panel_zones(),
+            "message": (
+                f"Using {result.output_path.name} from Trim Creator."
+                if result is not None
+                else "Stage a trim in Trim Creator first."
+            ),
+        }
+
+    def _trim_path_lab_background_image(self) -> tuple[bytes, str]:
+        path = self._trim_path_lab_template_path()
+        if not path.exists():
+            raise FileNotFoundError(f"Shorts template not found: {path}")
+        return path.read_bytes(), image_content_type(path)
+
+    def _trim_path_lab_pattern_image(self) -> tuple[bytes, str]:
+        result = self._trim_path_lab_selected_result()
+        if result is None:
+            raise FileNotFoundError("No staged Trim Creator source is selected.")
+        return result.output_path.read_bytes(), image_content_type(result.output_path)
+
     def open_trim_creator_web_selector(self) -> None:
         if self.trim_creator_image_path is None:
             messagebox.showinfo("Trim Creator", "Upload a jersey mockup first.")
@@ -2803,6 +3114,7 @@ class JerseyModderApp(tk.Tk):
                     result.output_path.name,
                 ),
             )
+        self._refresh_trim_path_lab_sources()
 
     def _on_trim_creator_result_select(self, _event: tk.Event | None = None) -> None:
         result = self._selected_trim_creator_result()
@@ -2810,6 +3122,11 @@ class JerseyModderApp(tk.Tk):
             return
         if result.output_path.exists():
             self._show_trim_creator_strip_preview(result.output_path)
+        for label, index in self.trim_path_source_lookup.items():
+            if self.trim_creator_results[index] == result:
+                self.trim_path_source_var.set(label)
+                self._refresh_trim_path_lab_previews()
+                break
 
     def _open_trim_creator_editor_from_click(self, event: tk.Event) -> str:
         row = self.trim_creator_list.identify_row(event.y)
