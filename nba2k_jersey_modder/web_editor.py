@@ -58,7 +58,7 @@ INDEX_HTML = """<!doctype html>
     <button id="editorZoomIn" class="secondary">Zoom +</button>
     <span id="editorZoomLabel" class="hint">100%</span>
     <span id="loadStatus" class="hint"></span>
-    <span class="hint">Drag images. Pull the yellow handle to resize. Wrap logos move only up/down.</span>
+    <span class="hint">Scroll to zoom. Hold the scroll wheel and drag to pan.</span>
   </header>
   <div id="wrap">
     <main id="stage"><canvas id="canvas" width="2048" height="2048"></canvas></main>
@@ -148,6 +148,7 @@ INDEX_HTML = """<!doctype html>
     let overlays = new Map();
     let activeKey = null;
     let drag = null;
+    let pan = null;
     const HANDLE_SIZE = 56;
     const HANDLE_HIT_RADIUS = 58;
 
@@ -462,6 +463,20 @@ INDEX_HTML = """<!doctype html>
     }
 
     canvas.addEventListener("pointerdown", event => {
+      if (event.button === 1) {
+        event.preventDefault();
+        pan = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          scrollLeft: stage.scrollLeft,
+          scrollTop: stage.scrollTop,
+        };
+        canvas.setPointerCapture(event.pointerId);
+        canvas.style.cursor = "grabbing";
+        return;
+      }
+      if (event.button !== 0) return;
       if (viewMode === "region") return;
       const point = canvasPoint(event);
       const hit = hitTest(point);
@@ -502,6 +517,11 @@ INDEX_HTML = """<!doctype html>
     }
 
     canvas.addEventListener("pointermove", event => {
+      if (pan) {
+        stage.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
+        stage.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+        return;
+      }
       if (viewMode === "region") return;
       if (!drag) return;
       const point = canvasPoint(event);
@@ -555,12 +575,28 @@ INDEX_HTML = """<!doctype html>
     });
 
     canvas.addEventListener("pointerup", async event => {
+      if (pan && pan.pointerId === event.pointerId) {
+        pan = null;
+        canvas.style.cursor = "";
+        return;
+      }
       if (viewMode === "region") return;
       if (!drag) return;
       const item = project.overlays.find(candidate => candidate.key === drag.key);
       drag = null;
       await sendUpdate(item);
       await loadProject();
+    });
+
+    canvas.addEventListener("pointercancel", event => {
+      if (pan && pan.pointerId === event.pointerId) {
+        pan = null;
+        canvas.style.cursor = "";
+      }
+    });
+
+    canvas.addEventListener("auxclick", event => {
+      if (event.button === 1) event.preventDefault();
     });
 
     applyPosition.onclick = async () => {
@@ -650,12 +686,23 @@ INDEX_HTML = """<!doctype html>
       stage.scrollTop = 0;
     };
     stage.addEventListener("wheel", event => {
-      if (!event.ctrlKey) return;
       event.preventDefault();
+      const oldCanvasRect = canvas.getBoundingClientRect();
+      const imageX = oldCanvasRect.width
+        ? (event.clientX - oldCanvasRect.left) / oldCanvasRect.width
+        : 0.5;
+      const imageY = oldCanvasRect.height
+        ? (event.clientY - oldCanvasRect.top) / oldCanvasRect.height
+        : 0.5;
       editorZoom = event.deltaY < 0
         ? Math.min(8, editorZoom * 1.12)
         : Math.max(0.25, editorZoom / 1.12);
       draw();
+      const newCanvasRect = canvas.getBoundingClientRect();
+      const newPointerX = newCanvasRect.left + imageX * newCanvasRect.width;
+      const newPointerY = newCanvasRect.top + imageY * newCanvasRect.height;
+      stage.scrollLeft += newPointerX - event.clientX;
+      stage.scrollTop += newPointerY - event.clientY;
     }, {passive: false});
     resetEditor.onclick = async () => {
       if (!confirm("Reset web editor positions, layer order, flips, and transparency overrides?")) return;
