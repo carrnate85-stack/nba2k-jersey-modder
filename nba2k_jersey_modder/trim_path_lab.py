@@ -31,8 +31,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     label { display: block; color: #aab3c2; font-size: 12px; margin: 9px 0 4px; }
     input[type="range"], select { width: 100%; }
     select { background: #11141a; color: #edf1f7; border: 1px solid #475064; border-radius: 5px; padding: 7px; }
-    .range-row { display: grid; grid-template-columns: 1fr 54px; gap: 8px; align-items: center; }
+    .range-row { display: grid; grid-template-columns: minmax(0, 1fr) 76px; gap: 8px; align-items: center; }
     output { color: #edf1f7; text-align: right; font-size: 12px; }
+    input[type="number"] { width: 100%; min-width: 0; background: #11141a; color: #edf1f7; border: 1px solid #475064; border-radius: 5px; padding: 5px 6px; text-align: right; }
     .check { display: flex; align-items: center; gap: 8px; color: #d7deeb; font-size: 13px; margin-top: 9px; }
     .check input { margin: 0; }
     #pathList { display: grid; gap: 6px; max-height: 170px; overflow: auto; }
@@ -95,11 +96,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <label>Current segment</label>
         <div id="segmentReadout" class="small">Angle: -- | Length: --</div>
         <label for="trimWidth">Trim width</label>
-        <div class="range-row"><input id="trimWidth" type="range" min="2" max="300" value="64"><output id="trimWidthValue">64 px</output></div>
+        <div class="range-row"><input id="trimWidth" type="range" min="2" max="300" value="64"><input id="trimWidthNumber" type="number" min="2" max="300" value="64" aria-label="Trim width value"></div>
         <label for="patternScale">Pattern length scale</label>
-        <div class="range-row"><input id="patternScale" type="range" min="25" max="400" value="100"><output id="patternScaleValue">100%</output></div>
+        <div class="range-row"><input id="patternScale" type="range" min="25" max="400" value="100"><input id="patternScaleNumber" type="number" min="25" max="400" value="100" aria-label="Pattern length scale value"></div>
         <label for="patternOffset">Pattern offset</label>
-        <div class="range-row"><input id="patternOffset" type="range" min="-1024" max="1024" value="0"><output id="patternOffsetValue">0 px</output></div>
+        <div class="range-row"><input id="patternOffset" type="range" min="-1024" max="1024" value="0"><input id="patternOffsetNumber" type="number" min="-1024" max="1024" value="0" aria-label="Pattern offset value"></div>
         <div class="buttons">
           <button id="createOppositeCopy" class="secondary">Opposite Panel Copy</button>
           <button id="createXMirror" class="secondary">X-Axis Mirror</button>
@@ -888,7 +889,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function syncControls() {
       const path = activePath();
       const disabled = !path;
-      ["curveMode", "trimWidth", "patternScale", "patternOffset", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
+      ["curveMode", "trimWidth", "trimWidthNumber", "patternScale", "patternScaleNumber", "patternOffset", "patternOffsetNumber", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
       document.getElementById("linkStatus").textContent = "Layer is not linked.";
       if (!path) {
         updateSegmentReadout();
@@ -907,9 +908,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       updateControlLabels();
     }
     function updateControlLabels() {
-      document.getElementById("trimWidthValue").value = `${document.getElementById("trimWidth").value} px`;
-      document.getElementById("patternScaleValue").value = `${document.getElementById("patternScale").value}%`;
-      document.getElementById("patternOffsetValue").value = `${document.getElementById("patternOffset").value} px`;
+      document.getElementById("trimWidthNumber").value = document.getElementById("trimWidth").value;
+      document.getElementById("patternScaleNumber").value = document.getElementById("patternScale").value;
+      document.getElementById("patternOffsetNumber").value = document.getElementById("patternOffset").value;
       document.getElementById("templateOpacityValue").value = `${document.getElementById("templateOpacity").value}%`;
     }
     function bindPathControl(id, property, conversion = value => value) {
@@ -921,6 +922,27 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         updatePathList();
         saveLocalPaths();
         queueDraw();
+      });
+    }
+    function bindNumericRange(rangeId, numberId, property, minimum, maximum) {
+      const range = document.getElementById(rangeId);
+      const number = document.getElementById(numberId);
+      const applyValue = rawValue => {
+        const path = activePath();
+        if (!path) return;
+        const parsed = Number(rawValue);
+        const value = Math.max(minimum, Math.min(maximum, Number.isFinite(parsed) ? parsed : path[property]));
+        path[property] = value;
+        range.value = value;
+        number.value = value;
+        updatePathList();
+        saveLocalPaths();
+        queueDraw();
+      };
+      range.addEventListener("input", event => applyValue(event.target.value));
+      number.addEventListener("change", event => applyValue(event.target.value));
+      number.addEventListener("keydown", event => {
+        if (event.key === "Enter") event.target.blur();
       });
     }
 
@@ -1102,9 +1124,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     document.getElementById("loadJson").onclick = () => document.getElementById("loadJsonInput").click();
     document.getElementById("loadJsonInput").onchange = event => event.target.files[0] && loadJsonFile(event.target.files[0]);
     bindPathControl("curveMode", "curve");
-    bindPathControl("trimWidth", "width", Number);
-    bindPathControl("patternScale", "patternScale", Number);
-    bindPathControl("patternOffset", "patternOffset", Number);
+    bindNumericRange("trimWidth", "trimWidthNumber", "width", 2, 300);
+    bindNumericRange("patternScale", "patternScaleNumber", "patternScale", 25, 400);
+    bindNumericRange("patternOffset", "patternOffsetNumber", "patternOffset", -1024, 1024);
     bindPathControl("pathVisible", "visible", Boolean);
     document.getElementById("moveLinked").onchange = syncControls;
     document.getElementById("angleSnap").onchange = () => {
