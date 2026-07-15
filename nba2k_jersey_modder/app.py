@@ -910,7 +910,7 @@ class JerseyModderApp(tk.Tk):
             staged_trims,
             columns=("bbox", "file"),
             show="tree headings",
-            height=18,
+            height=12,
         )
         self.trim_creator_list.heading("#0", text="Trim")
         self.trim_creator_list.heading("bbox", text="Selection")
