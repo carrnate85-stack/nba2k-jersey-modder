@@ -524,7 +524,7 @@ def render_jersey_normal_map(
     scale_y = size[1] / design_height
     patch_strength = max(0.0, min(100.0, float(normal_strength))) / 10.0
 
-    def paste_logo_normal_patch(
+    def paste_artwork_normal_patch(
         overlay,
         x: int,
         y: int,
@@ -565,7 +565,7 @@ def render_jersey_normal_map(
     if front is not None and inputs.front_wordmark_image and inputs.front_wordmark_image.exists():
         overlay = _prepared_overlay(inputs.front_wordmark_image, inputs, "front_wordmark")
         overlay, x, y = _overlay_at_zone(overlay, front, inputs)
-        paste_logo_normal_patch(overlay, x, y)
+        paste_artwork_normal_patch(overlay, x, y)
 
     logo_targets = {zone.name: zone for zone in logo_target_zones(template)}
     for index, logo in enumerate(inputs.logo_placements):
@@ -575,7 +575,62 @@ def render_jersey_normal_map(
         logo_key = f"logo:{index}"
         overlay = _prepared_overlay(logo.path, inputs, logo_key)
         overlay, x, y = _overlay_at_zone(overlay, target, inputs, logo=logo)
-        paste_logo_normal_patch(overlay, x, y)
+        paste_artwork_normal_patch(overlay, x, y)
+
+    for zone in template.zones:
+        if zone.name not in {
+            "left_arm_hole_trim",
+            "right_arm_hole_trim",
+            "collar_trim",
+        }:
+            continue
+        overlay_path = _overlay_for_zone(zone, inputs)
+        if overlay_path is None or not overlay_path.exists():
+            continue
+        overlay = _prepared_overlay(overlay_path, inputs, zone.name)
+        overlay, x, y = _overlay_at_zone(overlay, zone, inputs)
+        paste_artwork_normal_patch(overlay, x, y)
+
+    for trim_path in inputs.trim_path_layers:
+        if not trim_path.path.exists():
+            continue
+        with Image.open(trim_path.path) as opened:
+            trim_overlay = opened.convert("RGBA")
+        trim_overlay = trim_overlay.resize(
+            (max(1, trim_path.width), max(1, trim_path.height)),
+            Image.Resampling.LANCZOS,
+        )
+        trim_x = trim_path.x
+        trim_y = trim_path.y
+        if trim_path.rotation_degrees:
+            center_x = trim_x + trim_overlay.width / 2
+            center_y = trim_y + trim_overlay.height / 2
+            trim_overlay = trim_overlay.rotate(
+                -trim_path.rotation_degrees,
+                expand=True,
+                resample=Image.Resampling.BICUBIC,
+            )
+            trim_x = round(center_x - trim_overlay.width / 2)
+            trim_y = round(center_y - trim_overlay.height / 2)
+        trim_layer = Image.new("RGBA", (design_width, design_height), (0, 0, 0, 0))
+        trim_layer.alpha_composite(trim_overlay, (trim_x, trim_y))
+        _clear_trim_path_waistband(trim_layer, template)
+        trim_bounds = trim_layer.getchannel("A").getbbox()
+        if trim_bounds is None:
+            continue
+        padding_x = max(8, round(8 / scale_x))
+        padding_y = max(8, round(8 / scale_y))
+        trim_bounds = (
+            max(0, trim_bounds[0] - padding_x),
+            max(0, trim_bounds[1] - padding_y),
+            min(design_width, trim_bounds[2] + padding_x),
+            min(design_height, trim_bounds[3] + padding_y),
+        )
+        paste_artwork_normal_patch(
+            trim_layer.crop(trim_bounds),
+            trim_bounds[0],
+            trim_bounds[1],
+        )
 
     return output
 

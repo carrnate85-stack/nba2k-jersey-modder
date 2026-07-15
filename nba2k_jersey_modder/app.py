@@ -102,6 +102,7 @@ BLENDER_PREVIEW_MODELS = {
     ("Jersey", "Retro U"): PROJECT_ROOT / "blendermodels" / "jerseyretroU.blend",
     ("Shorts", "Retro shorts"): PROJECT_ROOT / "blendermodels" / "retroshorts.blend",
 }
+SHORTS_RETRO_NORMAL_IMAGE = PROJECT_ROOT / "blendermodels" / "shorts_retro_normal.png"
 TRIM_GENERATOR_KEYS = {
     "left_arm_hole_trim": "left_arm_hole_trim_image",
     "right_arm_hole_trim": "right_arm_hole_trim_image",
@@ -2213,7 +2214,7 @@ class JerseyModderApp(tk.Tk):
 
         normal_options = ttk.LabelFrame(controls, text="Normal map", padding=10)
         normal_options.grid(row=3, column=0, sticky="ew", pady=(12, 0))
-        ttk.Label(normal_options, text="Logo strength").pack(side=tk.LEFT)
+        ttk.Label(normal_options, text="Logo/trim strength").pack(side=tk.LEFT)
         ttk.Scale(
             normal_options,
             from_=0,
@@ -7890,21 +7891,31 @@ class JerseyModderApp(tk.Tk):
                 output_path = output_dir / "texture_creator_jersey_region.png"
                 image.save(output_path)
             elif texture_type == "Normal Map":
-                if garment != "Jersey":
-                    if show_errors:
-                        messagebox.showinfo(
-                            "Texture Creator",
-                            "Normal map creation is currently built for jersey textures. Shorts normal maps can be added next.",
-                        )
-                    return False
-                image = render_jersey_normal_map(
-                    self._texture_creator_template(),
-                    inputs,
-                    JERSEY_NORMAL_TEMPLATE_IMAGE,
-                    normal_strength=self._texture_creator_normal_strength(),
-                )
-                output_path = output_dir / "texture_creator_jersey_normal.png"
-                image.save(output_path)
+                if garment == "Shorts":
+                    if template_name != "Retro shorts":
+                        if show_errors:
+                            messagebox.showinfo(
+                                "Texture Creator",
+                                f"A normal map has not been added for {template_name} yet.",
+                            )
+                        return False
+                    image = render_jersey_normal_map(
+                        self._texture_creator_template(),
+                        inputs,
+                        SHORTS_RETRO_NORMAL_IMAGE,
+                        normal_strength=self._texture_creator_normal_strength(),
+                    )
+                    output_path = output_dir / "texture_creator_shorts_normal.png"
+                    image.save(output_path)
+                else:
+                    image = render_jersey_normal_map(
+                        self._texture_creator_template(),
+                        inputs,
+                        JERSEY_NORMAL_TEMPLATE_IMAGE,
+                        normal_strength=self._texture_creator_normal_strength(),
+                    )
+                    output_path = output_dir / "texture_creator_jersey_normal.png"
+                    image.save(output_path)
             else:
                 output_name = (
                     "texture_creator_shorts_color.png"
@@ -8028,8 +8039,6 @@ class JerseyModderApp(tk.Tk):
         }
 
     def _write_blender_preview_files(self) -> tuple[Path, Path, Path]:
-        from PIL import Image
-
         paths = self._blender_preview_output_paths()
         jersey_template = load_template(JERSEY_CUT_TEMPLATE_OPTIONS["Retro U"])
         shorts_template = load_template(SHORTS_TEMPLATE_OPTIONS["Retro shorts"][1])
@@ -8050,11 +8059,17 @@ class JerseyModderApp(tk.Tk):
             normal_strength=self._texture_creator_normal_strength(),
         )
         shorts_color = render_jersey_texture(shorts_template, shorts_inputs)
-        shorts_normal = Image.new("RGB", shorts_color.size, (128, 128, 255))
+        shorts_normal = render_jersey_normal_map(
+            shorts_template,
+            shorts_inputs,
+            SHORTS_RETRO_NORMAL_IMAGE,
+            normal_strength=self._texture_creator_normal_strength(),
+        )
         jersey_color.save(paths["jersey_color"])
         jersey_normal.save(paths["jersey_normal"])
         shorts_color.save(paths["shorts_color"])
         shorts_normal.save(paths["shorts_normal"])
+        blender_normal_strength = self._blender_preview_normal_node_strength()
         settings_path = paths["settings"]
         settings_path.write_text(
             json.dumps(
@@ -8070,14 +8085,14 @@ class JerseyModderApp(tk.Tk):
                             "material_keyword": "jersey",
                             "color_path": str(paths["jersey_color"]),
                             "normal_path": str(paths["jersey_normal"]),
-                            "normal_strength": self._blender_preview_normal_node_strength(),
+                            "normal_strength": blender_normal_strength,
                         },
                         {
                             "name": "Shorts",
                             "material_keyword": "shorts",
                             "color_path": str(paths["shorts_color"]),
                             "normal_path": str(paths["shorts_normal"]),
-                            "normal_strength": 0.0,
+                            "normal_strength": blender_normal_strength,
                         },
                     ],
                 },

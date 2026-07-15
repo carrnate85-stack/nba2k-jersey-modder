@@ -1,4 +1,5 @@
 from io import BytesIO
+import json
 from pathlib import Path
 import struct
 import tempfile
@@ -9,6 +10,7 @@ import zipfile
 from nba2k_jersey_modder.app import (
     BLENDER_PREVIEW_MODELS,
     JerseyModderApp,
+    SHORTS_RETRO_NORMAL_IMAGE,
     _fit_transparent_image_to_square,
     _align_image_to_visible_center,
     _loaded_number_digit_keys,
@@ -677,6 +679,86 @@ class TrimCreatorTests(unittest.TestCase):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_texture_creator_renders_retro_shorts_normal(self) -> None:
+        class Selection:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+            def set(self, value: str) -> None:
+                self.value = value
+
+        app = object.__new__(JerseyModderApp)
+        app.texture_creator_texture_type_var = Selection("Normal Map")
+        app.texture_creator_source_var = Selection("Current generator design")
+        app.texture_creator_source_path = None
+        app._current_blender_preview_scope = lambda: ("Shorts", "Retro shorts")
+        app._generator_inputs = lambda **_kwargs: GeneratorInputs(
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+        )
+        app._texture_creator_template = lambda: load_template(SHORTS_TEMPLATE_RETRO_ZONES)
+        app._texture_creator_normal_strength = lambda: 15
+        app._show_texture_creator_preview = lambda: None
+
+        updated = app._render_texture_creator_from_generator(
+            select_tab=False,
+            update_status=False,
+            show_errors=False,
+        )
+
+        self.assertTrue(updated)
+        self.assertEqual(app.texture_creator_preview_path.name, "texture_creator_shorts_normal.png")
+        self.assertTrue(app.texture_creator_preview_path.exists())
+
+    def test_blender_preview_applies_bundled_retro_shorts_normal(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        class Selection:
+            def get(self) -> str:
+                return "Shorts"
+
+        app = object.__new__(JerseyModderApp)
+        app.texture_creator_garment_var = Selection()
+        app._generator_inputs = lambda **_kwargs: GeneratorInputs(
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+        )
+        app._apply_blender_number_preview = lambda image, **_kwargs: image
+        app._texture_creator_normal_strength = lambda: 15
+        app._blender_preview_normal_node_strength = lambda: 0.35
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            paths = {
+                "jersey_color": output_dir / "jersey_color.png",
+                "jersey_normal": output_dir / "jersey_normal.png",
+                "shorts_color": output_dir / "shorts_color.png",
+                "shorts_normal": output_dir / "shorts_normal.png",
+                "settings": output_dir / "preview_settings.json",
+            }
+            app._blender_preview_output_paths = lambda: paths
+            _color_path, normal_path, settings_path = app._write_blender_preview_files()
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            shorts_part = next(part for part in settings["parts"] if part["name"] == "Shorts")
+            with Image.open(SHORTS_RETRO_NORMAL_IMAGE) as source:
+                source_pixels = source.convert("RGBA").tobytes()
+            with Image.open(normal_path) as rendered:
+                rendered_pixels = rendered.convert("RGBA").tobytes()
+
+        self.assertEqual(shorts_part["normal_strength"], 0.35)
+        self.assertEqual(Path(shorts_part["normal_path"]), normal_path)
+        self.assertEqual(rendered_pixels, source_pixels)
+
     def test_trim_path_lab_background_uses_generated_shorts_preview(self) -> None:
         try:
             from PIL import Image
@@ -1515,6 +1597,46 @@ class GeneratorTests(unittest.TestCase):
                 for x in range(64)
             )
         )
+
+    def test_render_jersey_normal_map_adds_trim_path_detail(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            normal_template = tmp_path / "normal.png"
+            trim_path = tmp_path / "trim.png"
+            base = Image.new("RGBA", (64, 64), (128, 128, 255, 255))
+            base.save(normal_template)
+            trim = Image.new("RGBA", (512, 128), (0, 0, 0, 0))
+            ImageDraw.Draw(trim).rectangle((8, 8, 503, 119), fill=(255, 0, 0, 255))
+            trim.save(trim_path)
+            template = JerseyTemplate(image_path="", zones=())
+
+            normal = render_jersey_normal_map(
+                template,
+                GeneratorInputs(
+                    "#ffffff",
+                    "#ffffff",
+                    "#ffffff",
+                    "#ffffff",
+                    trim_path_layers=(
+                        TrimPathLayer(
+                            "Shorts Trim",
+                            trim_path,
+                            x=512,
+                            y=1024,
+                            width=512,
+                            height=128,
+                        ),
+                    ),
+                ),
+                normal_template,
+            )
+
+        self.assertNotEqual(normal.tobytes(), base.tobytes())
 
     def test_render_jersey_normal_map_ignores_background_colors(self) -> None:
         try:
