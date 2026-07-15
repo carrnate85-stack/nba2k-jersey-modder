@@ -987,18 +987,27 @@ def _overlay_at_zone(
 def _transform_stretched_zone_image(overlay, zone: TemplateZone, trim: TrimPlacementSettings):
     from PIL import Image
 
-    overlay = overlay.resize((zone.width, zone.height), Image.Resampling.LANCZOS)
+    width_scale = _independent_scale_percent(
+        trim.scale_width_percent,
+        trim.scale_percent,
+    )
+    height_scale = _independent_scale_percent(
+        trim.scale_height_percent,
+        trim.scale_percent,
+    )
+    width = (
+        max(1, int(trim.override_width))
+        if trim.override_width is not None
+        else max(1, round(zone.width * width_scale / 100))
+    )
+    height = (
+        max(1, int(trim.override_height))
+        if trim.override_height is not None
+        else max(1, round(zone.height * height_scale / 100))
+    )
+    overlay = overlay.resize((width, height), Image.Resampling.LANCZOS)
     if trim.flip_x:
         overlay = overlay.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-    scale = max(1, int(trim.scale_percent)) / 100
-    if scale != 1:
-        overlay = overlay.resize(
-            (
-                max(1, round(overlay.width * scale)),
-                max(1, round(overlay.height * scale)),
-            ),
-            Image.Resampling.LANCZOS,
-        )
     return overlay
 
 

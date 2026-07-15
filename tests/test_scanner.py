@@ -1448,7 +1448,15 @@ class GeneratorTests(unittest.TestCase):
             )
             image = Image.open(output).convert("RGBA")
 
-        self.assertEqual(image.getpixel((10, 10)), (0, 0, 255, 255))
+        waistband_zone = next(
+            zone
+            for zone in template.zones
+            if zone.name.startswith("shorts_waistband")
+        )
+        self.assertEqual(
+            image.getpixel((waistband_zone.x + 1, waistband_zone.y + 1)),
+            (0, 0, 255, 255),
+        )
         self.assertEqual(image.getpixel((10, 200)), (255, 0, 0, 255))
         self.assertEqual(image.getpixel((10, 1200)), (0, 255, 0, 255))
         self.assertEqual(image.getpixel((1450, 1500)), (0, 0, 0, 0))
@@ -2498,6 +2506,55 @@ class GeneratorTests(unittest.TestCase):
 
         self.assertEqual(image.getpixel((0, 0))[:3], (255, 0, 0))
         self.assertEqual(image.getpixel((3, 3))[:3], (0, 0, 255))
+
+    def test_waistband_image_has_independent_web_placement(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            waistband_path = Path(tmp_dir) / "waistband.png"
+            Image.new("RGBA", (10, 2), (255, 0, 0, 255)).save(waistband_path)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone(
+                        "shorts_waistband_left", "base", 10, 20, 100, 20, "#5555aa", 1
+                    ),
+                ),
+            )
+            inputs = GeneratorInputs(
+                front_color="",
+                back_color="",
+                left_panel_color="",
+                right_panel_color="",
+                waistband_image=waistband_path,
+                trim_placements={
+                    "shorts_waistband_left": TrimPlacementSettings(
+                        offset_x=5,
+                        offset_y=3,
+                        override_width=80,
+                        override_height=12,
+                    ),
+                },
+            )
+
+            placements = image_placement_rects(template, inputs)
+
+        self.assertEqual(len(placements), 1)
+        placement = placements[0]
+        self.assertEqual((placement.x, placement.y), (15, 23))
+        self.assertEqual((placement.width, placement.height), (80, 12))
+        self.assertEqual(
+            (
+                placement.clip_x,
+                placement.clip_y,
+                placement.clip_width,
+                placement.clip_height,
+            ),
+            (10, 20, 100, 20),
+        )
 
     def test_generate_jersey_texture_removes_white_image_background(self) -> None:
         try:

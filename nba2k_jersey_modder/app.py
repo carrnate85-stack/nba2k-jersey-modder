@@ -4870,6 +4870,9 @@ class JerseyModderApp(tk.Tk):
         storage_key = self._generator_image_storage_key(key)
         self.generator_paths[storage_key] = path
         self.generator_file_labels[key].configure(text=path.name)
+        if storage_key == "waistband_image":
+            for placement_name in WAISTBAND_GENERATOR_KEYS:
+                self.generator_trim_placements[placement_name] = TrimPlacementSettings()
         placement_name = _placement_name_for_generator_image_key(storage_key)
         if placement_name is not None:
             self.generator_trim_placements[placement_name] = TrimPlacementSettings()
@@ -4879,6 +4882,9 @@ class JerseyModderApp(tk.Tk):
         storage_key = self._generator_image_storage_key(key)
         self.generator_paths[storage_key] = None
         self.generator_file_labels[key].configure(text="none")
+        if storage_key == "waistband_image":
+            for placement_name in WAISTBAND_GENERATOR_KEYS:
+                self.generator_trim_placements.pop(placement_name, None)
         placement_name = _placement_name_for_generator_image_key(storage_key)
         if placement_name is not None:
             self.generator_trim_placements.pop(placement_name, None)
@@ -7390,8 +7396,10 @@ class JerseyModderApp(tk.Tk):
                     "imageUrl": f"/api/image/{placement.key}",
                     "blendMode": "normal",
                     "lockX": self._web_editor_overlay_locks_x(placement.key),
-                    "lockAspect": not (is_side_panel or logo_index is not None),
-                    "canTransform": not is_waistband,
+                    "lockAspect": not (
+                        is_side_panel or is_waistband or logo_index is not None
+                    ),
+                    "canTransform": True,
                     "canRotate": is_side_panel,
                     "rotation": placement.rotation_degrees,
                     "canFlip": is_trim,
@@ -7809,7 +7817,9 @@ class JerseyModderApp(tk.Tk):
         current = placements.get(key)
         if current is None:
             return
-        if key in TRIM_GENERATOR_KEYS and current.clip_x is not None:
+        if (
+            key in TRIM_GENERATOR_KEYS or key in WAISTBAND_GENERATOR_KEYS
+        ) and current.clip_x is not None:
             x, y, width, height = _clamp_overlay_to_clip(
                 x,
                 y,
@@ -7880,6 +7890,32 @@ class JerseyModderApp(tk.Tk):
                 offset_x=trim.offset_x + delta_x,
                 offset_y=trim.offset_y + delta_y,
                 scale_percent=max(1, min(500, scale)),
+            )
+        elif key in WAISTBAND_GENERATOR_KEYS:
+            waistband = self.generator_trim_placements.get(
+                key,
+                TrimPlacementSettings(),
+            )
+            width_scale = _scale_dimension_percent(
+                waistband.scale_width_percent,
+                waistband.scale_percent,
+                width,
+                current.width,
+            )
+            height_scale = _scale_dimension_percent(
+                waistband.scale_height_percent,
+                waistband.scale_percent,
+                height,
+                current.height,
+            )
+            self.generator_trim_placements[key] = replace(
+                waistband,
+                offset_x=waistband.offset_x + delta_x,
+                offset_y=waistband.offset_y + delta_y,
+                scale_width_percent=width_scale,
+                scale_height_percent=height_scale,
+                override_width=max(1, min(8192, round(width))),
+                override_height=max(1, min(8192, round(height))),
             )
         elif key in SIDE_PANEL_GENERATOR_KEYS:
             panel = self.generator_trim_placements.get(key, TrimPlacementSettings())
