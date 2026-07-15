@@ -401,7 +401,31 @@ class JerseyModderApp(tk.Tk):
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.destroy)
         menu.add_cascade(label="File", menu=file_menu)
+
+        advanced_menu = tk.Menu(menu, tearoff=False)
+        advanced_menu.add_command(
+            label="RDAT Editor",
+            command=lambda: self._select_advanced_tab("rdat"),
+        )
+        advanced_menu.add_command(
+            label="IFF Textures",
+            command=lambda: self._select_advanced_tab("textures"),
+        )
+        advanced_menu.add_command(
+            label="Template Editor",
+            command=lambda: self._select_advanced_tab("template"),
+        )
+        menu.add_cascade(label="Advanced", menu=advanced_menu)
         self.config(menu=menu)
+
+    def _select_advanced_tab(self, tab_name: str) -> None:
+        tab = {
+            "rdat": getattr(self, "rdat_tab", None),
+            "textures": getattr(self, "textures_tab", None),
+            "template": getattr(self, "template_tab", None),
+        }.get(tab_name)
+        if tab is not None:
+            self.tabs.select(tab)
 
     def _build_layout(self) -> None:
         root = ttk.Frame(self, padding=16)
@@ -482,6 +506,7 @@ class JerseyModderApp(tk.Tk):
 
     def _build_textures_tab(self) -> None:
         tab = ttk.Frame(self.tabs, padding=10)
+        self.textures_tab = tab
         self.tabs.add(tab, text="IFF Textures")
 
         columns = ("dds", "txtr", "status", "dds_offset", "txtr_offset", "source")
@@ -1905,15 +1930,6 @@ class JerseyModderApp(tk.Tk):
         section_row += 1
         self._build_logo_controls(logo_controls, 0)
 
-        _fabric_section, fabric_controls = self._add_generator_section(
-            controls,
-            section_row,
-            "Fabric / Wrinkles",
-            expanded=False,
-        )
-        section_row += 1
-        self._build_fabric_overlay_controls(fabric_controls, 0)
-
         number_section, number_controls = self._add_generator_section(
             controls,
             section_row,
@@ -1924,43 +1940,6 @@ class JerseyModderApp(tk.Tk):
         section_row += 1
         self._build_generator_number_preview_controls(number_controls, 0)
         self.generator_jersey_only_widgets.append(self.generator_number_preview_frame)
-
-        _export_section, export_controls = self._add_generator_section(
-            controls,
-            section_row,
-            "Export",
-            expanded=False,
-        )
-        export_row = 0
-        ttk.Button(
-            export_controls,
-            text="Generate Preview",
-            command=self.generate_jersey_preview,
-        ).grid(row=export_row, column=0, sticky="ew", pady=(0, 8))
-        export_row += 1
-        ttk.Button(
-            export_controls,
-            text="Save Generated PNG As",
-            command=self.save_generated_texture_as,
-        ).grid(row=export_row, column=0, sticky="ew")
-        export_row += 1
-        ttk.Button(
-            export_controls,
-            text="Save DDS BC1 As",
-            command=self.save_generated_dds_as,
-        ).grid(row=export_row, column=0, sticky="ew", pady=(8, 0))
-        export_row += 1
-        ttk.Button(
-            export_controls,
-            text="Save Layered PSD As",
-            command=self.save_layered_psd_as,
-        ).grid(row=export_row, column=0, sticky="ew", pady=(8, 0))
-        export_row += 1
-        ttk.Button(
-            export_controls,
-            text="Export Package As...",
-            command=self.export_package_as,
-        ).grid(row=export_row, column=0, sticky="ew", pady=(8, 0))
 
         controls.columnconfigure(0, weight=1)
 
@@ -2122,7 +2101,12 @@ class JerseyModderApp(tk.Tk):
             actions,
             text="Save DDS BC1 As",
             command=self.save_texture_creator_dds_as,
-        ).grid(row=4, column=0, sticky="ew")
+        ).grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            actions,
+            text="Save Layered PSD As",
+            command=self.save_layered_psd_as,
+        ).grid(row=5, column=0, sticky="ew")
         actions.columnconfigure(0, weight=1)
 
         self.texture_creator_status = ttk.Label(
@@ -2475,38 +2459,17 @@ class JerseyModderApp(tk.Tk):
         number_entry.bind("<Return>", lambda _event: self._redraw_generator_preview_overlays())
         number_entry.bind("<FocusOut>", lambda _event: self._redraw_generator_preview_overlays())
 
-        for column, (label, variable, width) in enumerate(
-            (
-                ("X", self.generator_number_preview_x_var, 7),
-                ("Y", self.generator_number_preview_y_var, 7),
-                ("Width %", self.generator_number_preview_scale_var, 6),
-                ("Height %", self.generator_number_preview_height_scale_var, 6),
-            )
-        ):
-            ttk.Label(frame, text=label).grid(row=1, column=column * 2, sticky="w")
-            spinbox = tk.Spinbox(
-                frame,
-                from_=5 if label.endswith("%") else 0,
-                to=500 if label.endswith("%") else 2048,
-                increment=5 if label.endswith("%") else 1,
-                width=width,
-                textvariable=variable,
-                command=self._redraw_generator_preview_overlays,
-            )
-            spinbox.grid(row=1, column=column * 2 + 1, sticky="w", padx=(4, 10))
-            spinbox.bind("<Return>", lambda _event: self._redraw_generator_preview_overlays())
-            spinbox.bind("<FocusOut>", lambda _event: self._redraw_generator_preview_overlays())
         ttk.Button(
             frame,
             text="Reset",
             command=self.reset_generator_number_preview,
-        ).grid(row=2, column=0, columnspan=8, sticky="ew", pady=(8, 0))
+        ).grid(row=1, column=0, columnspan=3, sticky="ew", pady=(2, 0))
         ttk.Label(
             frame,
             text="Preview only - shown in Blender, not exported",
             style="Muted.TLabel",
-        ).grid(row=3, column=0, columnspan=8, sticky="w", pady=(4, 0))
-        frame.columnconfigure(7, weight=1)
+        ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        frame.columnconfigure(2, weight=1)
 
     def _build_fabric_overlay_controls(self, parent: ttk.Frame, row: int) -> None:
         frame = ttk.Frame(parent)
@@ -7796,7 +7759,9 @@ class JerseyModderApp(tk.Tk):
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
             messagebox.showerror("PSD save failed", str(exc))
             return
-        self.generator_status.configure(text=f"Saved layered PSD to {selected}.")
+        status = f"Saved layered PSD to {selected}."
+        self.generator_status.configure(text=status)
+        self.texture_creator_status.configure(text=status)
 
     def export_package_as(self) -> None:
         selected = filedialog.askdirectory(title="Choose Export Package Folder")
