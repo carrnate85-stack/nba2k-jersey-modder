@@ -125,6 +125,8 @@ class TrimPlacementSettings:
     scale_percent: int = 100
     scale_width_percent: int | None = None
     scale_height_percent: int | None = None
+    override_width: int | None = None
+    override_height: int | None = None
     flip_x: bool = False
     rotation_degrees: float = 0.0
 
@@ -1008,8 +1010,16 @@ def _editable_panel_rect(
         settings.scale_height_percent,
         settings.scale_percent,
     )
-    width = max(1, round(fit_width * width_scale / 100))
-    height = max(1, round(fit_height * height_scale / 100))
+    width = (
+        max(1, int(settings.override_width))
+        if settings.override_width is not None
+        else max(1, round(fit_width * width_scale / 100))
+    )
+    height = (
+        max(1, int(settings.override_height))
+        if settings.override_height is not None
+        else max(1, round(fit_height * height_scale / 100))
+    )
     x = zone.x + (zone.width - width) // 2 + settings.offset_x
     y = zone.y + (zone.height - height) // 2 + settings.offset_y
     return x, y, width, height, float(settings.rotation_degrees)

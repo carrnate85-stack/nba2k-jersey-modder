@@ -1534,6 +1534,146 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(placements[0].width, 30)
         self.assertEqual(placements[0].height, 30)
 
+    def test_right_side_panel_exact_web_dimensions_override_scale(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            image_path = Path(tmp_dir) / "panel.png"
+            Image.new("RGBA", (20, 10), (255, 0, 0, 255)).save(image_path)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone(
+                        "right_side_panel",
+                        "stripe",
+                        1700,
+                        200,
+                        100,
+                        80,
+                        "#ff0000",
+                        10,
+                    ),
+                ),
+            )
+            placements = image_placement_rects(
+                template,
+                GeneratorInputs(
+                    front_color="#ffffff",
+                    back_color="#ffffff",
+                    left_panel_color="#ffffff",
+                    right_panel_color="#ffffff",
+                    right_panel_image=image_path,
+                    trim_placements={
+                        "right_side_panel": TrimPlacementSettings(
+                            offset_x=25,
+                            offset_y=-12,
+                            scale_width_percent=125,
+                            scale_height_percent=225,
+                            override_width=347,
+                            override_height=611,
+                        )
+                    },
+                ),
+            )
+
+        self.assertEqual(placements[0].key, "right_side_panel")
+        self.assertEqual(placements[0].width, 347)
+        self.assertEqual(placements[0].height, 611)
+        self.assertEqual(placements[0].x, 1601)
+        self.assertEqual(placements[0].y, -78)
+
+    def test_web_editor_right_panel_update_preserves_requested_box(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            image_path = Path(tmp_dir) / "panel.png"
+            Image.new("RGBA", (20, 10), (255, 0, 0, 255)).save(image_path)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone(
+                        "right_side_panel",
+                        "stripe",
+                        1700,
+                        200,
+                        100,
+                        80,
+                        "#ff0000",
+                        10,
+                    ),
+                ),
+            )
+            inputs = GeneratorInputs(
+                front_color="#ffffff",
+                back_color="#ffffff",
+                left_panel_color="#ffffff",
+                right_panel_color="#ffffff",
+                right_panel_image=image_path,
+            )
+            app = JerseyModderApp.__new__(JerseyModderApp)
+            app.generator_trim_placements = {}
+            app._current_generator_template = lambda: template
+            app._generator_inputs = lambda: inputs
+            app._schedule_generator_preview_refresh = lambda: None
+
+            app._web_editor_update(
+                {
+                    "key": "right_side_panel",
+                    "x": 1499,
+                    "y": 77,
+                    "width": 347,
+                    "height": 611,
+                    "rotation": 18,
+                }
+            )
+
+            updated_inputs = GeneratorInputs(
+                front_color="#ffffff",
+                back_color="#ffffff",
+                left_panel_color="#ffffff",
+                right_panel_color="#ffffff",
+                right_panel_image=image_path,
+                trim_placements=app.generator_trim_placements,
+            )
+            placement = image_placement_rects(template, updated_inputs)[0]
+
+        self.assertEqual(
+            (placement.x, placement.y, placement.width, placement.height),
+            (1499, 77, 347, 611),
+        )
+        self.assertEqual(placement.rotation_degrees, 18)
+
+    def test_generator_uses_separate_side_panel_upload_slots_for_shorts(self) -> None:
+        class GarmentValue:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+        app = JerseyModderApp.__new__(JerseyModderApp)
+        app.generator_garment_var = GarmentValue("Shorts")
+        self.assertEqual(
+            app._generator_image_storage_key("left_panel_image"),
+            "shorts_left_panel_image",
+        )
+        self.assertEqual(
+            app._generator_image_storage_key("right_panel_image"),
+            "shorts_right_panel_image",
+        )
+
+        app.generator_garment_var = GarmentValue("Jersey")
+        self.assertEqual(
+            app._generator_image_storage_key("right_panel_image"),
+            "right_panel_image",
+        )
+
     def test_render_jersey_region_map_marks_panels_and_decals(self) -> None:
         try:
             from PIL import Image, ImageDraw

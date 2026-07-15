@@ -357,6 +357,7 @@ INDEX_HTML = """<!doctype html>
       renderLayerList();
       renderInspector();
       draw();
+      if (viewMode === "region") refreshRegionPreview();
     }
 
     function canvasBlendMode(blendMode) {
@@ -513,7 +514,7 @@ INDEX_HTML = """<!doctype html>
     });
 
     async function sendUpdate(item) {
-      await fetch("/api/update", {
+      const response = await fetch("/api/update", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -525,6 +526,15 @@ INDEX_HTML = """<!doctype html>
           rotation: item.rotation || 0,
         }),
       });
+      if (!response.ok) throw new Error(`Save failed: ${response.status}`);
+      const result = await response.json();
+      if (result.overlay) Object.assign(item, result.overlay);
+      loadStatus.textContent = `Saved ${item.label}`;
+    }
+
+    async function refreshRegionPreview() {
+      regionImage = await loadImage("/api/region.png") || regionImage;
+      if (viewMode === "region") draw();
     }
 
     function queueNudgeUpdate(item) {
@@ -629,7 +639,8 @@ INDEX_HTML = """<!doctype html>
       const item = project.overlays.find(candidate => candidate.key === drag.key);
       drag = null;
       await sendUpdate(item);
-      await loadProject();
+      renderInspector();
+      draw();
     });
 
     canvas.addEventListener("pointercancel", event => {
@@ -654,7 +665,8 @@ INDEX_HTML = """<!doctype html>
       item.height = Math.max(1, Number(posH.value || 1));
       item.rotation = Number(rotation.value || 0);
       await sendUpdate(item);
-      await loadProject();
+      renderInspector();
+      draw();
     };
 
     async function reorder(direction) {
@@ -1763,8 +1775,8 @@ class WebEditorServer:
                 if self.path.startswith("/api/update"):
                     length = int(self.headers.get("Content-Length", "0"))
                     payload = json.loads(self.rfile.read(length).decode("utf-8"))
-                    app._run_on_ui_thread(lambda: app._web_editor_update(payload))
-                    self._send_json({"ok": True})
+                    result = app._run_on_ui_thread(lambda: app._web_editor_update(payload))
+                    self._send_json({"ok": True, "overlay": result})
                     return
                 if self.path.startswith("/api/reorder"):
                     length = int(self.headers.get("Content-Length", "0"))

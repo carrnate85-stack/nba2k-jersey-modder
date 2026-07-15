@@ -111,8 +111,8 @@ TRIM_GENERATOR_KEYS = {
 SIDE_PANEL_GENERATOR_KEYS = {
     "left_side_panel": "left_panel_image",
     "right_side_panel": "right_panel_image",
-    "shorts_left_panel": "left_panel_image",
-    "shorts_right_panel": "right_panel_image",
+    "shorts_left_panel": "shorts_left_panel_image",
+    "shorts_right_panel": "shorts_right_panel_image",
 }
 FABRIC_OVERLAY_PRESETS = {
     "None": None,
@@ -191,6 +191,8 @@ class JerseyModderApp(tk.Tk):
         self.generator_paths: dict[str, Path | None] = {
             "left_panel_image": None,
             "right_panel_image": None,
+            "shorts_left_panel_image": None,
+            "shorts_right_panel_image": None,
             "front_wordmark_image": None,
             "left_arm_hole_trim_image": None,
             "right_arm_hole_trim_image": None,
@@ -2547,6 +2549,12 @@ class JerseyModderApp(tk.Tk):
             label = self.generator_color_labels.get(key)
             if label is not None:
                 label.configure(text=text)
+        for key in ("left_panel_image", "right_panel_image"):
+            storage_key = self._generator_image_storage_key(key)
+            path = self.generator_paths.get(storage_key)
+            label = self.generator_file_labels.get(key)
+            if label is not None:
+                label.configure(text=path.name if path is not None else "none")
         self._refresh_generator_logo_targets()
         self._sync_generator_trim_path_layer_order()
         self._refresh_generator_trim_path_list()
@@ -4836,20 +4844,30 @@ class JerseyModderApp(tk.Tk):
         if not selected:
             return
         path = Path(selected)
-        self.generator_paths[key] = path
+        storage_key = self._generator_image_storage_key(key)
+        self.generator_paths[storage_key] = path
         self.generator_file_labels[key].configure(text=path.name)
-        trim_name = _trim_name_for_generator_key(key)
-        if trim_name is not None:
-            self.generator_trim_placements[trim_name] = TrimPlacementSettings()
+        placement_name = _placement_name_for_generator_image_key(storage_key)
+        if placement_name is not None:
+            self.generator_trim_placements[placement_name] = TrimPlacementSettings()
         self._schedule_generator_preview_refresh()
 
     def clear_generator_image(self, key: str) -> None:
-        self.generator_paths[key] = None
+        storage_key = self._generator_image_storage_key(key)
+        self.generator_paths[storage_key] = None
         self.generator_file_labels[key].configure(text="none")
-        trim_name = _trim_name_for_generator_key(key)
-        if trim_name is not None:
-            self.generator_trim_placements.pop(trim_name, None)
+        placement_name = _placement_name_for_generator_image_key(storage_key)
+        if placement_name is not None:
+            self.generator_trim_placements.pop(placement_name, None)
         self._schedule_generator_preview_refresh()
+
+    def _generator_image_storage_key(self, key: str) -> str:
+        if self.generator_garment_var.get() != "Shorts":
+            return key
+        return {
+            "left_panel_image": "shorts_left_panel_image",
+            "right_panel_image": "shorts_right_panel_image",
+        }.get(key, key)
 
     def upload_generator_logo(self) -> None:
         type_label = self.generator_logo_type_var.get()
@@ -7702,7 +7720,7 @@ class JerseyModderApp(tk.Tk):
     def _safe_web_editor_key(self, key: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_.-]+", "_", key)
 
-    def _web_editor_update(self, payload: dict) -> None:
+    def _web_editor_update(self, payload: dict) -> dict | None:
         key = str(payload.get("key", ""))
         if key == "fabric_overlay":
             return
@@ -7838,16 +7856,46 @@ class JerseyModderApp(tk.Tk):
                 height,
                 current.height,
             )
+            target_width = max(1, min(8192, round(width)))
+            target_height = max(1, min(8192, round(height)))
+            offset_x = panel.offset_x + delta_x
+            offset_y = panel.offset_y + delta_y
+            if current.clip_x is not None:
+                zone_x = current.clip_x
+                zone_y = current.clip_y or 0
+                zone_width = current.clip_width or 1
+                zone_height = current.clip_height or 1
+                offset_x = round(x) - (zone_x + (zone_width - target_width) // 2)
+                offset_y = round(y) - (zone_y + (zone_height - target_height) // 2)
             self.generator_trim_placements[key] = replace(
                 panel,
-                offset_x=panel.offset_x + delta_x,
-                offset_y=panel.offset_y + delta_y,
+                offset_x=offset_x,
+                offset_y=offset_y,
                 scale_percent=width_scale,
                 scale_width_percent=width_scale,
                 scale_height_percent=height_scale,
+                override_width=target_width,
+                override_height=target_height,
                 rotation_degrees=rotation,
             )
         self._schedule_generator_preview_refresh()
+        updated_placements = {
+            placement.key: placement
+            for placement in image_placement_rects(
+                self._current_generator_template(),
+                self._generator_inputs(),
+            )
+        }
+        updated = updated_placements.get(key)
+        if updated is None:
+            return None
+        return {
+            "x": updated.x,
+            "y": updated.y,
+            "width": updated.width,
+            "height": updated.height,
+            "rotation": updated.rotation_degrees,
+        }
 
     def _web_editor_flip(self, payload: dict) -> None:
         key = str(payload.get("key", ""))
@@ -8932,6 +8980,14 @@ class JerseyModderApp(tk.Tk):
                     self.generator_file_labels[key].configure(
                         text=path.name if path is not None else "none"
                     )
+            if self.generator_garment_var.get() == "Shorts":
+                for jersey_key, shorts_key in (
+                    ("left_panel_image", "shorts_left_panel_image"),
+                    ("right_panel_image", "shorts_right_panel_image"),
+                ):
+                    if shorts_key not in images and self.generator_paths[jersey_key] is not None:
+                        self.generator_paths[shorts_key] = self.generator_paths[jersey_key]
+                        self.generator_paths[jersey_key] = None
 
         front_wordmark = generator.get("frontWordmark", {})
         if isinstance(front_wordmark, dict):
@@ -9166,6 +9222,8 @@ class JerseyModderApp(tk.Tk):
             "scalePercent": placement.scale_percent,
             "scaleWidthPercent": placement.scale_width_percent,
             "scaleHeightPercent": placement.scale_height_percent,
+            "overrideWidth": placement.override_width,
+            "overrideHeight": placement.override_height,
             "flipX": placement.flip_x,
             "rotationDegrees": placement.rotation_degrees,
         }
@@ -9184,6 +9242,16 @@ class JerseyModderApp(tk.Tk):
                 payload.get("scaleHeightPercent"),
                 1,
                 500,
+            ),
+            override_width=self._project_optional_int(
+                payload.get("overrideWidth"),
+                1,
+                8192,
+            ),
+            override_height=self._project_optional_int(
+                payload.get("overrideHeight"),
+                1,
+                8192,
             ),
             flip_x=bool(payload.get("flipX", False)),
             rotation_degrees=self._project_float(
@@ -9253,6 +9321,12 @@ class JerseyModderApp(tk.Tk):
                 if garment == "Shorts"
                 else self.generator_jersey_cut_var.get()
             )
+        left_panel_key = (
+            "shorts_left_panel_image" if garment == "Shorts" else "left_panel_image"
+        )
+        right_panel_key = (
+            "shorts_right_panel_image" if garment == "Shorts" else "right_panel_image"
+        )
         return GeneratorInputs(
             front_color=self._generator_color_value("front_color"),
             back_color=self._generator_color_value("back_color"),
@@ -9266,8 +9340,8 @@ class JerseyModderApp(tk.Tk):
                 "right_arm_hole_trim_color"
             ),
             collar_trim_color=self._generator_color_value("collar_trim_color"),
-            left_panel_image=self.generator_paths["left_panel_image"],
-            right_panel_image=self.generator_paths["right_panel_image"],
+            left_panel_image=self.generator_paths[left_panel_key],
+            right_panel_image=self.generator_paths[right_panel_key],
             front_wordmark_image=self.generator_paths["front_wordmark_image"],
             left_arm_hole_trim_image=self.generator_paths["left_arm_hole_trim_image"],
             right_arm_hole_trim_image=self.generator_paths["right_arm_hole_trim_image"],
@@ -9938,6 +10012,8 @@ class JerseyModderApp(tk.Tk):
             scale_percent=width_scale,
             scale_width_percent=width_scale,
             scale_height_percent=height_scale,
+            override_width=max(1, min(8192, round(new_width))),
+            override_height=max(1, min(8192, round(new_height))),
         )
 
     def _hit_generator_image(self, canvas_x: int, canvas_y: int) -> tuple[str, str] | None:
@@ -12088,6 +12164,16 @@ def _trim_name_for_generator_key(key: str) -> str | None:
     for trim_name, generator_key in TRIM_GENERATOR_KEYS.items():
         if generator_key == key:
             return trim_name
+    return None
+
+
+def _placement_name_for_generator_image_key(key: str) -> str | None:
+    trim_name = _trim_name_for_generator_key(key)
+    if trim_name is not None:
+        return trim_name
+    for panel_name, generator_key in SIDE_PANEL_GENERATOR_KEYS.items():
+        if generator_key == key:
+            return panel_name
     return None
 
 
