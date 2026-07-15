@@ -53,6 +53,7 @@ from nba2k_jersey_modder.template import (
     MASTER_TEMPLATE_IMAGE,
     MASTER_TEMPLATE_ZONES,
     SHORTS_TEMPLATE_RETRO_IMAGE,
+    SHORTS_TEMPLATE_RETRO_UV_IMAGE,
     SHORTS_TEMPLATE_RETRO_ZONES,
     TemplateZone,
     detect_v1_color_zones,
@@ -408,8 +409,16 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(zones_path, MASTER_TEMPLATE_ZONES)
 
     def test_bundled_retro_shorts_template_exists_and_loads(self) -> None:
+        from PIL import Image
+
         self.assertTrue(SHORTS_TEMPLATE_RETRO_IMAGE.exists())
+        self.assertTrue(SHORTS_TEMPLATE_RETRO_UV_IMAGE.exists())
         self.assertTrue(SHORTS_TEMPLATE_RETRO_ZONES.exists())
+
+        with Image.open(SHORTS_TEMPLATE_RETRO_UV_IMAGE) as uv_image:
+            self.assertEqual(uv_image.size, (1024, 1024))
+            self.assertEqual(uv_image.mode, "RGBA")
+            self.assertEqual(uv_image.getpixel((0, 0))[3], 0)
 
         template = load_template(SHORTS_TEMPLATE_RETRO_ZONES)
         by_name = {zone.name: zone for zone in template.zones}
@@ -665,6 +674,23 @@ class TrimCreatorTests(unittest.TestCase):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_retro_shorts_uses_bundled_uv_overlay(self) -> None:
+        class Selection:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+        app = object.__new__(JerseyModderApp)
+        app.generator_garment_var = Selection("Shorts")
+        app.generator_shorts_template_var = Selection("Retro shorts")
+
+        self.assertEqual(
+            app._current_generator_uv_map_path(),
+            SHORTS_TEMPLATE_RETRO_UV_IMAGE,
+        )
+
     def test_generator_trim_paths_are_scoped_by_garment_and_template(self) -> None:
         class Selection:
             def __init__(self, value: str) -> None:

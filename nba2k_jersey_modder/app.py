@@ -57,7 +57,9 @@ from .template import (
     JerseyTemplate,
     MASTER_TEMPLATE_IMAGE,
     MASTER_TEMPLATE_ZONES,
+    SHORTS_TEMPLATE_MAP_OPTIONS,
     SHORTS_TEMPLATE_OPTIONS,
+    SHORTS_TEMPLATE_RETRO_UV_IMAGE,
     TemplateZone,
     create_uv_overlay_from_template,
     find_hex_color_zone_bbox,
@@ -176,6 +178,7 @@ class JerseyModderApp(tk.Tk):
         self.template_jersey_cut_var = tk.StringVar(value="Retro U")
         self.template_jersey_template_var = tk.StringVar(value="Jersey color")
         self.template_shorts_template_var = tk.StringVar(value="Retro shorts")
+        self.template_shorts_map_var = tk.StringVar(value="Shorts color")
         self.zone_x_var = tk.IntVar(value=0)
         self.zone_y_var = tk.IntVar(value=0)
         self.zone_width_var = tk.IntVar(value=0)
@@ -624,12 +627,23 @@ class JerseyModderApp(tk.Tk):
             width=14,
         )
         self.template_jersey_template_box.pack(side=tk.LEFT, padx=(0, 8))
+        self.template_shorts_map_box = ttk.Combobox(
+            toolbar,
+            textvariable=self.template_shorts_map_var,
+            values=SHORTS_TEMPLATE_MAP_OPTIONS,
+            state="readonly",
+            width=14,
+        )
         self.template_garment_box.bind("<<ComboboxSelected>>", self._on_template_master_choice_changed)
         self.template_jersey_cut_box.bind(
             "<<ComboboxSelected>>",
             self._on_template_master_choice_changed,
         )
         self.template_jersey_template_box.bind(
+            "<<ComboboxSelected>>",
+            self._on_template_master_choice_changed,
+        )
+        self.template_shorts_map_box.bind(
             "<<ComboboxSelected>>",
             self._on_template_master_choice_changed,
         )
@@ -2417,6 +2431,8 @@ class JerseyModderApp(tk.Tk):
 
     def _current_generator_uv_map_path(self) -> Path:
         if self.generator_garment_var.get() == "Shorts":
+            if self.generator_shorts_template_var.get() == "Retro shorts":
+                return SHORTS_TEMPLATE_RETRO_UV_IMAGE
             image_path = self._current_generator_template_image_path()
             return image_path.with_name(f"{image_path.stem}.uv.png")
         return JERSEY_CUT_UV_OPTIONS.get(
@@ -9801,10 +9817,13 @@ class JerseyModderApp(tk.Tk):
 
     def _current_template_master_paths(self) -> tuple[Path, Path]:
         if self.template_garment_var.get() == "Shorts":
-            return SHORTS_TEMPLATE_OPTIONS.get(
+            image_path, zones_path = SHORTS_TEMPLATE_OPTIONS.get(
                 self.template_shorts_template_var.get(),
                 SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
             )
+            if self.template_shorts_map_var.get() == "Shorts UV":
+                image_path = image_path.with_name(f"{image_path.stem}.uv.png")
+            return image_path, zones_path
         return JERSEY_TEMPLATE_OPTIONS.get(
             self.template_jersey_template_var.get(),
             JERSEY_TEMPLATE_OPTIONS["Jersey color"],
@@ -9812,7 +9831,10 @@ class JerseyModderApp(tk.Tk):
 
     def _current_template_master_label(self) -> str:
         if self.template_garment_var.get() == "Shorts":
-            return self.template_shorts_template_var.get()
+            return (
+                f"{self.template_shorts_template_var.get()} / "
+                f"{self.template_shorts_map_var.get()}"
+            )
         return (
             f"{self.template_jersey_cut_var.get()} / "
             f"{self.template_jersey_template_var.get()}"
@@ -9829,13 +9851,19 @@ class JerseyModderApp(tk.Tk):
                 self.template_jersey_cut_box.pack_forget()
             if not self.template_shorts_template_box.winfo_manager():
                 self.template_shorts_template_box.pack(side=tk.LEFT)
-            self.template_jersey_template_box.configure(state="disabled")
+            if self.template_jersey_template_box.winfo_manager():
+                self.template_jersey_template_box.pack_forget()
+            if not self.template_shorts_map_box.winfo_manager():
+                self.template_shorts_map_box.pack(side=tk.LEFT, padx=(0, 8))
         else:
             if self.template_shorts_template_box.winfo_manager():
                 self.template_shorts_template_box.pack_forget()
             if not self.template_jersey_cut_box.winfo_manager():
                 self.template_jersey_cut_box.pack(side=tk.LEFT)
-            self.template_jersey_template_box.configure(state="readonly")
+            if self.template_shorts_map_box.winfo_manager():
+                self.template_shorts_map_box.pack_forget()
+            if not self.template_jersey_template_box.winfo_manager():
+                self.template_jersey_template_box.pack(side=tk.LEFT, padx=(0, 8))
 
     def choose_zone_color(self) -> None:
         color = colorchooser.askcolor(color=self.zone_color_var.get())[1]
@@ -10220,21 +10248,39 @@ class JerseyModderApp(tk.Tk):
         )
 
     def save_template_uv_map(self) -> None:
-        if self.template_garment_var.get() == "Shorts":
-            messagebox.showinfo("Save UV Map", "UV maps are only set up for jerseys right now.")
-            return
+        is_shorts = self.template_garment_var.get() == "Shorts"
         source_path = self.template_image_path
-        if source_path is None:
-            source_path, _zones_path = JERSEY_TEMPLATE_OPTIONS["Jersey color"]
-        if self.template_jersey_template_var.get() == "Jersey UV":
-            source_path = JERSEY_CUT_IMAGE_OPTIONS.get(
-                self.template_jersey_cut_var.get(),
-                MASTER_TEMPLATE_IMAGE,
+        if is_shorts:
+            color_path, zones_path = SHORTS_TEMPLATE_OPTIONS.get(
+                self.template_shorts_template_var.get(),
+                SHORTS_TEMPLATE_OPTIONS["Retro shorts"],
             )
-        output_path = JERSEY_CUT_UV_OPTIONS.get(
-            self.template_jersey_cut_var.get(),
-            JERSEY_UV_TEMPLATE_IMAGE,
-        )
+            output_path = color_path.with_name(f"{color_path.stem}.uv.png")
+            if source_path is None or source_path.resolve() == color_path.resolve():
+                messagebox.showinfo(
+                    "Save UV Map",
+                    "Load a UV image first, then save it as the shorts UV map.",
+                )
+                return
+            if source_path.resolve() == output_path.resolve():
+                self.template_status.configure(text=f"UV map is already saved as {output_path.name}.")
+                return
+        else:
+            zones_path = JERSEY_CUT_TEMPLATE_OPTIONS.get(
+                self.template_jersey_cut_var.get(),
+                MASTER_TEMPLATE_ZONES,
+            )
+            if source_path is None:
+                source_path, _zones_path = JERSEY_TEMPLATE_OPTIONS["Jersey color"]
+            if self.template_jersey_template_var.get() == "Jersey UV":
+                source_path = JERSEY_CUT_IMAGE_OPTIONS.get(
+                    self.template_jersey_cut_var.get(),
+                    MASTER_TEMPLATE_IMAGE,
+                )
+            output_path = JERSEY_CUT_UV_OPTIONS.get(
+                self.template_jersey_cut_var.get(),
+                JERSEY_UV_TEMPLATE_IMAGE,
+            )
         if not source_path.exists():
             messagebox.showinfo("Save UV Map", "Load a template image first.")
             return
@@ -10244,15 +10290,15 @@ class JerseyModderApp(tk.Tk):
         except (RuntimeError, OSError, tk.TclError) as exc:
             messagebox.showerror("Save UV Map failed", str(exc))
             return
-        self.template_jersey_template_var.set("Jersey UV")
+        if is_shorts:
+            self.template_shorts_map_var.set("Shorts UV")
+        else:
+            self.template_jersey_template_var.set("Jersey UV")
         self.template_image_path = output_path
         self.template_original_size = (image_width, image_height)
         self.template_zoom = 1.0
         try:
-            template = load_template(JERSEY_CUT_TEMPLATE_OPTIONS.get(
-                self.template_jersey_cut_var.get(),
-                MASTER_TEMPLATE_ZONES,
-            ))
+            template = load_template(zones_path)
             self.template_zones = list(template.zones)
         except (OSError, ValueError, TypeError):
             pass

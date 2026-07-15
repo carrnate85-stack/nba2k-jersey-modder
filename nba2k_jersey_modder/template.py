@@ -20,6 +20,8 @@ JERSEY_TEMPLATE_OPTIONS = {
 }
 SHORTS_TEMPLATE_RETRO_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "shortstemplate1.png"
 SHORTS_TEMPLATE_RETRO_ZONES = PACKAGE_ROOT / "assets" / "templates" / "shortstemplate1.zones.json"
+SHORTS_TEMPLATE_RETRO_UV_IMAGE = PACKAGE_ROOT / "assets" / "templates" / "shortstemplate1.uv.png"
+SHORTS_TEMPLATE_MAP_OPTIONS = ("Shorts color", "Shorts UV")
 SHORTS_TEMPLATE_OPTIONS = {
     "Retro shorts": (SHORTS_TEMPLATE_RETRO_IMAGE, SHORTS_TEMPLATE_RETRO_ZONES),
     "Classic shorts": (SHORTS_TEMPLATE_RETRO_IMAGE, SHORTS_TEMPLATE_RETRO_ZONES),
