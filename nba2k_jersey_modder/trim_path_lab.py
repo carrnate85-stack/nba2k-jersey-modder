@@ -579,20 +579,13 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const sourceHeight = Math.max(1, patternSampleCanvas.height);
       const bands = patternBands();
       const bandPairs = [];
-      const colorsClose = (first, second) => first.every(
-        (value, channel) => Math.abs(value - second[channel]) <= 8,
-      );
       let leftIndex = 0;
       let rightIndex = bands.length - 1;
       while (leftIndex <= rightIndex) {
         const leftBand = bands[leftIndex];
         const rightBand = bands[rightIndex];
-        if (!colorsClose(leftBand.color, rightBand.color)) return false;
-        if (leftIndex !== rightIndex) {
-          const leftWidth = leftBand.end - leftBand.start;
-          const rightWidth = rightBand.end - rightBand.start;
-          if (Math.abs(leftWidth - rightWidth) > Math.max(2, sourceHeight * .02)) return false;
-        }
+        // Photo-derived strips often have slightly different shades on each side.
+        // Pair by position so the center band still becomes one uninterrupted T.
         bandPairs.push({leftBand, rightBand});
         leftIndex++;
         rightIndex--;
@@ -629,7 +622,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         target.moveTo(stemEnd.x, stemEnd.y);
         target.lineTo(stemPastJunction.x, stemPastJunction.y);
         target.strokeStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3] / 255})`;
-        target.lineWidth = Math.max(.01, layerWidth + .2);
+        target.lineWidth = Math.max(.01, layerWidth);
         target.stroke();
       });
       target.restore();
