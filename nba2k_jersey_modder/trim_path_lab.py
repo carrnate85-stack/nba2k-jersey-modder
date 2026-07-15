@@ -80,6 +80,16 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           <option value="smooth">Smooth curve</option>
           <option value="straight">Straight segments</option>
         </select>
+        <label for="angleSnap">Angle snapping while drawing</label>
+        <select id="angleSnap">
+          <option value="0">Off</option>
+          <option value="1" selected>Every 1 degree</option>
+          <option value="5">Every 5 degrees</option>
+          <option value="15">Every 15 degrees</option>
+          <option value="45">Every 45 degrees</option>
+        </select>
+        <label>Current segment</label>
+        <div id="segmentReadout" class="small">Angle: -- | Length: --</div>
         <label for="trimWidth">Trim width</label>
         <div class="range-row"><input id="trimWidth" type="range" min="2" max="300" value="64"><output id="trimWidthValue">64 px</output></div>
         <label for="patternScale">Pattern length scale</label>
@@ -87,7 +97,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <label for="patternOffset">Pattern offset</label>
         <div class="range-row"><input id="patternOffset" type="range" min="-1024" max="1024" value="0"><output id="patternOffsetValue">0 px</output></div>
         <label class="check"><input id="mirrorPath" type="checkbox"> Mirror to the opposite shorts panel</label>
-        <div class="small">Drag a point to reshape the trim. Arrow keys nudge the selected point; hold Shift for 10 pixels.</div>
+        <div class="small">Angles run clockwise: 0 degrees points right and 90 degrees points down. Hold Alt while placing a point to temporarily bypass snapping. Drag a point to reshape the trim; arrow keys nudge it.</div>
       </div>
       <div class="panel">
         <h2>View</h2>
@@ -126,6 +136,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     let panning = false;
     let panStart = null;
     let draggingPoint = false;
+    let livePoint = null;
     let renderQueued = false;
 
     function setStatus(message) { statusNode.textContent = message; }
@@ -341,8 +352,52 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
             target.stroke();
           });
         }
+        if (drawing && !path.finished && livePoint && path.points.length) {
+          drawLiveSegment(target, path.points[path.points.length - 1], livePoint);
+        }
         target.restore();
       }
+    }
+
+    function segmentMetrics(start, end) {
+      const deltaX = end.x - start.x;
+      const deltaY = end.y - start.y;
+      return {
+        angle: (Math.atan2(deltaY, deltaX) * 180 / Math.PI + 360) % 360,
+        length: Math.hypot(deltaX, deltaY),
+      };
+    }
+
+    function drawLiveSegment(target, start, end) {
+      const metrics = segmentMetrics(start, end);
+      target.save();
+      target.strokeStyle = "#55d6ff";
+      target.lineWidth = 3 / viewScale;
+      target.setLineDash([]);
+      target.beginPath();
+      target.moveTo(start.x, start.y);
+      target.lineTo(end.x, end.y);
+      target.stroke();
+
+      const label = `${metrics.angle.toFixed(2)} deg | ${Math.round(metrics.length)} px`;
+      const fontSize = 14 / viewScale;
+      target.font = `600 ${fontSize}px Segoe UI, Arial, sans-serif`;
+      const padding = 5 / viewScale;
+      const textWidth = target.measureText(label).width;
+      const labelX = (start.x + end.x) / 2;
+      const labelY = (start.y + end.y) / 2 - 12 / viewScale;
+      target.fillStyle = "rgba(17, 20, 26, .88)";
+      target.fillRect(
+        labelX - textWidth / 2 - padding,
+        labelY - fontSize,
+        textWidth + padding * 2,
+        fontSize + padding * 2,
+      );
+      target.fillStyle = "#eaf9ff";
+      target.textAlign = "center";
+      target.textBaseline = "alphabetic";
+      target.fillText(label, labelX, labelY + padding / 2);
+      target.restore();
     }
 
     function canvasPoint(event) {
@@ -352,6 +407,43 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function imagePoint(event) {
       const point = canvasPoint(event);
       return {x: Math.max(0, Math.min(project.width, (point.x - panX) / viewScale)), y: Math.max(0, Math.min(project.height, (point.y - panY) / viewScale))};
+    }
+    function drawingPoint(event) {
+      const raw = imagePoint(event);
+      const path = activePath();
+      if (!path?.points.length || event.altKey) return raw;
+      const snapDegrees = Number(document.getElementById("angleSnap").value) || 0;
+      if (!snapDegrees) return raw;
+      const start = path.points[path.points.length - 1];
+      const deltaX = raw.x - start.x;
+      const deltaY = raw.y - start.y;
+      const length = Math.hypot(deltaX, deltaY);
+      if (length < .01) return raw;
+      const step = snapDegrees * Math.PI / 180;
+      const angle = Math.round(Math.atan2(deltaY, deltaX) / step) * step;
+      return {
+        x: Math.max(0, Math.min(project.width, start.x + Math.cos(angle) * length)),
+        y: Math.max(0, Math.min(project.height, start.y + Math.sin(angle) * length)),
+      };
+    }
+    function updateSegmentReadout() {
+      const path = activePath();
+      let start = null;
+      let end = null;
+      if (drawing && path?.points.length && livePoint) {
+        start = path.points[path.points.length - 1];
+        end = livePoint;
+      } else if (path?.points.length >= 2) {
+        start = path.points[path.points.length - 2];
+        end = path.points[path.points.length - 1];
+      }
+      const readout = document.getElementById("segmentReadout");
+      if (!start || !end) {
+        readout.textContent = "Angle: -- | Length: --";
+        return;
+      }
+      const metrics = segmentMetrics(start, end);
+      readout.textContent = `Angle: ${metrics.angle.toFixed(2)} degrees | Length: ${metrics.length.toFixed(1)} px`;
     }
     function hitPoint(event) {
       const path = activePath();
@@ -379,8 +471,10 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       }
       const path = activePath();
       if (drawing && path && !path.finished) {
-        path.points.push(imagePoint(event));
+        path.points.push(drawingPoint(event));
         selectedPointIndex = path.points.length - 1;
+        livePoint = null;
+        updateSegmentReadout();
         saveLocalPaths();
         updatePathList();
         queueDraw();
@@ -397,6 +491,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         queueDraw();
       } else if (draggingPoint && selectedPointIndex >= 0 && activePath()) {
         activePath().points[selectedPointIndex] = imagePoint(event);
+        updateSegmentReadout();
+        queueDraw();
+      } else if (drawing && activePath() && !activePath().finished && activePath().points.length) {
+        livePoint = drawingPoint(event);
+        updateSegmentReadout();
         queueDraw();
       }
     });
@@ -405,6 +504,13 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       panning = false;
       panStart = null;
       draggingPoint = false;
+    });
+    canvas.addEventListener("pointerleave", () => {
+      if (!panning && !draggingPoint) {
+        livePoint = null;
+        updateSegmentReadout();
+        queueDraw();
+      }
     });
     canvas.addEventListener("contextmenu", event => event.preventDefault());
     canvas.addEventListener("wheel", event => {
@@ -422,6 +528,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       paths.push(defaultPath());
       activePathIndex = paths.length - 1;
       selectedPointIndex = -1;
+      livePoint = null;
       drawing = true;
       syncControls();
       updatePathList();
@@ -434,6 +541,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       path.finished = true;
       drawing = false;
       selectedPointIndex = -1;
+      livePoint = null;
+      updateSegmentReadout();
       saveLocalPaths();
       updatePathList();
       setStatus(`${path.name} finished. Drag any point to refine the shape.`);
@@ -444,6 +553,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       if (!path?.points.length) return;
       path.points.pop();
       selectedPointIndex = path.points.length - 1;
+      livePoint = null;
+      updateSegmentReadout();
       saveLocalPaths();
       updatePathList();
       queueDraw();
@@ -454,6 +565,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       activePathIndex = Math.min(activePathIndex, paths.length - 1);
       selectedPointIndex = -1;
       drawing = false;
+      livePoint = null;
+      updateSegmentReadout();
       saveLocalPaths();
       syncControls();
       updatePathList();
@@ -484,6 +597,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           activePathIndex = index;
           selectedPointIndex = -1;
           drawing = !path.finished;
+          livePoint = null;
           syncControls();
           updatePathList();
           queueDraw();
@@ -501,6 +615,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       document.getElementById("patternScale").value = path.patternScale;
       document.getElementById("patternOffset").value = path.patternOffset;
       document.getElementById("mirrorPath").checked = path.mirror;
+      updateSegmentReadout();
       updateControlLabels();
     }
     function updateControlLabels() {
@@ -595,6 +710,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       if (event.key === "ArrowDown") point.y += amount;
       point.x = Math.max(0, Math.min(project.width, point.x));
       point.y = Math.max(0, Math.min(project.height, point.y));
+      updateSegmentReadout();
       saveLocalPaths();
       queueDraw();
     });
@@ -617,6 +733,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     bindPathControl("patternScale", "patternScale", Number);
     bindPathControl("patternOffset", "patternOffset", Number);
     bindPathControl("mirrorPath", "mirror", Boolean);
+    document.getElementById("angleSnap").onchange = () => {
+      livePoint = null;
+      updateSegmentReadout();
+      queueDraw();
+    };
     document.getElementById("templateOpacity").oninput = () => { updateControlLabels(); queueDraw(); };
     document.getElementById("showPoints").onchange = queueDraw;
     window.addEventListener("resize", resizeCanvas);
