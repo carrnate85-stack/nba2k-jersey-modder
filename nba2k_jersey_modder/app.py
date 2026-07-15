@@ -328,8 +328,8 @@ class JerseyModderApp(tk.Tk):
         self.number_recolor_dark_var = tk.StringVar(value="#000000")
         self.number_recolor_no_light_var = tk.BooleanVar(value=True)
         self.number_recolor_no_dark_var = tk.BooleanVar(value=True)
-        self.number_recolor_edge_protection_var = tk.IntVar(value=75)
-        self.number_recolor_edge_protection_label_var = tk.StringVar(value="75%")
+        self.number_recolor_edge_protection_var = tk.IntVar(value=0)
+        self.number_recolor_edge_protection_label_var = tk.StringVar(value="0%")
         self.number_recolor_outline_thickness_var = tk.IntVar(value=0)
         self.number_recolor_outline_thickness_label_var = tk.StringVar(value="0 px")
         self.tweak_file_path: Path | None = None
