@@ -958,7 +958,7 @@ class JerseyModderApp(tk.Tk):
             ("Send Staged to Generator", self.send_staged_trims_to_generator),
             ("Edit Selected Trim", self.open_selected_trim_crop_editor),
             ("Create AI Trim Pack", self.create_trim_ai_reference_pack),
-            ("Import AI Trim", self.import_ai_trim_strip),
+            ("Upload Trim", self.import_ai_trim_strip),
         )
         for index, (label, command) in enumerate(trim_workflow_actions):
             ttk.Button(trim_workflow, text=label, command=command).grid(
@@ -3529,7 +3529,7 @@ class JerseyModderApp(tk.Tk):
 
     def import_ai_trim_strip(self) -> None:
         selected = filedialog.askopenfilename(
-            title="Import AI Trim PNG",
+            title="Upload Trim Image",
             filetypes=(
                 ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
                 ("All files", "*.*"),
@@ -3553,7 +3553,7 @@ class JerseyModderApp(tk.Tk):
         try:
             from PIL import Image
         except ImportError:
-            messagebox.showerror("Trim AI Assist", "Importing AI trim requires Pillow.")
+            messagebox.showerror("Trim Creator", "Uploading a trim requires Pillow.")
             return
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3569,7 +3569,7 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_list.selection_set(new_iid)
         self.trim_creator_list.see(new_iid)
         self._show_trim_creator_strip_preview(output_path)
-        self.trim_creator_status.configure(text=f"Imported AI trim: {output_path.name}.")
+        self.trim_creator_status.configure(text=f"Uploaded trim: {output_path.name}.")
 
     def _trim_ai_prompt_text(self, result: TrimStrip) -> str:
         return "\n".join(
