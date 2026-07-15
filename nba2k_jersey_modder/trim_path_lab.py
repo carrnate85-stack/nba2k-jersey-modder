@@ -82,7 +82,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <label for="curveMode">Path shape</label>
         <select id="curveMode">
           <option value="smooth">Smooth curve</option>
-          <option value="straight">Straight segments</option>
+          <option value="straight" selected>Straight segments</option>
         </select>
         <label for="angleSnap">Angle snapping while drawing</label>
         <select id="angleSnap">
@@ -161,7 +161,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function setStatus(message) { statusNode.textContent = message; }
     function activePath() { return paths[activePathIndex] || null; }
     function defaultPath() {
-      return {name: `Trim Path ${paths.length + 1}`, points: [], width: 64, patternScale: 100, patternOffset: 0, curve: "smooth", visible: true, linkGroup: null, reverseCrossSection: false, finished: false};
+      return {name: `Trim Path ${paths.length + 1}`, points: [], width: 64, patternScale: 100, patternOffset: 0, curve: "straight", visible: true, linkGroup: null, reverseCrossSection: false, finished: false};
     }
     function cleanPath(raw, index) {
       const width = Math.max(2, Math.min(300, Number(raw?.width) || 64));
@@ -171,7 +171,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         width,
         patternScale: Math.max(25, Math.min(400, Number(raw?.patternScale) || 100)),
         patternOffset: Math.max(-1024, Math.min(1024, Number(raw?.patternOffset) || 0)),
-        curve: raw?.curve === "straight" ? "straight" : "smooth",
+        curve: raw?.curve === "smooth" ? "smooth" : "straight",
         visible: raw?.visible !== false,
         linkGroup: raw?.linkGroup ? String(raw.linkGroup) : null,
         reverseCrossSection: Boolean(raw?.reverseCrossSection),
