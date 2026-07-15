@@ -8685,6 +8685,8 @@ class JerseyModderApp(tk.Tk):
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
             messagebox.showerror("Open Project", str(exc))
             return
+        self.generator_garment_var.set("Jersey")
+        self._sync_generator_template_controls(refresh_preview=False)
         self.tabs.select(self.generator_tab)
         self._schedule_generator_preview_refresh()
         self._refresh_blender_preview_files_if_active()

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 import struct
 import zipfile
@@ -675,6 +676,55 @@ class TrimCreatorTests(unittest.TestCase):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_open_project_defaults_generator_to_jersey(self) -> None:
+        class Selection:
+            def __init__(self) -> None:
+                self.value = "Shorts"
+
+            def get(self) -> str:
+                return self.value
+
+            def set(self, value: str) -> None:
+                self.value = value
+
+        class Tabs:
+            def select(self, _tab: object) -> None:
+                return
+
+        class Status:
+            def configure(self, **_kwargs: object) -> None:
+                return
+
+        app = object.__new__(JerseyModderApp)
+        app.generator_garment_var = Selection()
+        app.generator_tab = object()
+        app.tabs = Tabs()
+        app.generator_status = Status()
+        sync_calls: list[bool] = []
+
+        def apply_project(_payload: dict) -> list[str]:
+            app.generator_garment_var.set("Shorts")
+            return []
+
+        app._apply_project_payload = apply_project
+        app._sync_generator_template_controls = lambda *, refresh_preview: sync_calls.append(
+            refresh_preview
+        )
+        app._schedule_generator_preview_refresh = lambda: None
+        app._refresh_blender_preview_files_if_active = lambda: None
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_path = Path(tmp_dir) / "shorts.nba2kproject.json"
+            project_path.write_text('{"generator": {"garment": "Shorts"}}', encoding="utf-8")
+            with patch(
+                "nba2k_jersey_modder.app.filedialog.askopenfilename",
+                return_value=str(project_path),
+            ):
+                app.open_project()
+
+        self.assertEqual(app.generator_garment_var.get(), "Jersey")
+        self.assertEqual(sync_calls, [False])
+
     def test_trim_path_lab_uses_selected_template_uv_overlay(self) -> None:
         class Selection:
             def get(self) -> str:
