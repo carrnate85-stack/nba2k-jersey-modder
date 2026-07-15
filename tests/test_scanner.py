@@ -1871,6 +1871,89 @@ class GeneratorTests(unittest.TestCase):
         self.assertIn(b"Curved Waist Trim", data)
         self.assertEqual(image.getpixel((7, 9)), (255, 0, 0, 255))
 
+    def test_trim_path_transform_moves_and_resizes_the_layer(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            trim_path = Path(tmp_dir) / "trim.png"
+            trim = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+            trim.putpixel((2, 3), (255, 0, 0, 255))
+            trim.save(trim_path)
+
+            output = generate_jersey_texture(
+                JerseyTemplate(image_path="", zones=()),
+                GeneratorInputs(
+                    front_color="",
+                    back_color="",
+                    left_panel_color="",
+                    right_panel_color="",
+                    trim_path_layers=(
+                        TrimPathLayer(
+                            "Moved Trim",
+                            trim_path,
+                            x=256,
+                            y=320,
+                            width=1024,
+                            height=1024,
+                        ),
+                    ),
+                ),
+                Path(tmp_dir) / "generated.png",
+                size=(32, 32),
+            )
+            with Image.open(output) as opened:
+                image = opened.convert("RGBA")
+
+        self.assertEqual(image.getpixel((6, 8)), (255, 0, 0, 255))
+        self.assertEqual(image.getpixel((2, 3))[3], 0)
+
+    def test_trim_paths_do_not_cover_the_shorts_waistband(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            trim_path = Path(tmp_dir) / "trim.png"
+            Image.new("RGBA", (16, 16), (255, 0, 0, 255)).save(trim_path)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone(
+                        "shorts_waistband",
+                        "base",
+                        0,
+                        0,
+                        16,
+                        4,
+                        "#5555aa",
+                        0,
+                    ),
+                ),
+            )
+
+            output = generate_jersey_texture(
+                template,
+                GeneratorInputs(
+                    front_color="",
+                    back_color="",
+                    left_panel_color="",
+                    right_panel_color="",
+                    collar_background_color="#0000ff",
+                    trim_path_layers=(TrimPathLayer("Waist Trim", trim_path),),
+                ),
+                Path(tmp_dir) / "generated.png",
+                size=(16, 16),
+            )
+            with Image.open(output) as opened:
+                image = opened.convert("RGBA")
+
+        self.assertEqual(image.getpixel((8, 2))[:3], (0, 0, 255))
+        self.assertEqual(image.getpixel((8, 8))[:3], (255, 0, 0))
+
     def test_generate_jersey_texture_removes_white_image_background(self) -> None:
         try:
             from PIL import Image, ImageDraw

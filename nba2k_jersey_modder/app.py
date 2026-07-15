@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from dataclasses import replace
 from datetime import datetime
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -277,6 +278,7 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_zoom_label_var = tk.StringVar(value="100%")
         self.trim_path_source_var = tk.StringVar(value="")
         self.trim_path_template_var = tk.StringVar(value="Retro shorts")
+        self.trim_path_lab_session_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
         self.trim_path_source_lookup: dict[str, int] = {}
         self.trim_path_source_preview_image: tk.PhotoImage | None = None
         self.trim_path_template_preview_image: tk.PhotoImage | None = None
@@ -2850,6 +2852,7 @@ class JerseyModderApp(tk.Tk):
         return {
             "hasPattern": result is not None,
             "garment": "Shorts",
+            "sessionId": self.trim_path_lab_session_id,
             "width": width,
             "height": height,
             "backgroundUrl": "/api/trim-path/background",
@@ -2877,6 +2880,8 @@ class JerseyModderApp(tk.Tk):
         return result.output_path.read_bytes(), image_content_type(result.output_path)
 
     def _trim_path_lab_send_to_generator(self, payload: dict) -> dict:
+        from PIL import Image
+
         raw_layers = payload.get("layers") if isinstance(payload, dict) else None
         if not isinstance(raw_layers, list) or not raw_layers:
             return {"ok": False, "message": "No trim layers were received."}
@@ -2907,13 +2912,30 @@ class JerseyModderApp(tk.Tk):
                 continue
             filename = safe_filename(name).replace(" ", "_").lower() or f"trim_path_{index}"
             path = output_dir / f"{index:02d}_{filename}.png"
-            path.write_bytes(image_data)
+            try:
+                with Image.open(BytesIO(image_data)) as opened:
+                    trim_image = opened.convert("RGBA")
+                visible_bounds = trim_image.getchannel("A").getbbox()
+            except (OSError, ValueError):
+                continue
+            if visible_bounds is None:
+                continue
+            cropped = trim_image.crop(visible_bounds)
+            cropped.save(path, format="PNG")
             received.append(
                 TrimPathLayer(
                     name=name,
                     path=path,
                     garment=garment,
                     template_name=template_name,
+                    x=visible_bounds[0],
+                    y=visible_bounds[1],
+                    width=cropped.width,
+                    height=cropped.height,
+                    default_x=visible_bounds[0],
+                    default_y=visible_bounds[1],
+                    default_width=cropped.width,
+                    default_height=cropped.height,
                 )
             )
         if not received:
@@ -7027,17 +7049,27 @@ class JerseyModderApp(tk.Tk):
             if self._trim_path_layer_matches_scope(layer)
         ]
 
+    def _active_generator_trim_path_layer(
+        self,
+        active_index: int,
+    ) -> tuple[int, TrimPathLayer] | None:
+        active = self._active_generator_trim_path_layers()
+        if 0 <= active_index < len(active):
+            return active[active_index]
+        return None
+
     def _sync_generator_trim_path_layer_order(self) -> None:
-        remaining = [
-            key
-            for key in self.web_editor_layer_order
-            if not key.startswith("trim_path:")
-        ]
         trim_keys = [
             f"trim_path:{index}"
             for index, _layer in enumerate(self._active_generator_trim_path_layers())
         ]
-        self.web_editor_layer_order = trim_keys + remaining
+        ordered = [
+            key
+            for key in self.web_editor_layer_order
+            if not key.startswith("trim_path:") or key in trim_keys
+        ]
+        missing = [key for key in trim_keys if key not in ordered]
+        self.web_editor_layer_order = missing + ordered
 
     def _refresh_generator_trim_path_list(self) -> None:
         if not hasattr(self, "generator_trim_path_list"):
@@ -7114,6 +7146,46 @@ class JerseyModderApp(tk.Tk):
         template = self._current_generator_template()
         inputs = self._generator_inputs()
         overlays = []
+        waistband_boxes = [
+            {
+                "x": zone.x,
+                "y": zone.y,
+                "width": zone.width,
+                "height": zone.height,
+            }
+            for zone in template.zones
+            if zone.name.startswith("shorts_waistband")
+        ]
+        for active_index, (_stored_index, layer) in enumerate(
+            self._active_generator_trim_path_layers()
+        ):
+            key = f"trim_path:{active_index}"
+            overlays.append(
+                {
+                    "key": key,
+                    "label": layer.name,
+                    "x": layer.x,
+                    "y": layer.y,
+                    "width": layer.width,
+                    "height": layer.height,
+                    "imageUrl": f"/api/image/{key}",
+                    "blendMode": "normal",
+                    "lockX": False,
+                    "lockAspect": False,
+                    "canTransform": True,
+                    "canRotate": True,
+                    "rotation": layer.rotation_degrees,
+                    "canFlip": False,
+                    "flipX": False,
+                    "clipBox": None,
+                    "guideBox": None,
+                    "excludeBoxes": waistband_boxes,
+                    "canCleanup": False,
+                    "cleanup": self._web_editor_cleanup_payload(key),
+                    "canReorder": True,
+                    "layerLabel": f"Trim path layer {active_index + 1}",
+                }
+            )
         for placement in image_placement_rects(template, inputs):
             is_trim = placement.key in TRIM_GENERATOR_KEYS
             is_side_panel = placement.key in SIDE_PANEL_GENERATOR_KEYS
@@ -7240,7 +7312,11 @@ class JerseyModderApp(tk.Tk):
             item for item in reorderable if item["key"] not in {entry["key"] for entry in ordered}
         )
         for index, item in enumerate(ordered, start=1):
-            if item["key"].startswith("logo:") or item["key"] == "fabric_overlay":
+            if (
+                item["key"].startswith("logo:")
+                or item["key"].startswith("trim_path:")
+                or item["key"] == "fabric_overlay"
+            ):
                 item["layerLabel"] = f"Layer {index}"
         ordered.extend(top_layers)
         ordered.extend(preview_layers)
@@ -7348,6 +7424,7 @@ class JerseyModderApp(tk.Tk):
             right_arm_hole_trim_image=None,
             collar_trim_image=None,
             logo_placements=(),
+            trim_path_layers=(),
             fabric_overlay_image=None,
             fabric_overlay_opacity=0,
         )
@@ -7385,7 +7462,14 @@ class JerseyModderApp(tk.Tk):
         return uv_path.read_bytes()
 
     def _web_editor_image(self, key: str) -> tuple[bytes, str]:
-        if key == "front_wordmark":
+        if key.startswith("trim_path:"):
+            try:
+                active_index = int(key.split(":", 1)[1])
+            except ValueError:
+                active_index = -1
+            entry = self._active_generator_trim_path_layer(active_index)
+            path = entry[1].path if entry is not None else None
+        elif key == "front_wordmark":
             path = self.generator_paths["front_wordmark_image"]
         elif key == "preview_number":
             image = self._build_generator_number_preview_image()
@@ -7429,6 +7513,8 @@ class JerseyModderApp(tk.Tk):
             path = None
         if path is None or not path.exists():
             raise FileNotFoundError(f"No image found for {key}.")
+        if key.startswith("trim_path:"):
+            return path.read_bytes(), image_content_type(path)
         cleanup = self._web_editor_cleanup_for_key(key)
         trim_is_flipped = (
             key in TRIM_GENERATOR_KEYS
@@ -7492,6 +7578,25 @@ class JerseyModderApp(tk.Tk):
         width = max(1.0, float(payload.get("width", 1)))
         height = max(1.0, float(payload.get("height", 1)))
         rotation = float(payload.get("rotation", 0))
+        if key.startswith("trim_path:"):
+            try:
+                active_index = int(key.split(":", 1)[1])
+            except ValueError:
+                return
+            entry = self._active_generator_trim_path_layer(active_index)
+            if entry is None:
+                return
+            stored_index, layer = entry
+            self.generator_trim_path_layers[stored_index] = replace(
+                layer,
+                x=max(-8192, min(8192, round(x))),
+                y=max(-8192, min(8192, round(y))),
+                width=max(1, min(8192, round(width))),
+                height=max(1, min(8192, round(height))),
+                rotation_degrees=max(-360.0, min(360.0, rotation)),
+            )
+            self._schedule_generator_preview_refresh()
+            return
         if key == "preview_number":
             image = self._build_generator_number_preview_image()
             if image is None:
@@ -7641,8 +7746,12 @@ class JerseyModderApp(tk.Tk):
         key = str(payload.get("key", ""))
         direction = str(payload.get("direction", ""))
         visible_keys = [
-            f"logo:{index}" for index in range(len(self.generator_logo_placements))
+            f"trim_path:{index}"
+            for index, _entry in enumerate(self._active_generator_trim_path_layers())
         ]
+        visible_keys.extend(
+            f"logo:{index}" for index in range(len(self.generator_logo_placements))
+        )
         if self._fabric_overlay_path() is not None and self._fabric_overlay_opacity() > 0:
             visible_keys.append("fabric_overlay")
         current = list(self._active_dynamic_layer_order(visible_keys))
@@ -7658,11 +7767,7 @@ class JerseyModderApp(tk.Tk):
         if not (0 <= target < len(current)):
             return
         current[index], current[target] = current[target], current[index]
-        trim_keys = [
-            f"trim_path:{index}"
-            for index, _entry in enumerate(self._active_generator_trim_path_layers())
-        ]
-        self.web_editor_layer_order = trim_keys + current
+        self.web_editor_layer_order = current
         self._schedule_generator_preview_refresh()
 
     def _web_editor_reset(self) -> None:
@@ -7679,6 +7784,15 @@ class JerseyModderApp(tk.Tk):
             for placement in self.generator_logo_placements
         ]
         self.generator_trim_placements.clear()
+        for stored_index, layer in self._active_generator_trim_path_layers():
+            self.generator_trim_path_layers[stored_index] = replace(
+                layer,
+                x=layer.default_x,
+                y=layer.default_y,
+                width=layer.default_width,
+                height=layer.default_height,
+                rotation_degrees=0.0,
+            )
         self.reset_generator_number_preview()
         self.web_editor_layer_order.clear()
         self.web_editor_layer_cleanup.clear()
@@ -8514,6 +8628,15 @@ class JerseyModderApp(tk.Tk):
                         "path": self._project_path_value(layer.path),
                         "garment": layer.garment,
                         "templateName": layer.template_name,
+                        "x": layer.x,
+                        "y": layer.y,
+                        "width": layer.width,
+                        "height": layer.height,
+                        "rotationDegrees": layer.rotation_degrees,
+                        "defaultX": layer.default_x,
+                        "defaultY": layer.default_y,
+                        "defaultWidth": layer.default_width,
+                        "defaultHeight": layer.default_height,
                     }
                     for layer in self.generator_trim_path_layers
                 ],
@@ -8673,6 +8796,31 @@ class JerseyModderApp(tk.Tk):
                         garment=layer_garment,
                         template_name=str(
                             item.get("templateName") or fallback_template
+                        ),
+                        x=self._project_int(item.get("x"), 0, -8192, 8192),
+                        y=self._project_int(item.get("y"), 0, -8192, 8192),
+                        width=self._project_int(item.get("width"), 2048, 1, 8192),
+                        height=self._project_int(item.get("height"), 2048, 1, 8192),
+                        rotation_degrees=self._project_float(
+                            item.get("rotationDegrees"), 0.0, -360.0, 360.0
+                        ),
+                        default_x=self._project_int(
+                            item.get("defaultX", item.get("x")), 0, -8192, 8192
+                        ),
+                        default_y=self._project_int(
+                            item.get("defaultY", item.get("y")), 0, -8192, 8192
+                        ),
+                        default_width=self._project_int(
+                            item.get("defaultWidth", item.get("width")),
+                            2048,
+                            1,
+                            8192,
+                        ),
+                        default_height=self._project_int(
+                            item.get("defaultHeight", item.get("height")),
+                            2048,
+                            1,
+                            8192,
                         ),
                     )
                 )

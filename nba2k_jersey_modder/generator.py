@@ -150,6 +150,15 @@ class TrimPathLayer:
     path: Path
     garment: str = "Shorts"
     template_name: str = ""
+    x: int = 0
+    y: int = 0
+    width: int = 2048
+    height: int = 2048
+    rotation_degrees: float = 0.0
+    default_x: int = 0
+    default_y: int = 0
+    default_width: int = 2048
+    default_height: int = 2048
 
 
 @dataclass(frozen=True)
@@ -248,9 +257,31 @@ def render_jersey_layers(
         if not trim_path.path.exists():
             continue
         with Image.open(trim_path.path) as opened:
-            trim_layer = opened.convert("RGBA")
-        if trim_layer.size != size:
-            trim_layer = trim_layer.resize(size, Image.Resampling.LANCZOS)
+            trim_overlay = opened.convert("RGBA")
+        trim_scale_x = size[0] / 2048
+        trim_scale_y = size[1] / 2048
+        trim_overlay = trim_overlay.resize(
+            (
+                max(1, round(trim_path.width * trim_scale_x)),
+                max(1, round(trim_path.height * trim_scale_y)),
+            ),
+            Image.Resampling.LANCZOS,
+        )
+        trim_x = round(trim_path.x * trim_scale_x)
+        trim_y = round(trim_path.y * trim_scale_y)
+        if trim_path.rotation_degrees:
+            center_x = trim_x + trim_overlay.width / 2
+            center_y = trim_y + trim_overlay.height / 2
+            trim_overlay = trim_overlay.rotate(
+                -trim_path.rotation_degrees,
+                expand=True,
+                resample=Image.Resampling.BICUBIC,
+            )
+            trim_x = round(center_x - trim_overlay.width / 2)
+            trim_y = round(center_y - trim_overlay.height / 2)
+        trim_layer = Image.new("RGBA", size, (0, 0, 0, 0))
+        _alpha_composite_at(trim_layer, trim_overlay, trim_x, trim_y)
+        _clear_trim_path_waistband(trim_layer, template)
         dynamic_layers.append(
             (
                 f"trim_path:{index - 1}",
@@ -304,6 +335,27 @@ def render_jersey_layers(
         layers.append(RenderLayer("Front Wordmark Image", layer))
 
     return layers
+
+
+def _clear_trim_path_waistband(layer, template: JerseyTemplate) -> None:
+    from PIL import ImageDraw
+
+    design_width, design_height = _template_design_size(template, layer.size)
+    scale_x = layer.width / design_width
+    scale_y = layer.height / design_height
+    draw = ImageDraw.Draw(layer)
+    for zone in template.zones:
+        if not zone.name.startswith("shorts_waistband"):
+            continue
+        draw.rectangle(
+            (
+                round(zone.x * scale_x),
+                round(zone.y * scale_y),
+                round((zone.x + zone.width) * scale_x),
+                round((zone.y + zone.height) * scale_y),
+            ),
+            fill=(0, 0, 0, 0),
+        )
 
 
 def fabric_overlay_layer(

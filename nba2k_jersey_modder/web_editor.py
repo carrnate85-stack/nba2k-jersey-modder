@@ -315,6 +315,14 @@ INDEX_HTML = """<!doctype html>
           ctx.rect(item.clipBox.x, item.clipBox.y, item.clipBox.width, item.clipBox.height);
           ctx.clip();
         }
+        if (item.excludeBoxes?.length) {
+          ctx.beginPath();
+          ctx.rect(0, 0, 2048, 2048);
+          for (const box of item.excludeBoxes) {
+            ctx.rect(box.x, box.y, box.width, box.height);
+          }
+          ctx.clip("evenodd");
+        }
         drawOverlayImage(img, item);
         ctx.restore();
       }

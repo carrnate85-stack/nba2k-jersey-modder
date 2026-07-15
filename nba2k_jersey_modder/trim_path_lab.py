@@ -997,7 +997,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       };
       reader.readAsText(file);
     }
-    function storageKey() { return `nba2k-trim-paths-${project?.width || 0}x${project?.height || 0}`; }
+    function storageKey() {
+      return `nba2k-trim-paths-${project?.sessionId || "current"}-${project?.width || 0}x${project?.height || 0}`;
+    }
     function saveLocalPaths() { if (project?.width) localStorage.setItem(storageKey(), JSON.stringify(paths)); }
     function deserializePaths(rawPaths) {
       const result = [];
@@ -1036,6 +1038,13 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     }
     function restoreLocalPaths() {
       try {
+        const currentKey = storageKey();
+        for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+          const key = localStorage.key(index);
+          if (key?.startsWith("nba2k-trim-paths-") && key !== currentKey) {
+            localStorage.removeItem(key);
+          }
+        }
         const stored = JSON.parse(localStorage.getItem(storageKey()) || "[]");
         if (Array.isArray(stored)) paths = deserializePaths(stored);
       } catch (_) { paths = []; }
