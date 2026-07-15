@@ -277,23 +277,20 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function oppositePanelPath(path) {
       const pair = panelPairForPath(path);
       if (!pair) {
+        const centerY = path.points.reduce((sum, point) => sum + point.y, 0) / path.points.length;
+        const deltaY = centerY < project.height / 2 ? project.height / 2 : -project.height / 2;
         return {
           ...path,
-          points: path.points.map(point => ({x: point.x, y: (point.y + project.height / 2) % project.height})),
+          points: path.points.map(point => ({x: point.x, y: point.y + deltaY})),
           reverseCrossSection: Boolean(path.reverseCrossSection),
         };
       }
       const {source, target} = pair;
+      const deltaX = target.x + target.width / 2 - (source.x + source.width / 2);
+      const deltaY = target.y + target.height / 2 - (source.y + source.height / 2);
       return {
         ...path,
-        points: path.points.map(point => {
-          const normalizedX = (point.x - source.x) / Math.max(1, source.width);
-          const normalizedY = (point.y - source.y) / Math.max(1, source.height);
-          return {
-            x: target.x + normalizedX * target.width,
-            y: target.y + normalizedY * target.height,
-          };
-        }),
+        points: path.points.map(point => ({x: point.x + deltaX, y: point.y + deltaY})),
         reverseCrossSection: Boolean(path.reverseCrossSection),
       };
     }
@@ -435,6 +432,19 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function renderPatternPath(target, path, targetStep) {
       const samples = centerlineSamples(path, targetStep);
       if (samples.length < 2 || !patternImage.complete) return;
+      const cornerFlags = samples.map((_sample, index) => {
+        if (index <= 0 || index >= samples.length - 1) return false;
+        const previous = samples[index - 1];
+        const current = samples[index];
+        const next = samples[index + 1];
+        const incomingX = current.x - previous.x;
+        const incomingY = current.y - previous.y;
+        const outgoingX = next.x - current.x;
+        const outgoingY = next.y - current.y;
+        const denominator = Math.max(.01, Math.hypot(incomingX, incomingY) * Math.hypot(outgoingX, outgoingY));
+        const cornerDot = Math.max(-1, Math.min(1, (incomingX * outgoingX + incomingY * outgoingY) / denominator));
+        return Math.acos(cornerDot) >= .01;
+      });
       let distance = 0;
       const sourceWidth = Math.max(1, patternImage.naturalWidth);
       const sourceHeight = Math.max(1, patternImage.naturalHeight);
@@ -447,24 +457,34 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         if (index > 0) distance += Math.hypot(current.x - previous.x, current.y - previous.y);
         const angle = Math.atan2(next.y - previous.y, next.x - previous.x);
         const sourceX = ((distance + path.patternOffset) / lengthScale % sourceWidth + sourceWidth) % sourceWidth;
-        const stampLength = Math.max(targetStep * 2.6, 2.4);
-        let isCorner = false;
-        if (index > 0 && index < samples.length - 1) {
-          const incomingX = current.x - previous.x;
-          const incomingY = current.y - previous.y;
-          const outgoingX = next.x - current.x;
-          const outgoingY = next.y - current.y;
-          const denominator = Math.max(.01, Math.hypot(incomingX, incomingY) * Math.hypot(outgoingX, outgoingY));
-          const cornerDot = Math.max(-1, Math.min(1, (incomingX * outgoingX + incomingY * outgoingY) / denominator));
-          isCorner = Math.acos(cornerDot) >= .01;
-        }
+        const isCorner = cornerFlags[index];
         if (!isCorner) {
+          const previousDistance = index > 0
+            ? Math.hypot(current.x - previous.x, current.y - previous.y)
+            : 0;
+          const nextDistance = index < samples.length - 1
+            ? Math.hypot(next.x - current.x, next.y - current.y)
+            : 0;
+          let leftExtent = index === 0 ? 0 : previousDistance / 2 + .08;
+          let rightExtent = index === samples.length - 1 ? 0 : nextDistance / 2 + .08;
+          if (index > 0 && cornerFlags[index - 1]) leftExtent = previousDistance + .05;
+          if (index < samples.length - 1 && cornerFlags[index + 1]) rightExtent = nextDistance + .05;
           target.save();
           target.translate(current.x, current.y);
           target.rotate(angle);
           const destinationY = path.reverseCrossSection ? path.width / 2 : -path.width / 2;
           const destinationHeight = path.reverseCrossSection ? -path.width : path.width;
-          target.drawImage(patternImage, Math.floor(sourceX), 0, 1, sourceHeight, -stampLength / 2, destinationY, stampLength, destinationHeight);
+          target.drawImage(
+            patternImage,
+            Math.floor(sourceX),
+            0,
+            1,
+            sourceHeight,
+            -leftExtent,
+            destinationY,
+            Math.max(.01, leftExtent + rightExtent),
+            destinationHeight,
+          );
           target.restore();
         }
         if (isCorner) {
