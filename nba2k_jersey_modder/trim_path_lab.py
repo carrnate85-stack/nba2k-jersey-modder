@@ -64,7 +64,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <h2>Trim Creator Source</h2>
         <img id="patternPreview" alt="Selected staged trim">
         <div id="sourceName" class="small">No staged trim selected.</div>
-        <button id="reload" class="secondary" style="width:100%; margin-top:8px;">Reload from Trim Creator</button>
+        <button id="reload" class="secondary" style="width:100%; margin-top:8px;">Reload Generator + Trim</button>
       </div>
       <div class="panel">
         <h2>Paths</h2>
@@ -114,7 +114,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       </div>
       <div class="panel">
         <h2>View</h2>
-        <label for="templateOpacity">Template opacity</label>
+        <label for="templateOpacity">Generator preview opacity</label>
         <div class="range-row"><input id="templateOpacity" type="range" min="0" max="100" value="65"><output id="templateOpacityValue">65%</output></div>
         <label class="check"><input id="showUvOverlay" type="checkbox" checked> Show UV overlay</label>
         <label for="uvOpacity">UV opacity</label>
@@ -131,7 +131,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           <button id="loadJson" class="secondary">Load Paths</button>
         </div>
         <input id="loadJsonInput" type="file" accept="application/json,.json" hidden>
-        <div class="small">The shorts template and editing points are guides only. PNG export contains only the curved trim paths at the full template resolution.</div>
+        <div class="small">The generator preview, UV overlay, and editing points are guides only. PNG export contains only the curved trim paths at the full template resolution.</div>
       </div>
     </aside>
   </div>

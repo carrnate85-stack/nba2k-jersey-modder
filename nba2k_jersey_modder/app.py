@@ -2899,10 +2899,23 @@ class JerseyModderApp(tk.Tk):
         }
 
     def _trim_path_lab_background_image(self) -> tuple[bytes, str]:
-        path = self._trim_path_lab_template_path()
-        if not path.exists():
-            raise FileNotFoundError(f"Shorts template not found: {path}")
-        return path.read_bytes(), image_content_type(path)
+        template_name = self.trim_path_template_var.get()
+        if template_name not in SHORTS_TEMPLATE_OPTIONS:
+            template_name = "Retro shorts"
+        image_path, zones_path = SHORTS_TEMPLATE_OPTIONS[template_name]
+        width, height = read_image_size(Path(image_path))
+        template = load_template(Path(zones_path))
+        preview = render_jersey_texture(
+            template,
+            self._generator_inputs(
+                garment="Shorts",
+                template_name=template_name,
+            ),
+            size=(width, height),
+        )
+        output = BytesIO()
+        preview.save(output, format="PNG")
+        return output.getvalue(), "image/png"
 
     def _trim_path_lab_uv_path(self) -> Path:
         template_path = self._trim_path_lab_template_path()

@@ -1,8 +1,9 @@
+from io import BytesIO
+from pathlib import Path
+import struct
 import tempfile
 import unittest
 from unittest.mock import patch
-from pathlib import Path
-import struct
 import zipfile
 
 from nba2k_jersey_modder.app import (
@@ -676,6 +677,41 @@ class TrimCreatorTests(unittest.TestCase):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_trim_path_lab_background_uses_generated_shorts_preview(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        class Selection:
+            def get(self) -> str:
+                return "Retro shorts"
+
+        app = object.__new__(JerseyModderApp)
+        app.trim_path_template_var = Selection()
+        calls: list[tuple[str, str]] = []
+
+        def generator_inputs(*, garment: str, template_name: str) -> GeneratorInputs:
+            calls.append((garment, template_name))
+            return GeneratorInputs(
+                front_color="#ffffff",
+                back_color="#ffffff",
+                left_panel_color="#123456",
+                right_panel_color="#654321",
+                collar_background_color="#abcdef",
+            )
+
+        app._generator_inputs = generator_inputs
+        image_data, content_type = app._trim_path_lab_background_image()
+
+        with Image.open(BytesIO(image_data)) as opened:
+            preview = opened.convert("RGBA")
+            left_panel_pixel = preview.getpixel((100, 200))
+
+        self.assertEqual(content_type, "image/png")
+        self.assertEqual(calls, [("Shorts", "Retro shorts")])
+        self.assertEqual(left_panel_pixel, (18, 52, 86, 255))
+
     def test_open_project_defaults_generator_to_jersey(self) -> None:
         class Selection:
             def __init__(self) -> None:
