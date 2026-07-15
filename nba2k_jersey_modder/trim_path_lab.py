@@ -158,6 +158,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     let dragPathOriginals = null;
     let livePoint = null;
     let renderQueued = false;
+    let patternLengthUniform = false;
 
     function setStatus(message) { statusNode.textContent = message; }
     function activePath() { return paths[activePathIndex] || null; }
@@ -200,6 +201,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         patternSampleCanvas.height = Math.max(1, patternImage.naturalHeight);
         patternSampleContext.clearRect(0, 0, patternSampleCanvas.width, patternSampleCanvas.height);
         patternSampleContext.drawImage(patternImage, 0, 0);
+        patternLengthUniform = isLengthUniformPattern();
         document.getElementById("patternPreview").src = patternImage.src;
         document.getElementById("sourceName").textContent = `${project.patternName} | ${project.width} x ${project.height} template`;
         if (!paths.length) restoreLocalPaths();
@@ -355,6 +357,111 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       return samples;
     }
 
+    function sampledPatternRow(sourceY) {
+      const width = patternSampleCanvas.width;
+      const sampleXs = [.08, .27, .5, .73, .92].map(amount =>
+        Math.max(0, Math.min(width - 1, Math.round((width - 1) * amount)))
+      );
+      const totals = [0, 0, 0, 0];
+      sampleXs.forEach(sourceX => {
+        const pixel = patternSampleContext.getImageData(sourceX, sourceY, 1, 1).data;
+        for (let channel = 0; channel < 4; channel++) totals[channel] += pixel[channel];
+      });
+      return totals.map(value => Math.round(value / sampleXs.length));
+    }
+
+    function isLengthUniformPattern() {
+      const width = patternSampleCanvas.width;
+      const height = patternSampleCanvas.height;
+      if (width < 2 || height < 1) return true;
+      const sampleXs = [.08, .27, .5, .73, .92].map(amount =>
+        Math.max(0, Math.min(width - 1, Math.round((width - 1) * amount)))
+      );
+      const rowStep = Math.max(1, Math.floor(height / 256));
+      let comparisons = 0;
+      let mismatches = 0;
+      for (let sourceY = 0; sourceY < height; sourceY += rowStep) {
+        const reference = patternSampleContext.getImageData(sampleXs[2], sourceY, 1, 1).data;
+        sampleXs.forEach(sourceX => {
+          const pixel = patternSampleContext.getImageData(sourceX, sourceY, 1, 1).data;
+          comparisons++;
+          if ([0, 1, 2, 3].some(channel => Math.abs(pixel[channel] - reference[channel]) > 10)) {
+            mismatches++;
+          }
+        });
+      }
+      return comparisons === 0 || mismatches / comparisons <= .02;
+    }
+
+    function miterOffsetPoint(points, index, distance, maximumMiter) {
+      const current = points[index];
+      const previous = points[Math.max(0, index - 1)];
+      const next = points[Math.min(points.length - 1, index + 1)];
+      const incomingLength = Math.hypot(current.x - previous.x, current.y - previous.y);
+      const outgoingLength = Math.hypot(next.x - current.x, next.y - current.y);
+      if (index === 0 || incomingLength < .01) {
+        const length = Math.max(.01, outgoingLength);
+        return {x: current.x - (next.y - current.y) / length * distance, y: current.y + (next.x - current.x) / length * distance};
+      }
+      if (index === points.length - 1 || outgoingLength < .01) {
+        return {x: current.x - (current.y - previous.y) / incomingLength * distance, y: current.y + (current.x - previous.x) / incomingLength * distance};
+      }
+      const incoming = {x: (current.x - previous.x) / incomingLength, y: (current.y - previous.y) / incomingLength};
+      const outgoing = {x: (next.x - current.x) / outgoingLength, y: (next.y - current.y) / outgoingLength};
+      const incomingNormal = {x: -incoming.y, y: incoming.x};
+      const outgoingNormal = {x: -outgoing.y, y: outgoing.x};
+      const miterRaw = {x: incomingNormal.x + outgoingNormal.x, y: incomingNormal.y + outgoingNormal.y};
+      const magnitude = Math.hypot(miterRaw.x, miterRaw.y);
+      if (magnitude < .01) {
+        return {x: current.x + incomingNormal.x * distance, y: current.y + incomingNormal.y * distance};
+      }
+      const miter = {x: miterRaw.x / magnitude, y: miterRaw.y / magnitude};
+      const denominator = Math.max(.05, Math.abs(miter.x * incomingNormal.x + miter.y * incomingNormal.y));
+      const miterLength = Math.max(-maximumMiter, Math.min(maximumMiter, distance / denominator));
+      return {x: current.x + miter.x * miterLength, y: current.y + miter.y * miterLength};
+    }
+
+    function renderUniformPatternPath(target, path, samples) {
+      const points = path.curve === "straight" ? path.points : samples;
+      if (points.length < 2) return false;
+      const sourceHeight = Math.max(1, patternSampleCanvas.height);
+      const bands = [];
+      const colorsClose = (first, second) => first.every((value, channel) => Math.abs(value - second[channel]) <= 5);
+      for (let sourceY = 0; sourceY < sourceHeight; sourceY++) {
+        const color = sampledPatternRow(sourceY);
+        const currentBand = bands[bands.length - 1];
+        if (currentBand && colorsClose(currentBand.color, color)) {
+          currentBand.end = sourceY + 1;
+        } else {
+          bands.push({start: sourceY, end: sourceY + 1, color});
+        }
+      }
+      const halfWidth = path.width / 2;
+      const lateralPosition = sourceY => {
+        const amount = sourceY / sourceHeight;
+        return path.reverseCrossSection
+          ? halfWidth - amount * path.width
+          : -halfWidth + amount * path.width;
+      };
+      bands.forEach(band => {
+        if (band.color[3] <= 2) return;
+        let firstOffset = lateralPosition(band.start);
+        let secondOffset = lateralPosition(band.end);
+        const direction = Math.sign(secondOffset - firstOffset) || 1;
+        firstOffset -= direction * .12;
+        secondOffset += direction * .12;
+        const firstEdge = points.map((_point, index) => miterOffsetPoint(points, index, firstOffset, path.width * 4));
+        const secondEdge = points.map((_point, index) => miterOffsetPoint(points, index, secondOffset, path.width * 4)).reverse();
+        const polygon = firstEdge.concat(secondEdge);
+        target.beginPath();
+        polygon.forEach((point, index) => index ? target.lineTo(point.x, point.y) : target.moveTo(point.x, point.y));
+        target.closePath();
+        target.fillStyle = `rgba(${band.color[0]}, ${band.color[1]}, ${band.color[2]}, ${band.color[3] / 255})`;
+        target.fill();
+      });
+      return true;
+    }
+
     function drawCornerJoin(target, path, previous, current, next, sourceX, sourceHeight) {
       const incomingLength = Math.hypot(current.x - previous.x, current.y - previous.y);
       const outgoingLength = Math.hypot(next.x - current.x, next.y - current.y);
@@ -432,6 +539,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function renderPatternPath(target, path, targetStep) {
       const samples = centerlineSamples(path, targetStep);
       if (samples.length < 2 || !patternImage.complete) return;
+      if (patternLengthUniform && renderUniformPatternPath(target, path, samples)) return;
       const cornerFlags = samples.map((_sample, index) => {
         if (index <= 0 || index >= samples.length - 1) return false;
         const previous = samples[index - 1];
