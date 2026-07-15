@@ -72,6 +72,10 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           <button id="duplicatePath" class="secondary">Duplicate</button>
           <button id="removePath" class="danger">Remove</button>
         </div>
+        <div class="buttons">
+          <button id="layerDown" class="secondary">Layer Down</button>
+          <button id="layerUp" class="secondary">Layer Up</button>
+        </div>
       </div>
       <div class="panel">
         <h2>Selected Path</h2>
@@ -96,9 +100,16 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <div class="range-row"><input id="patternScale" type="range" min="25" max="400" value="100"><output id="patternScaleValue">100%</output></div>
         <label for="patternOffset">Pattern offset</label>
         <div class="range-row"><input id="patternOffset" type="range" min="-1024" max="1024" value="0"><output id="patternOffsetValue">0 px</output></div>
-        <label class="check"><input id="mirrorPath" type="checkbox"> Copy to the opposite shorts panel (same facing)</label>
-        <label class="check"><input id="mirrorXPath" type="checkbox"> Mirror on the X axis within the same panel</label>
-        <div class="small">Angles run clockwise: 0 degrees points right and 90 degrees points down. Right-click finishes the path. Hold Alt while placing a point to temporarily bypass snapping. Drag a point to reshape the trim; arrow keys nudge it.</div>
+        <div class="buttons">
+          <button id="createOppositeCopy" class="secondary">Opposite Panel Copy</button>
+          <button id="createXMirror" class="secondary">X-Axis Mirror</button>
+        </div>
+        <label class="check"><input id="pathVisible" type="checkbox" checked> Show this layer</label>
+        <label class="check"><input id="linkNewCopies" type="checkbox" checked> Link new mirror copies to the source</label>
+        <label class="check"><input id="moveLinked" type="checkbox" checked> Move linked layers together</label>
+        <button id="unlinkPath" class="secondary" style="width:100%; margin-top:8px;">Unlink Selected Layer</button>
+        <div id="linkStatus" class="small">Layer is not linked.</div>
+        <div class="small">Drag directly on a finished trim to move its whole layer. Angles run clockwise: 0 degrees points right and 90 degrees points down. Right-click finishes the path. Hold Alt while placing a point to bypass snapping.</div>
       </div>
       <div class="panel">
         <h2>View</h2>
@@ -108,7 +119,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       </div>
       <div class="panel">
         <h2>Output</h2>
-        <button id="savePng" style="width:100%;">Save Transparent PNG</button>
+        <button id="sendToGenerator" style="width:100%;">Send Layers to Generator</button>
+        <button id="savePng" style="width:100%;">Save Combined Transparent PNG</button>
+        <button id="saveSelectedPng" class="secondary" style="width:100%; margin-top:8px;">Save Selected Layer PNG</button>
         <div class="buttons">
           <button id="saveJson" class="secondary">Save Paths</button>
           <button id="loadJson" class="secondary">Load Paths</button>
@@ -137,13 +150,16 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     let panning = false;
     let panStart = null;
     let draggingPoint = false;
+    let draggingPath = false;
+    let dragPathStart = null;
+    let dragPathOriginals = null;
     let livePoint = null;
     let renderQueued = false;
 
     function setStatus(message) { statusNode.textContent = message; }
     function activePath() { return paths[activePathIndex] || null; }
     function defaultPath() {
-      return {name: `Trim Path ${paths.length + 1}`, points: [], width: 64, patternScale: 100, patternOffset: 0, curve: "smooth", mirror: false, mirrorX: false, finished: false};
+      return {name: `Trim Path ${paths.length + 1}`, points: [], width: 64, patternScale: 100, patternOffset: 0, curve: "smooth", visible: true, linkGroup: null, reverseCrossSection: false, finished: false};
     }
     function cleanPath(raw, index) {
       const width = Math.max(2, Math.min(300, Number(raw?.width) || 64));
@@ -154,8 +170,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         patternScale: Math.max(25, Math.min(400, Number(raw?.patternScale) || 100)),
         patternOffset: Math.max(-1024, Math.min(1024, Number(raw?.patternOffset) || 0)),
         curve: raw?.curve === "straight" ? "straight" : "smooth",
-        mirror: Boolean(raw?.mirror),
-        mirrorX: Boolean(raw?.mirrorX),
+        visible: raw?.visible !== false,
+        linkGroup: raw?.linkGroup ? String(raw.linkGroup) : null,
+        reverseCrossSection: Boolean(raw?.reverseCrossSection),
         finished: raw?.finished !== false,
       };
     }
@@ -232,7 +249,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       ctx.translate(panX, panY);
       ctx.scale(viewScale, viewScale);
       paths.forEach((path, index) => {
-        renderPathVariants(ctx, path, Math.max(1, 1.4 / viewScale));
+        if (path.visible) renderPatternPath(ctx, path, Math.max(1, 1.4 / viewScale));
         if (index === activePathIndex) drawPathGuide(ctx, path);
       });
       ctx.restore();
@@ -256,8 +273,6 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         return {
           ...path,
           points: path.points.map(point => ({x: point.x, y: (point.y + project.height / 2) % project.height})),
-          mirror: false,
-          mirrorX: false,
           reverseCrossSection: Boolean(path.reverseCrossSection),
         };
       }
@@ -272,8 +287,6 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
             y: target.y + normalizedY * target.height,
           };
         }),
-        mirror: false,
-        mirrorX: false,
         reverseCrossSection: Boolean(path.reverseCrossSection),
       };
     }
@@ -285,8 +298,6 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         return {
           ...path,
           points: path.points.map(point => ({x: project.width - point.x, y: point.y})),
-          mirror: false,
-          mirrorX: false,
           reverseCrossSection: true,
         };
       }
@@ -296,20 +307,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           const normalizedX = (point.x - source.x) / Math.max(1, source.width);
           return {x: source.x + (1 - normalizedX) * source.width, y: point.y};
         }),
-        mirror: false,
-        mirrorX: false,
         reverseCrossSection: true,
       };
-    }
-
-    function renderPathVariants(target, path, targetStep) {
-      renderPatternPath(target, path, targetStep);
-      const samePanelMirror = path.mirrorX ? samePanelXMirrorPath(path) : null;
-      if (samePanelMirror) renderPatternPath(target, samePanelMirror, targetStep);
-      if (path.mirror) {
-        renderPatternPath(target, oppositePanelPath(path), targetStep);
-        if (samePanelMirror) renderPatternPath(target, oppositePanelPath(samePanelMirror), targetStep);
-      }
     }
 
     function centerlineSamples(path, targetStep) {
@@ -501,6 +500,77 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       return path.points.findIndex(candidate => Math.hypot(panX + candidate.x * viewScale - point.x, panY + candidate.y * viewScale - point.y) <= radius);
     }
 
+    function pointToSegmentDistance(point, start, end) {
+      const deltaX = end.x - start.x;
+      const deltaY = end.y - start.y;
+      const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+      if (!lengthSquared) return Math.hypot(point.x - start.x, point.y - start.y);
+      const amount = Math.max(0, Math.min(1, ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / lengthSquared));
+      return Math.hypot(point.x - (start.x + amount * deltaX), point.y - (start.y + amount * deltaY));
+    }
+
+    function hitActivePath(event) {
+      const path = activePath();
+      if (!path?.visible || path.points.length < 2 || !path.finished) return false;
+      const point = imagePoint(event);
+      const samples = centerlineSamples(path, Math.max(4, 10 / viewScale));
+      const threshold = path.width / 2 + 12 / viewScale;
+      for (let index = 0; index < samples.length - 1; index++) {
+        if (pointToSegmentDistance(point, samples[index], samples[index + 1]) <= threshold) return true;
+      }
+      return false;
+    }
+
+    function movementIndexes() {
+      const path = activePath();
+      if (!path) return [];
+      if (!document.getElementById("moveLinked").checked || !path.linkGroup) return [activePathIndex];
+      return paths.map((candidate, index) => candidate.linkGroup === path.linkGroup ? index : -1).filter(index => index >= 0);
+    }
+
+    function movedPointSets(originals, deltaX, deltaY) {
+      const allPoints = originals.flatMap(item => item.points);
+      if (!allPoints.length) return {deltaX, deltaY};
+      const minX = Math.min(...allPoints.map(point => point.x));
+      const maxX = Math.max(...allPoints.map(point => point.x));
+      const minY = Math.min(...allPoints.map(point => point.y));
+      const maxY = Math.max(...allPoints.map(point => point.y));
+      return {
+        deltaX: Math.max(-minX, Math.min(project.width - maxX, deltaX)),
+        deltaY: Math.max(-minY, Math.min(project.height - maxY, deltaY)),
+      };
+    }
+
+    function beginPathMove(event) {
+      const indexes = movementIndexes();
+      dragPathStart = imagePoint(event);
+      dragPathOriginals = indexes.map(index => ({index, points: paths[index].points.map(point => ({...point}))}));
+      draggingPath = true;
+      setStatus(indexes.length > 1 ? `Moving ${indexes.length} linked trim layers.` : `Moving ${activePath().name}.`);
+    }
+
+    function updatePathMove(event) {
+      if (!draggingPath || !dragPathStart || !dragPathOriginals) return;
+      const current = imagePoint(event);
+      const delta = movedPointSets(dragPathOriginals, current.x - dragPathStart.x, current.y - dragPathStart.y);
+      dragPathOriginals.forEach(item => {
+        paths[item.index].points = item.points.map(point => ({x: point.x + delta.deltaX, y: point.y + delta.deltaY}));
+      });
+      updateSegmentReadout();
+      queueDraw();
+    }
+
+    function moveSelectedLayers(deltaX, deltaY) {
+      const originals = movementIndexes().map(index => ({index, points: paths[index].points.map(point => ({...point}))}));
+      const delta = movedPointSets(originals, deltaX, deltaY);
+      originals.forEach(item => {
+        paths[item.index].points = item.points.map(point => ({x: point.x + delta.deltaX, y: point.y + delta.deltaY}));
+      });
+      updateSegmentReadout();
+      saveLocalPaths();
+      queueDraw();
+    }
+
     canvas.addEventListener("pointerdown", event => {
       if (!project?.hasPattern) return;
       canvas.setPointerCapture(event.pointerId);
@@ -530,6 +600,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         saveLocalPaths();
         updatePathList();
         queueDraw();
+      } else if (hitActivePath(event)) {
+        selectedPointIndex = -1;
+        beginPathMove(event);
       } else {
         selectedPointIndex = -1;
         queueDraw();
@@ -545,6 +618,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         activePath().points[selectedPointIndex] = imagePoint(event);
         updateSegmentReadout();
         queueDraw();
+      } else if (draggingPath) {
+        updatePathMove(event);
       } else if (drawing && activePath() && !activePath().finished && activePath().points.length) {
         livePoint = drawingPoint(event);
         updateSegmentReadout();
@@ -552,13 +627,16 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       }
     });
     canvas.addEventListener("pointerup", () => {
-      if (draggingPoint) saveLocalPaths();
+      if (draggingPoint || draggingPath) saveLocalPaths();
       panning = false;
       panStart = null;
       draggingPoint = false;
+      draggingPath = false;
+      dragPathStart = null;
+      dragPathOriginals = null;
     });
     canvas.addEventListener("pointerleave", () => {
-      if (!panning && !draggingPoint) {
+      if (!panning && !draggingPoint && !draggingPath) {
         livePoint = null;
         updateSegmentReadout();
         queueDraw();
@@ -630,8 +708,62 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const copy = cleanPath(JSON.parse(JSON.stringify(path)), paths.length);
       copy.name = `${path.name} Copy`;
       copy.points = copy.points.map(point => ({x: point.x + 16, y: point.y + 16}));
+      copy.linkGroup = null;
       paths.push(copy);
       activePathIndex = paths.length - 1;
+      syncControls();
+      updatePathList();
+      saveLocalPaths();
+      queueDraw();
+    }
+
+    function createLinkGroup() {
+      return `trim-link-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    function createDerivedPath(transform, suffix) {
+      const source = activePath();
+      if (!source || source.points.length < 2) {
+        setStatus("Create or select a finished trim path first.");
+        return;
+      }
+      const copy = cleanPath(transform(source), paths.length);
+      copy.name = `${source.name} ${suffix}`;
+      copy.finished = true;
+      copy.visible = true;
+      if (document.getElementById("linkNewCopies").checked) {
+        source.linkGroup = source.linkGroup || createLinkGroup();
+        copy.linkGroup = source.linkGroup;
+      } else {
+        copy.linkGroup = null;
+      }
+      paths.push(copy);
+      activePathIndex = paths.length - 1;
+      selectedPointIndex = -1;
+      drawing = false;
+      syncControls();
+      updatePathList();
+      saveLocalPaths();
+      setStatus(`${copy.name} created as its own trim layer.`);
+      queueDraw();
+    }
+
+    function unlinkSelectedPath() {
+      const path = activePath();
+      if (!path) return;
+      path.linkGroup = null;
+      syncControls();
+      updatePathList();
+      saveLocalPaths();
+      setStatus(`${path.name} is now independent.`);
+    }
+
+    function moveLayer(direction) {
+      if (activePathIndex < 0) return;
+      const destination = activePathIndex + direction;
+      if (destination < 0 || destination >= paths.length) return;
+      [paths[activePathIndex], paths[destination]] = [paths[destination], paths[activePathIndex]];
+      activePathIndex = destination;
       syncControls();
       updatePathList();
       saveLocalPaths();
@@ -644,7 +776,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       paths.forEach((path, index) => {
         const button = document.createElement("button");
         button.className = `path-item${index === activePathIndex ? " active" : ""}`;
-        button.textContent = `${path.name} | ${path.points.length} points | ${Math.round(path.width)} px`;
+        const flags = [path.linkGroup ? "linked" : "", path.visible ? "" : "hidden"].filter(Boolean);
+        button.textContent = `${index + 1}. ${path.name} | ${path.points.length} points | ${Math.round(path.width)} px${flags.length ? ` | ${flags.join(", ")}` : ""}`;
         button.onclick = () => {
           activePathIndex = index;
           selectedPointIndex = -1;
@@ -660,14 +793,21 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function syncControls() {
       const path = activePath();
       const disabled = !path;
-      ["curveMode", "trimWidth", "patternScale", "patternOffset", "mirrorPath", "mirrorXPath", "duplicatePath", "removePath"].forEach(id => document.getElementById(id).disabled = disabled);
-      if (!path) return;
+      ["curveMode", "trimWidth", "patternScale", "patternOffset", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
+      document.getElementById("linkStatus").textContent = "Layer is not linked.";
+      if (!path) {
+        updateSegmentReadout();
+        return;
+      }
       document.getElementById("curveMode").value = path.curve;
       document.getElementById("trimWidth").value = path.width;
       document.getElementById("patternScale").value = path.patternScale;
       document.getElementById("patternOffset").value = path.patternOffset;
-      document.getElementById("mirrorPath").checked = path.mirror;
-      document.getElementById("mirrorXPath").checked = path.mirrorX;
+      document.getElementById("pathVisible").checked = path.visible;
+      document.getElementById("layerDown").disabled = activePathIndex <= 0;
+      document.getElementById("layerUp").disabled = activePathIndex >= paths.length - 1;
+      const linkedCount = path.linkGroup ? paths.filter(candidate => candidate.linkGroup === path.linkGroup).length : 0;
+      document.getElementById("linkStatus").textContent = linkedCount > 1 ? `Linked group: ${linkedCount} layers.` : "Layer is not linked.";
       updateSegmentReadout();
       updateControlLabels();
     }
@@ -689,20 +829,48 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       });
     }
 
-    function renderExport() {
+    function renderExport(renderPaths = paths) {
       const output = document.createElement("canvas");
       output.width = project.width;
       output.height = project.height;
       const outputContext = output.getContext("2d");
-      paths.forEach(path => {
-        renderPathVariants(outputContext, path, 1);
-      });
+      renderPaths.filter(path => path.visible && path.points.length >= 2).forEach(path => renderPatternPath(outputContext, path, 1));
       return output;
     }
     function savePng() {
       if (!paths.some(path => path.points.length >= 2)) { setStatus("Create at least one path before saving."); return; }
       renderExport().toBlob(blob => downloadBlob(blob, "shorts_trim_paths.png"), "image/png");
       setStatus(`Saved ${project.width} x ${project.height} transparent trim PNG.`);
+    }
+    function safeFileName(value) {
+      return String(value || "trim_path").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "trim_path";
+    }
+    function saveSelectedPng() {
+      const path = activePath();
+      if (!path || path.points.length < 2) { setStatus("Select a finished trim layer first."); return; }
+      renderExport([{...path, visible: true}]).toBlob(blob => downloadBlob(blob, `${safeFileName(path.name)}.png`), "image/png");
+      setStatus(`Saved ${path.name} as a transparent layer PNG.`);
+    }
+    function canvasDataUrl(canvas) {
+      return canvas.toDataURL("image/png");
+    }
+    async function sendToGenerator() {
+      const renderable = paths.filter(path => path.visible && path.points.length >= 2);
+      if (!renderable.length) { setStatus("Create at least one visible trim layer first."); return; }
+      setStatus(`Sending ${renderable.length} trim layer${renderable.length === 1 ? "" : "s"} to Generator...`);
+      try {
+        const layers = renderable.map(path => ({name: path.name, png: canvasDataUrl(renderExport([{...path, visible: true}]))}));
+        const response = await fetch("/api/trim-path/send", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({layers}),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.message || `Request failed (${response.status}).`);
+        setStatus(`Sent ${result.count} trim layer${result.count === 1 ? "" : "s"} to Generator.`);
+      } catch (error) {
+        setStatus(`Could not send trim layers: ${error.message}`);
+      }
     }
     function saveJson() {
       const payload = {version: 1, width: project.width, height: project.height, patternName: project.patternName, paths};
@@ -721,7 +889,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         try {
           const payload = JSON.parse(reader.result);
           if (!Array.isArray(payload.paths)) throw new Error("No paths were found in this file.");
-          paths = payload.paths.map(cleanPath);
+          paths = deserializePaths(payload.paths);
           activePathIndex = paths.length ? 0 : -1;
           selectedPointIndex = -1;
           drawing = false;
@@ -736,14 +904,50 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     }
     function storageKey() { return `nba2k-trim-paths-${project?.width || 0}x${project?.height || 0}`; }
     function saveLocalPaths() { if (project?.width) localStorage.setItem(storageKey(), JSON.stringify(paths)); }
+    function deserializePaths(rawPaths) {
+      const result = [];
+      rawPaths.forEach((raw, index) => {
+        const base = cleanPath(raw, index);
+        const hadOppositeMirror = Boolean(raw?.mirror);
+        const hadXMirror = Boolean(raw?.mirrorX);
+        if (!hadOppositeMirror && !hadXMirror) {
+          result.push(base);
+          return;
+        }
+        const group = createLinkGroup();
+        base.linkGroup = group;
+        result.push(base);
+        let xCopy = null;
+        if (hadXMirror) {
+          xCopy = cleanPath(samePanelXMirrorPath(base), result.length);
+          xCopy.name = `${base.name} X Mirror`;
+          xCopy.linkGroup = group;
+          result.push(xCopy);
+        }
+        if (hadOppositeMirror) {
+          const opposite = cleanPath(oppositePanelPath(base), result.length);
+          opposite.name = `${base.name} Opposite Panel`;
+          opposite.linkGroup = group;
+          result.push(opposite);
+          if (xCopy) {
+            const oppositeX = cleanPath(oppositePanelPath(xCopy), result.length);
+            oppositeX.name = `${base.name} Opposite Panel X Mirror`;
+            oppositeX.linkGroup = group;
+            result.push(oppositeX);
+          }
+        }
+      });
+      return result;
+    }
     function restoreLocalPaths() {
       try {
         const stored = JSON.parse(localStorage.getItem(storageKey()) || "[]");
-        if (Array.isArray(stored)) paths = stored.map(cleanPath);
+        if (Array.isArray(stored)) paths = deserializePaths(stored);
       } catch (_) { paths = []; }
       activePathIndex = paths.length ? 0 : -1;
       syncControls();
       updatePathList();
+      saveLocalPaths();
     }
 
     document.addEventListener("keydown", event => {
@@ -752,16 +956,18 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); undoPoint(); return; }
       if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
       const path = activePath();
-      if (!path || selectedPointIndex < 0) return;
+      if (!path) return;
       event.preventDefault();
       const amount = event.shiftKey ? 10 : 1;
-      const point = path.points[selectedPointIndex];
-      if (event.key === "ArrowLeft") point.x -= amount;
-      if (event.key === "ArrowRight") point.x += amount;
-      if (event.key === "ArrowUp") point.y -= amount;
-      if (event.key === "ArrowDown") point.y += amount;
-      point.x = Math.max(0, Math.min(project.width, point.x));
-      point.y = Math.max(0, Math.min(project.height, point.y));
+      const deltaX = event.key === "ArrowLeft" ? -amount : event.key === "ArrowRight" ? amount : 0;
+      const deltaY = event.key === "ArrowUp" ? -amount : event.key === "ArrowDown" ? amount : 0;
+      if (selectedPointIndex >= 0) {
+        const point = path.points[selectedPointIndex];
+        point.x = Math.max(0, Math.min(project.width, point.x + deltaX));
+        point.y = Math.max(0, Math.min(project.height, point.y + deltaY));
+      } else {
+        moveSelectedLayers(deltaX, deltaY);
+      }
       updateSegmentReadout();
       saveLocalPaths();
       queueDraw();
@@ -772,11 +978,18 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     document.getElementById("undoPoint").onclick = undoPoint;
     document.getElementById("removePath").onclick = removePath;
     document.getElementById("duplicatePath").onclick = duplicatePath;
+    document.getElementById("layerDown").onclick = () => moveLayer(-1);
+    document.getElementById("layerUp").onclick = () => moveLayer(1);
+    document.getElementById("createOppositeCopy").onclick = () => createDerivedPath(oppositePanelPath, "Opposite Panel");
+    document.getElementById("createXMirror").onclick = () => createDerivedPath(samePanelXMirrorPath, "X Mirror");
+    document.getElementById("unlinkPath").onclick = unlinkSelectedPath;
     document.getElementById("fit").onclick = fitView;
     document.getElementById("zoomOut").onclick = () => { viewScale = Math.max(minScale * .5, viewScale / 1.25); queueDraw(); };
     document.getElementById("zoomIn").onclick = () => { viewScale = Math.min(12, viewScale * 1.25); queueDraw(); };
     document.getElementById("reload").onclick = loadProject;
+    document.getElementById("sendToGenerator").onclick = sendToGenerator;
     document.getElementById("savePng").onclick = savePng;
+    document.getElementById("saveSelectedPng").onclick = saveSelectedPng;
     document.getElementById("saveJson").onclick = saveJson;
     document.getElementById("loadJson").onclick = () => document.getElementById("loadJsonInput").click();
     document.getElementById("loadJsonInput").onchange = event => event.target.files[0] && loadJsonFile(event.target.files[0]);
@@ -784,8 +997,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     bindPathControl("trimWidth", "width", Number);
     bindPathControl("patternScale", "patternScale", Number);
     bindPathControl("patternOffset", "patternOffset", Number);
-    bindPathControl("mirrorPath", "mirror", Boolean);
-    bindPathControl("mirrorXPath", "mirrorX", Boolean);
+    bindPathControl("pathVisible", "visible", Boolean);
+    document.getElementById("moveLinked").onchange = syncControls;
     document.getElementById("angleSnap").onchange = () => {
       livePoint = null;
       updateSegmentReadout();

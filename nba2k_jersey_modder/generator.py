@@ -145,6 +145,12 @@ class ImagePlacement:
 
 
 @dataclass(frozen=True)
+class TrimPathLayer:
+    name: str
+    path: Path
+
+
+@dataclass(frozen=True)
 class GeneratorInputs:
     front_color: str
     back_color: str
@@ -164,6 +170,7 @@ class GeneratorInputs:
     front_wordmark_offset_y: int = 0
     front_wordmark_scale_percent: int = 100
     logo_placements: tuple[LogoPlacement, ...] = ()
+    trim_path_layers: tuple[TrimPathLayer, ...] = ()
     fabric_overlay_image: Path | None = None
     fabric_overlay_opacity: int = 0
     fabric_overlay_blend_mode: str = "multiply"
@@ -235,6 +242,20 @@ def render_jersey_layers(
             layers.append(RenderLayer(f"{_human_zone_name(zone.name)} Image", layer))
 
     dynamic_layers: list[tuple[str, RenderLayer]] = []
+    for index, trim_path in enumerate(inputs.trim_path_layers, start=1):
+        if not trim_path.path.exists():
+            continue
+        with Image.open(trim_path.path) as opened:
+            trim_layer = opened.convert("RGBA")
+        if trim_layer.size != size:
+            trim_layer = trim_layer.resize(size, Image.Resampling.LANCZOS)
+        dynamic_layers.append(
+            (
+                f"trim_path:{index - 1}",
+                RenderLayer(trim_path.name or f"Trim Path {index}", trim_layer),
+            )
+        )
+
     logo_targets = {zone.name: zone for zone in logo_target_zones(template)}
     for index, logo in enumerate(inputs.logo_placements, start=1):
         target = logo_targets.get(logo.target_name)

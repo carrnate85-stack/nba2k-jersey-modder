@@ -28,6 +28,7 @@ from nba2k_jersey_modder.generator import (
     BackgroundCleanupSettings,
     GeneratorInputs,
     LogoPlacement,
+    TrimPathLayer,
     TrimPlacementSettings,
     generate_jersey_texture,
     generate_layered_jersey_psd,
@@ -1802,6 +1803,40 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(image.size, (16, 16))
         self.assertEqual(image.getpixel((1, 1))[:3], (17, 34, 51))
         self.assertEqual(image.getpixel((5, 5))[:3], (255, 0, 255))
+
+    def test_trim_path_images_render_as_separate_psd_layers(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            trim_path = tmp_path / "waist_trim.png"
+            output = tmp_path / "generated.psd"
+            trim = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+            trim.putpixel((7, 9), (255, 0, 0, 255))
+            trim.save(trim_path)
+            template = JerseyTemplate(image_path="", zones=())
+
+            generate_layered_jersey_psd(
+                template,
+                GeneratorInputs(
+                    front_color="#ffffff",
+                    back_color="#ffffff",
+                    left_panel_color="",
+                    right_panel_color="",
+                    trim_path_layers=(TrimPathLayer("Curved Waist Trim", trim_path),),
+                ),
+                output,
+                size=(16, 16),
+            )
+            data = output.read_bytes()
+            with Image.open(output) as opened:
+                image = opened.convert("RGBA")
+
+        self.assertIn(b"Curved Waist Trim", data)
+        self.assertEqual(image.getpixel((7, 9)), (255, 0, 0, 255))
 
     def test_generate_jersey_texture_removes_white_image_background(self) -> None:
         try:
