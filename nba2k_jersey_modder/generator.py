@@ -148,6 +148,8 @@ class ImagePlacement:
 class TrimPathLayer:
     name: str
     path: Path
+    garment: str = "Shorts"
+    template_name: str = ""
 
 
 @dataclass(frozen=True)

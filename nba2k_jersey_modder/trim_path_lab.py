@@ -351,6 +351,82 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       return samples;
     }
 
+    function drawCornerJoin(target, path, previous, current, next, sourceX, sourceHeight) {
+      const incomingLength = Math.hypot(current.x - previous.x, current.y - previous.y);
+      const outgoingLength = Math.hypot(next.x - current.x, next.y - current.y);
+      if (incomingLength < .01 || outgoingLength < .01) return;
+      const incoming = {
+        x: (current.x - previous.x) / incomingLength,
+        y: (current.y - previous.y) / incomingLength,
+      };
+      const outgoing = {
+        x: (next.x - current.x) / outgoingLength,
+        y: (next.y - current.y) / outgoingLength,
+      };
+      const dot = Math.max(-1, Math.min(1, incoming.x * outgoing.x + incoming.y * outgoing.y));
+      const turn = Math.acos(dot);
+      if (turn < .01 || turn > Math.PI - .01) return;
+      const incomingNormal = {x: -incoming.y, y: incoming.x};
+      const outgoingNormal = {x: -outgoing.y, y: outgoing.x};
+      const miterRaw = {
+        x: incomingNormal.x + outgoingNormal.x,
+        y: incomingNormal.y + outgoingNormal.y,
+      };
+      const miterMagnitude = Math.hypot(miterRaw.x, miterRaw.y);
+      if (miterMagnitude < .01) return;
+      const miter = {x: miterRaw.x / miterMagnitude, y: miterRaw.y / miterMagnitude};
+      const halfWidth = path.width / 2;
+      const denominator = Math.abs(miter.x * incomingNormal.x + miter.y * incomingNormal.y);
+      const safeDenominator = Math.max(.05, denominator);
+      const offsetPoint = (normal, distance) => ({
+        x: current.x + normal.x * distance,
+        y: current.y + normal.y * distance,
+      });
+      const miterPoint = distance => {
+        const length = Math.max(-path.width * 4, Math.min(path.width * 4, distance / safeDenominator));
+        return {x: current.x + miter.x * length, y: current.y + miter.y * length};
+      };
+      const lateralPosition = sourceY => {
+        const amount = sourceY / sourceHeight;
+        return path.reverseCrossSection
+          ? halfWidth - amount * path.width
+          : -halfWidth + amount * path.width;
+      };
+      for (let sourceY = 0; sourceY < sourceHeight; sourceY++) {
+        const firstOffset = lateralPosition(sourceY);
+        const secondOffset = lateralPosition(sourceY + 1);
+        const polygon = [
+          offsetPoint(incomingNormal, firstOffset),
+          miterPoint(firstOffset),
+          offsetPoint(outgoingNormal, firstOffset),
+          offsetPoint(outgoingNormal, secondOffset),
+          miterPoint(secondOffset),
+          offsetPoint(incomingNormal, secondOffset),
+        ];
+        const minX = Math.min(...polygon.map(point => point.x));
+        const minY = Math.min(...polygon.map(point => point.y));
+        const maxX = Math.max(...polygon.map(point => point.x));
+        const maxY = Math.max(...polygon.map(point => point.y));
+        target.save();
+        target.beginPath();
+        polygon.forEach((corner, index) => index ? target.lineTo(corner.x, corner.y) : target.moveTo(corner.x, corner.y));
+        target.closePath();
+        target.clip();
+        target.drawImage(
+          patternImage,
+          Math.floor(sourceX),
+          sourceY,
+          1,
+          1,
+          minX,
+          minY,
+          Math.max(.01, maxX - minX),
+          Math.max(.01, maxY - minY),
+        );
+        target.restore();
+      }
+    }
+
     function renderPatternPath(target, path, targetStep) {
       const samples = centerlineSamples(path, targetStep);
       if (samples.length < 2 || !patternImage.complete) return;
@@ -367,13 +443,28 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         const angle = Math.atan2(next.y - previous.y, next.x - previous.x);
         const sourceX = ((distance + path.patternOffset) / lengthScale % sourceWidth + sourceWidth) % sourceWidth;
         const stampLength = Math.max(targetStep * 2.6, 2.4);
-        target.save();
-        target.translate(current.x, current.y);
-        target.rotate(angle);
-        const destinationY = path.reverseCrossSection ? path.width / 2 : -path.width / 2;
-        const destinationHeight = path.reverseCrossSection ? -path.width : path.width;
-        target.drawImage(patternImage, Math.floor(sourceX), 0, 1, sourceHeight, -stampLength / 2, destinationY, stampLength, destinationHeight);
-        target.restore();
+        let isCorner = false;
+        if (index > 0 && index < samples.length - 1) {
+          const incomingX = current.x - previous.x;
+          const incomingY = current.y - previous.y;
+          const outgoingX = next.x - current.x;
+          const outgoingY = next.y - current.y;
+          const denominator = Math.max(.01, Math.hypot(incomingX, incomingY) * Math.hypot(outgoingX, outgoingY));
+          const cornerDot = Math.max(-1, Math.min(1, (incomingX * outgoingX + incomingY * outgoingY) / denominator));
+          isCorner = Math.acos(cornerDot) >= .01;
+        }
+        if (!isCorner) {
+          target.save();
+          target.translate(current.x, current.y);
+          target.rotate(angle);
+          const destinationY = path.reverseCrossSection ? path.width / 2 : -path.width / 2;
+          const destinationHeight = path.reverseCrossSection ? -path.width : path.width;
+          target.drawImage(patternImage, Math.floor(sourceX), 0, 1, sourceHeight, -stampLength / 2, destinationY, stampLength, destinationHeight);
+          target.restore();
+        }
+        if (isCorner) {
+          drawCornerJoin(target, path, previous, current, next, sourceX, sourceHeight);
+        }
       }
       target.restore();
     }
@@ -863,7 +954,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         const response = await fetch("/api/trim-path/send", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({layers}),
+          body: JSON.stringify({
+            garment: project.garment || "Shorts",
+            templateName: project.templateName || "",
+            layers,
+          }),
         });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.message || `Request failed (${response.status}).`);

@@ -5,6 +5,7 @@ import struct
 import zipfile
 
 from nba2k_jersey_modder.app import (
+    JerseyModderApp,
     _fit_transparent_image_to_square,
     _align_image_to_visible_center,
     _loaded_number_digit_keys,
@@ -664,6 +665,38 @@ class TrimCreatorTests(unittest.TestCase):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_generator_trim_paths_are_scoped_by_garment_and_template(self) -> None:
+        class Selection:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def get(self) -> str:
+                return self.value
+
+        app = object.__new__(JerseyModderApp)
+        app.generator_garment_var = Selection("Shorts")
+        app.generator_shorts_template_var = Selection("Retro shorts")
+        app.generator_jersey_cut_var = Selection("Retro U")
+        app.generator_trim_path_layers = [
+            TrimPathLayer("Shorts Trim", Path("shorts.png"), "Shorts", "Retro shorts"),
+            TrimPathLayer("Jersey Trim", Path("jersey.png"), "Jersey", "Retro U"),
+        ]
+
+        active_shorts = app._active_generator_trim_path_layers()
+        app._sync_generator_trim_path_layer_order = lambda: None
+        app._refresh_generator_trim_path_list = lambda: None
+        app._schedule_generator_preview_refresh = lambda: None
+        app.clear_generator_trim_paths()
+        app.generator_garment_var.value = "Jersey"
+        active_jersey = app._active_generator_trim_path_layers()
+
+        self.assertEqual([layer.name for _index, layer in active_shorts], ["Shorts Trim"])
+        self.assertEqual(
+            [layer.name for layer in app.generator_trim_path_layers],
+            ["Jersey Trim"],
+        )
+        self.assertEqual([layer.name for _index, layer in active_jersey], ["Jersey Trim"])
+
     def test_extract_number_sheet_from_font_iff_reads_font_number_color(self) -> None:
         try:
             from PIL import Image
