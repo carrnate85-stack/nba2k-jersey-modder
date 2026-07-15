@@ -17,14 +17,25 @@ def _material_targets(keyword: str | None = None) -> list[bpy.types.Material]:
     mesh_objects = [obj for obj in bpy.data.objects if obj.type == "MESH"]
     preferred_objects = [obj for obj in mesh_objects if obj.name.lower() == "player"]
     objects = mesh_objects if keyword else (preferred_objects or mesh_objects)
+    if keyword:
+        normalized_keyword = keyword.casefold()
+        objects = [
+            obj
+            for obj in objects
+            if normalized_keyword in obj.name.casefold()
+            or any(
+                slot.material
+                and normalized_keyword in slot.material.name.casefold()
+                for slot in obj.material_slots
+            )
+        ]
     materials: list[bpy.types.Material] = []
     for obj in objects:
         for slot in obj.material_slots:
             if slot.material and slot.material not in materials:
                 materials.append(slot.material)
     if keyword:
-        keyword = keyword.casefold()
-        return [material for material in materials if keyword in material.name.casefold()]
+        return materials
     if preferred_objects:
         return materials
     uniform_materials = [
