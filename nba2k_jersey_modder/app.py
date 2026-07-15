@@ -233,7 +233,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_number_preview_x_var = tk.IntVar(value=1160)
         self.generator_number_preview_y_var = tk.IntVar(value=780)
         self.generator_number_preview_scale_var = tk.IntVar(value=100)
-        self.generator_uv_overlay_var = tk.BooleanVar(value=False)
+        self.generator_uv_overlay_var = tk.BooleanVar(value=True)
         self.generator_uv_overlay_opacity_var = tk.IntVar(value=45)
         self.generator_uv_overlay_opacity_label_var = tk.StringVar(value="45%")
         self.generator_uv_overlay_image: tk.PhotoImage | None = None
@@ -1657,6 +1657,39 @@ class JerseyModderApp(tk.Tk):
             pady=(0, 8),
         )
 
+    def _add_generator_section(
+        self,
+        parent: ttk.Frame,
+        row: int,
+        title: str,
+        *,
+        expanded: bool,
+    ) -> tuple[ttk.Frame, ttk.Frame]:
+        section = ttk.Frame(parent)
+        section.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        is_expanded = tk.BooleanVar(value=expanded)
+        header = ttk.Button(section)
+        header.grid(row=0, column=0, sticky="ew")
+        body = ttk.Frame(section, padding=(8, 8, 0, 0))
+        body.grid(row=1, column=0, sticky="ew")
+
+        def sync() -> None:
+            header.configure(text=f"{'-' if is_expanded.get() else '+'} {title}")
+            if is_expanded.get():
+                body.grid()
+            else:
+                body.grid_remove()
+
+        def toggle() -> None:
+            is_expanded.set(not is_expanded.get())
+            sync()
+
+        header.configure(command=toggle)
+        section.columnconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+        sync()
+        return section, body
+
     def _build_generator_tab(self) -> None:
         tab = ttk.Frame(self.tabs, padding=10)
         self.generator_tab = tab
@@ -1680,13 +1713,17 @@ class JerseyModderApp(tk.Tk):
         self.generator_upload_row_frames: dict[str, ttk.Frame] = {}
         self.generator_jersey_only_widgets: list[tk.Widget] = []
 
-        row = 0
-        ttk.Label(controls, text="Template", style="Status.TLabel").grid(
-            row=row, column=0, sticky=tk.W, pady=(0, 8)
+        section_row = 0
+        _template_section, template_controls = self._add_generator_section(
+            controls,
+            section_row,
+            "Template",
+            expanded=True,
         )
-        row += 1
-        template_frame = ttk.Frame(controls)
-        template_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        section_row += 1
+        template_row = 0
+        template_frame = ttk.Frame(template_controls)
+        template_frame.grid(row=template_row, column=0, sticky="ew", pady=(0, 8))
         ttk.Label(template_frame, text="Type").grid(row=0, column=0, sticky=tk.W)
         self.generator_garment_box = ttk.Combobox(
             template_frame,
@@ -1727,9 +1764,9 @@ class JerseyModderApp(tk.Tk):
         )
         template_frame.columnconfigure(1, weight=1)
         template_frame.columnconfigure(3, weight=1)
-        row += 1
-        uv_overlay_frame = ttk.Frame(controls)
-        uv_overlay_frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        template_row += 1
+        uv_overlay_frame = ttk.Frame(template_controls)
+        uv_overlay_frame.grid(row=template_row, column=0, sticky="ew")
         ttk.Checkbutton(
             uv_overlay_frame,
             text="UV overlay",
@@ -1756,19 +1793,24 @@ class JerseyModderApp(tk.Tk):
             width=5,
         ).grid(row=0, column=3, sticky=tk.E, padx=(8, 0))
         uv_overlay_frame.columnconfigure(2, weight=1)
-        row += 1
 
-        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
-        row += 1
-        self.generator_base_colors_label = ttk.Label(
+        _color_section, color_controls = self._add_generator_section(
             controls,
+            section_row,
+            "Colors",
+            expanded=True,
+        )
+        section_row += 1
+        color_row = 0
+        self.generator_base_colors_label = ttk.Label(
+            color_controls,
             text="Base colors",
             style="Status.TLabel",
         )
         self.generator_base_colors_label.grid(
-            row=row, column=0, sticky=tk.W, pady=(0, 8)
+            row=color_row, column=0, sticky=tk.W, pady=(0, 8)
         )
-        row += 1
+        color_row += 1
         for key, label in (
             ("front_color", "Front"),
             ("back_color", "Back"),
@@ -1776,36 +1818,37 @@ class JerseyModderApp(tk.Tk):
             ("right_panel_color", "Right side panel"),
             ("collar_background_color", "Collar background"),
         ):
-            self._add_generator_color_row(controls, row, key, label)
+            self._add_generator_color_row(color_controls, color_row, key, label)
             if key in {"front_color", "back_color"}:
                 self.generator_jersey_only_widgets.append(self.generator_color_row_frames[key])
-            row += 1
+            color_row += 1
 
-        trim_separator = ttk.Separator(controls)
-        trim_separator.grid(row=row, column=0, sticky="ew", pady=12)
-        self.generator_jersey_only_widgets.append(trim_separator)
-        row += 1
-        trim_label = ttk.Label(controls, text="Trim colors", style="Status.TLabel")
-        trim_label.grid(
-            row=row, column=0, sticky=tk.W, pady=(0, 8)
+        trim_section, trim_controls = self._add_generator_section(
+            controls,
+            section_row,
+            "Trim Colors",
+            expanded=False,
         )
-        self.generator_jersey_only_widgets.append(trim_label)
-        row += 1
+        self.generator_jersey_only_widgets.append(trim_section)
+        section_row += 1
+        trim_row = 0
         for key, label in (
             ("left_arm_hole_trim_color", "Left arm hole"),
             ("right_arm_hole_trim_color", "Right arm hole"),
             ("collar_trim_color", "Collar trim"),
         ):
-            self._add_generator_color_row(controls, row, key, label)
+            self._add_generator_color_row(trim_controls, trim_row, key, label)
             self.generator_jersey_only_widgets.append(self.generator_color_row_frames[key])
-            row += 1
+            trim_row += 1
 
-        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
-        row += 1
-        ttk.Label(controls, text="Images", style="Status.TLabel").grid(
-            row=row, column=0, sticky=tk.W, pady=(0, 8)
+        _image_section, image_controls = self._add_generator_section(
+            controls,
+            section_row,
+            "Images",
+            expanded=True,
         )
-        row += 1
+        section_row += 1
+        image_row = 0
         for key, label in (
             ("front_wordmark_image", "Front wordmark image"),
             ("left_panel_image", "Left side panel image"),
@@ -1814,7 +1857,7 @@ class JerseyModderApp(tk.Tk):
             ("left_arm_hole_trim_image", "Left arm hole image"),
             ("right_arm_hole_trim_image", "Right arm hole image"),
         ):
-            self._add_generator_upload_row(controls, row, key, label)
+            self._add_generator_upload_row(image_controls, image_row, key, label)
             if key in {
                 "front_wordmark_image",
                 "left_arm_hole_trim_image",
@@ -1822,71 +1865,73 @@ class JerseyModderApp(tk.Tk):
                 "collar_trim_image",
             }:
                 self.generator_jersey_only_widgets.append(self.generator_upload_row_frames[key])
-            row += 1
+            image_row += 1
 
-        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
-        row += 1
-        ttk.Label(controls, text="Logos", style="Status.TLabel").grid(
-            row=row, column=0, sticky=tk.W, pady=(0, 8)
-        )
-        row += 1
-        self._build_logo_controls(controls, row)
-        row += 1
-
-        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
-        row += 1
-        ttk.Label(controls, text="Fabric / wrinkle overlay", style="Status.TLabel").grid(
-            row=row, column=0, sticky=tk.W, pady=(0, 8)
-        )
-        row += 1
-        self._build_fabric_overlay_controls(controls, row)
-        row += 1
-
-        number_separator = ttk.Separator(controls)
-        number_separator.grid(row=row, column=0, sticky="ew", pady=12)
-        self.generator_jersey_only_widgets.append(number_separator)
-        row += 1
-        number_label = ttk.Label(controls, text="Preview number", style="Status.TLabel")
-        number_label.grid(
-            row=row, column=0, sticky=tk.W, pady=(0, 8)
-        )
-        self.generator_jersey_only_widgets.append(number_label)
-        row += 1
-        self._build_generator_number_preview_controls(controls, row)
-        self.generator_jersey_only_widgets.append(self.generator_number_preview_frame)
-        row += 1
-
-        ttk.Separator(controls).grid(row=row, column=0, sticky="ew", pady=12)
-        row += 1
-        ttk.Button(
+        _logo_section, logo_controls = self._add_generator_section(
             controls,
+            section_row,
+            "Logos",
+            expanded=True,
+        )
+        section_row += 1
+        self._build_logo_controls(logo_controls, 0)
+
+        _fabric_section, fabric_controls = self._add_generator_section(
+            controls,
+            section_row,
+            "Fabric / Wrinkles",
+            expanded=False,
+        )
+        section_row += 1
+        self._build_fabric_overlay_controls(fabric_controls, 0)
+
+        number_section, number_controls = self._add_generator_section(
+            controls,
+            section_row,
+            "Preview Number",
+            expanded=False,
+        )
+        self.generator_jersey_only_widgets.append(number_section)
+        section_row += 1
+        self._build_generator_number_preview_controls(number_controls, 0)
+        self.generator_jersey_only_widgets.append(self.generator_number_preview_frame)
+
+        _export_section, export_controls = self._add_generator_section(
+            controls,
+            section_row,
+            "Export",
+            expanded=False,
+        )
+        export_row = 0
+        ttk.Button(
+            export_controls,
             text="Generate Preview",
             command=self.generate_jersey_preview,
-        ).grid(row=row, column=0, sticky="ew", pady=(0, 8))
-        row += 1
+        ).grid(row=export_row, column=0, sticky="ew", pady=(0, 8))
+        export_row += 1
         ttk.Button(
-            controls,
+            export_controls,
             text="Save Generated PNG As",
             command=self.save_generated_texture_as,
-        ).grid(row=row, column=0, sticky="ew")
-        row += 1
+        ).grid(row=export_row, column=0, sticky="ew")
+        export_row += 1
         ttk.Button(
-            controls,
+            export_controls,
             text="Save DDS BC1 As",
             command=self.save_generated_dds_as,
-        ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
-        row += 1
+        ).grid(row=export_row, column=0, sticky="ew", pady=(8, 0))
+        export_row += 1
         ttk.Button(
-            controls,
+            export_controls,
             text="Save Layered PSD As",
             command=self.save_layered_psd_as,
-        ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
-        row += 1
+        ).grid(row=export_row, column=0, sticky="ew", pady=(8, 0))
+        export_row += 1
         ttk.Button(
-            controls,
+            export_controls,
             text="Export Package As...",
             command=self.export_package_as,
-        ).grid(row=row, column=0, sticky="ew", pady=(8, 0))
+        ).grid(row=export_row, column=0, sticky="ew", pady=(8, 0))
 
         controls.columnconfigure(0, weight=1)
 
