@@ -1793,6 +1793,12 @@ class JerseyModderApp(tk.Tk):
             width=5,
         ).grid(row=0, column=3, sticky=tk.E, padx=(8, 0))
         uv_overlay_frame.columnconfigure(2, weight=1)
+        template_row += 1
+        ttk.Button(
+            template_controls,
+            text="Generate Preview",
+            command=self.generate_jersey_preview,
+        ).grid(row=template_row, column=0, sticky="ew", pady=(8, 0))
 
         _color_section, color_controls = self._add_generator_section(
             controls,
