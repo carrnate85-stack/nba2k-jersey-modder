@@ -84,6 +84,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <select id="curveMode">
           <option value="smooth">Smooth curve</option>
           <option value="straight" selected>Straight segments</option>
+          <option value="t">T shape (3 points)</option>
         </select>
         <label for="angleSnap">Angle snapping while drawing</label>
         <select id="angleSnap">
@@ -110,7 +111,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <label class="check"><input id="moveLinked" type="checkbox" checked> Move linked layers together</label>
         <button id="unlinkPath" class="secondary" style="width:100%; margin-top:8px;">Unlink Selected Layer</button>
         <div id="linkStatus" class="small">Layer is not linked.</div>
-        <div class="small">Drag directly on a finished trim to move its whole layer. Angles run clockwise: 0 degrees points right and 90 degrees points down. Right-click finishes the path. Hold Alt while placing a point to bypass snapping.</div>
+        <div class="small">Drag directly on a finished trim to move its whole layer. For a T shape, click both crossbar ends, then click the stem end. Angles run clockwise: 0 degrees points right and 90 degrees points down. Right-click finishes the path. Hold Alt while placing a point to bypass snapping.</div>
       </div>
       <div class="panel">
         <h2>View</h2>
@@ -131,7 +132,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           <button id="loadJson" class="secondary">Load Paths</button>
         </div>
         <input id="loadJsonInput" type="file" accept="application/json,.json" hidden>
-        <div class="small">The generator preview, UV overlay, and editing points are guides only. PNG export contains only the curved trim paths at the full template resolution.</div>
+        <div class="small">The generator preview, UV overlay, and editing points are guides only. PNG export contains only the trim path layers at the full template resolution.</div>
       </div>
     </aside>
   </div>
@@ -178,7 +179,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         width,
         patternScale: Math.max(25, Math.min(400, Number(raw?.patternScale) || 100)),
         patternOffset: Math.max(-1024, Math.min(1024, Number(raw?.patternOffset) || 0)),
-        curve: raw?.curve === "smooth" ? "smooth" : "straight",
+        curve: ["smooth", "straight", "t"].includes(raw?.curve) ? raw.curve : "straight",
         visible: raw?.visible !== false,
         linkGroup: raw?.linkGroup ? String(raw.linkGroup) : null,
         reverseCrossSection: Boolean(raw?.reverseCrossSection),
@@ -340,6 +341,31 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         }),
         reverseCrossSection: true,
       };
+    }
+
+    function tJunction(path) {
+      if (path.points.length < 2) return null;
+      return {
+        x: (path.points[0].x + path.points[1].x) / 2,
+        y: (path.points[0].y + path.points[1].y) / 2,
+      };
+    }
+
+    function pathPointRuns(path) {
+      if (path.curve !== "t") return [path.points];
+      const runs = [];
+      if (path.points.length >= 2) runs.push([path.points[0], path.points[1]]);
+      const junction = tJunction(path);
+      if (junction && path.points.length >= 3) runs.push([junction, path.points[2]]);
+      return runs;
+    }
+
+    function minimumPathPoints(path) {
+      return path?.curve === "t" ? 3 : 2;
+    }
+
+    function pathIsRenderable(path) {
+      return path.points.length >= minimumPathPoints(path);
     }
 
     function centerlineSamples(path, targetStep) {
@@ -561,7 +587,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       }
     }
 
-    function renderPatternPath(target, path, targetStep) {
+    function renderPatternPolyline(target, path, targetStep) {
       const samples = centerlineSamples(path, targetStep);
       if (samples.length < 2 || !patternImage.complete) return;
       if (patternLengthUniform && renderUniformPatternPath(target, path, samples)) return;
@@ -627,6 +653,17 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       target.restore();
     }
 
+    function renderPatternPath(target, path, targetStep) {
+      if (path.curve !== "t") {
+        renderPatternPolyline(target, path, targetStep);
+        return;
+      }
+      pathPointRuns(path).forEach(points => {
+        if (points.length < 2) return;
+        renderPatternPolyline(target, {...path, points, curve: "straight"}, targetStep);
+      });
+    }
+
     function drawPathGuide(target, path) {
       if (path.points.length) {
         target.save();
@@ -634,7 +671,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         target.lineWidth = 2 / viewScale;
         target.setLineDash([8 / viewScale, 6 / viewScale]);
         target.beginPath();
-        path.points.forEach((point, index) => index ? target.lineTo(point.x, point.y) : target.moveTo(point.x, point.y));
+        pathPointRuns(path).forEach(points => {
+          points.forEach((point, index) => index ? target.lineTo(point.x, point.y) : target.moveTo(point.x, point.y));
+        });
         target.stroke();
         target.setLineDash([]);
         if (document.getElementById("showPoints").checked) {
@@ -647,9 +686,16 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
             target.fill();
             target.stroke();
           });
+          const junction = path.curve === "t" ? tJunction(path) : null;
+          if (junction) {
+            target.beginPath();
+            target.arc(junction.x, junction.y, 5 / viewScale, 0, Math.PI * 2);
+            target.fillStyle = "#55d6ff";
+            target.fill();
+          }
         }
         if (drawing && !path.finished && livePoint && path.points.length) {
-          drawLiveSegment(target, path.points[path.points.length - 1], livePoint);
+          drawLiveSegment(target, drawingStartPoint(path), livePoint);
         }
         target.restore();
       }
@@ -704,13 +750,19 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const point = canvasPoint(event);
       return {x: Math.max(0, Math.min(project.width, (point.x - panX) / viewScale)), y: Math.max(0, Math.min(project.height, (point.y - panY) / viewScale))};
     }
+    function drawingStartPoint(path) {
+      if (path?.curve === "t" && path.points.length === 2) {
+        return tJunction(path);
+      }
+      return path?.points[path.points.length - 1] || null;
+    }
     function drawingPoint(event) {
       const raw = imagePoint(event);
       const path = activePath();
       if (!path?.points.length || event.altKey) return raw;
       const snapDegrees = Number(document.getElementById("angleSnap").value) || 0;
       if (!snapDegrees) return raw;
-      const start = path.points[path.points.length - 1];
+      const start = drawingStartPoint(path);
       const deltaX = raw.x - start.x;
       const deltaY = raw.y - start.y;
       const length = Math.hypot(deltaX, deltaY);
@@ -727,8 +779,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       let start = null;
       let end = null;
       if (drawing && path?.points.length && livePoint) {
-        start = path.points[path.points.length - 1];
+        start = drawingStartPoint(path);
         end = livePoint;
+      } else if (path?.curve === "t" && path.points.length >= 3) {
+        start = tJunction(path);
+        end = path.points[2];
       } else if (path?.points.length >= 2) {
         start = path.points[path.points.length - 2];
         end = path.points[path.points.length - 1];
@@ -760,12 +815,17 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
 
     function hitActivePath(event) {
       const path = activePath();
-      if (!path?.visible || path.points.length < 2 || !path.finished) return false;
+      if (!path?.visible || !pathIsRenderable(path) || !path.finished) return false;
       const point = imagePoint(event);
-      const samples = centerlineSamples(path, Math.max(4, 10 / viewScale));
       const threshold = path.width / 2 + 12 / viewScale;
-      for (let index = 0; index < samples.length - 1; index++) {
-        if (pointToSegmentDistance(point, samples[index], samples[index + 1]) <= threshold) return true;
+      for (const points of pathPointRuns(path)) {
+        const samples = centerlineSamples(
+          {...path, points, curve: path.curve === "t" ? "straight" : path.curve},
+          Math.max(4, 10 / viewScale),
+        );
+        for (let index = 0; index < samples.length - 1; index++) {
+          if (pointToSegmentDistance(point, samples[index], samples[index + 1]) <= threshold) return true;
+        }
       }
       return false;
     }
@@ -845,6 +905,10 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         path.points.push(drawingPoint(event));
         selectedPointIndex = path.points.length - 1;
         livePoint = null;
+        if (path.curve === "t" && path.points.length >= 3) {
+          finishPath();
+          return;
+        }
         updateSegmentReadout();
         saveLocalPaths();
         updatePathList();
@@ -916,7 +980,10 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     }
     function finishPath() {
       const path = activePath();
-      if (!path || path.points.length < 2) { setStatus("Add at least two points before finishing the path."); return; }
+      if (!path || path.points.length < minimumPathPoints(path)) {
+        setStatus(path?.curve === "t" ? "A T shape needs two crossbar ends and one stem end." : "Add at least two points before finishing the path.");
+        return;
+      }
       path.finished = true;
       drawing = false;
       selectedPointIndex = -1;
@@ -931,6 +998,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const path = activePath();
       if (!path?.points.length) return;
       path.points.pop();
+      path.finished = false;
+      drawing = true;
       selectedPointIndex = path.points.length - 1;
       livePoint = null;
       updateSegmentReadout();
@@ -972,7 +1041,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
 
     function createDerivedPath(transform, suffix) {
       const source = activePath();
-      if (!source || source.points.length < 2) {
+      if (!source || !source.finished || !pathIsRenderable(source)) {
         setStatus("Create or select a finished trim path first.");
         return;
       }
@@ -1078,6 +1147,30 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         queueDraw();
       });
     }
+    function changePathShape(event) {
+      const path = activePath();
+      if (!path) return;
+      path.curve = ["smooth", "straight", "t"].includes(event.target.value)
+        ? event.target.value
+        : "straight";
+      if (path.curve === "t") {
+        path.points = path.points.slice(0, 3);
+        path.finished = path.points.length >= 3;
+        drawing = !path.finished;
+        setStatus(path.finished
+          ? `${path.name} changed to a T shape.`
+          : "T shape: click two crossbar ends, then click the stem end.");
+      } else if (path.points.length < 2) {
+        path.finished = false;
+        drawing = true;
+      }
+      selectedPointIndex = -1;
+      livePoint = null;
+      updateSegmentReadout();
+      updatePathList();
+      saveLocalPaths();
+      queueDraw();
+    }
     function bindNumericRange(rangeId, numberId, property, minimum, maximum) {
       const range = document.getElementById(rangeId);
       const number = document.getElementById(numberId);
@@ -1105,11 +1198,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       output.width = project.width;
       output.height = project.height;
       const outputContext = output.getContext("2d");
-      renderPaths.filter(path => path.visible && path.points.length >= 2).forEach(path => renderPatternPath(outputContext, path, 1));
+      renderPaths.filter(path => path.visible && pathIsRenderable(path)).forEach(path => renderPatternPath(outputContext, path, 1));
       return output;
     }
     function savePng() {
-      if (!paths.some(path => path.points.length >= 2)) { setStatus("Create at least one path before saving."); return; }
+      if (!paths.some(pathIsRenderable)) { setStatus("Create at least one path before saving."); return; }
       const garmentName = safeFileName(project?.garment || "uniform");
       renderExport().toBlob(blob => downloadBlob(blob, `${garmentName}_trim_paths.png`), "image/png");
       setStatus(`Saved ${project.width} x ${project.height} transparent trim PNG.`);
@@ -1119,7 +1212,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     }
     function saveSelectedPng() {
       const path = activePath();
-      if (!path || path.points.length < 2) { setStatus("Select a finished trim layer first."); return; }
+      if (!path || !pathIsRenderable(path)) { setStatus("Select a finished trim layer first."); return; }
       renderExport([{...path, visible: true}]).toBlob(blob => downloadBlob(blob, `${safeFileName(path.name)}.png`), "image/png");
       setStatus(`Saved ${path.name} as a transparent layer PNG.`);
     }
@@ -1127,7 +1220,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       return canvas.toDataURL("image/png");
     }
     async function sendToGenerator() {
-      const renderable = paths.filter(path => path.visible && path.points.length >= 2);
+      const renderable = paths.filter(path => path.visible && pathIsRenderable(path));
       if (!renderable.length) { setStatus("Create at least one visible trim layer first."); return; }
       setStatus(`Sending ${renderable.length} trim layer${renderable.length === 1 ? "" : "s"} to Generator...`);
       try {
@@ -1281,7 +1374,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     document.getElementById("saveJson").onclick = saveJson;
     document.getElementById("loadJson").onclick = () => document.getElementById("loadJsonInput").click();
     document.getElementById("loadJsonInput").onchange = event => event.target.files[0] && loadJsonFile(event.target.files[0]);
-    bindPathControl("curveMode", "curve");
+    document.getElementById("curveMode").addEventListener("change", changePathShape);
     bindNumericRange("trimWidth", "trimWidthNumber", "width", 2, 300);
     bindNumericRange("patternScale", "patternScaleNumber", "patternScale", 25, 400);
     bindNumericRange("patternOffset", "patternOffsetNumber", "patternOffset", -1024, 1024);
