@@ -675,6 +675,19 @@ class TrimCreatorTests(unittest.TestCase):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_trim_path_lab_uses_selected_template_uv_overlay(self) -> None:
+        class Selection:
+            def get(self) -> str:
+                return "Retro shorts"
+
+        app = object.__new__(JerseyModderApp)
+        app.trim_path_template_var = Selection()
+
+        self.assertEqual(
+            app._trim_path_lab_uv_path(),
+            SHORTS_TEMPLATE_RETRO_UV_IMAGE,
+        )
+
     def test_blender_preview_models_follow_texture_creator_selection(self) -> None:
         class Selection:
             def __init__(self, value: str) -> None:

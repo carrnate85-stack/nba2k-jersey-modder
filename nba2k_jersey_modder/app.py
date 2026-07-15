@@ -2873,6 +2873,7 @@ class JerseyModderApp(tk.Tk):
 
     def _trim_path_lab_web_project(self) -> dict:
         template_path = self._trim_path_lab_template_path()
+        uv_path = self._trim_path_lab_uv_path()
         width, height = read_image_size(template_path)
         result = self._trim_path_lab_selected_result()
         return {
@@ -2882,6 +2883,10 @@ class JerseyModderApp(tk.Tk):
             "width": width,
             "height": height,
             "backgroundUrl": "/api/trim-path/background",
+            "uvOverlay": {
+                "available": uv_path.exists(),
+                "imageUrl": "/api/trim-path/uv",
+            },
             "patternUrl": "/api/trim-path/pattern",
             "patternName": result.output_path.name if result is not None else "",
             "templateName": self.trim_path_template_var.get(),
@@ -2897,6 +2902,16 @@ class JerseyModderApp(tk.Tk):
         path = self._trim_path_lab_template_path()
         if not path.exists():
             raise FileNotFoundError(f"Shorts template not found: {path}")
+        return path.read_bytes(), image_content_type(path)
+
+    def _trim_path_lab_uv_path(self) -> Path:
+        template_path = self._trim_path_lab_template_path()
+        return template_path.with_name(f"{template_path.stem}.uv.png")
+
+    def _trim_path_lab_uv_image(self) -> tuple[bytes, str]:
+        path = self._trim_path_lab_uv_path()
+        if not path.exists():
+            raise FileNotFoundError(f"UV overlay not found: {path}")
         return path.read_bytes(), image_content_type(path)
 
     def _trim_path_lab_pattern_image(self) -> tuple[bytes, str]:

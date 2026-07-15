@@ -116,6 +116,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <h2>View</h2>
         <label for="templateOpacity">Template opacity</label>
         <div class="range-row"><input id="templateOpacity" type="range" min="0" max="100" value="65"><output id="templateOpacityValue">65%</output></div>
+        <label class="check"><input id="showUvOverlay" type="checkbox" checked> Show UV overlay</label>
+        <label for="uvOpacity">UV opacity</label>
+        <div class="range-row"><input id="uvOpacity" type="range" min="0" max="100" value="45"><output id="uvOpacityValue">45%</output></div>
         <label class="check"><input id="showPoints" type="checkbox" checked> Show path points</label>
       </div>
       <div class="panel">
@@ -138,6 +141,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     const stage = document.getElementById("stage");
     const statusNode = document.getElementById("status");
     const backgroundImage = new Image();
+    const uvImage = new Image();
     const patternImage = new Image();
     const patternSampleCanvas = document.createElement("canvas");
     const patternSampleContext = patternSampleCanvas.getContext("2d", {willReadFrequently: true});
@@ -159,6 +163,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     let livePoint = null;
     let renderQueued = false;
     let patternLengthUniform = false;
+    let uvOverlayAvailable = false;
 
     function setStatus(message) { statusNode.textContent = message; }
     function activePath() { return paths[activePathIndex] || null; }
@@ -193,10 +198,17 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           return;
         }
         project = nextProject;
-        await Promise.all([
+        uvOverlayAvailable = Boolean(project.uvOverlay?.available);
+        const imageLoads = [
           loadImage(backgroundImage, project.backgroundUrl + "?t=" + Date.now()),
           loadImage(patternImage, project.patternUrl + "?t=" + Date.now()),
-        ]);
+        ];
+        if (uvOverlayAvailable) {
+          imageLoads.push(loadImage(uvImage, project.uvOverlay.imageUrl + "?t=" + Date.now()));
+        }
+        await Promise.all(imageLoads);
+        document.getElementById("showUvOverlay").disabled = !uvOverlayAvailable;
+        document.getElementById("uvOpacity").disabled = !uvOverlayAvailable;
         patternSampleCanvas.width = Math.max(1, patternImage.naturalWidth);
         patternSampleCanvas.height = Math.max(1, patternImage.naturalHeight);
         patternSampleContext.clearRect(0, 0, patternSampleCanvas.width, patternSampleCanvas.height);
@@ -254,6 +266,10 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       ctx.globalAlpha = Number(document.getElementById("templateOpacity").value) / 100;
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(backgroundImage, panX, panY, project.width * viewScale, project.height * viewScale);
+      if (uvOverlayAvailable && document.getElementById("showUvOverlay").checked && uvImage.complete) {
+        ctx.globalAlpha = Number(document.getElementById("uvOpacity").value) / 100;
+        ctx.drawImage(uvImage, panX, panY, project.width * viewScale, project.height * viewScale);
+      }
       ctx.globalAlpha = 1;
       ctx.translate(panX, panY);
       ctx.scale(viewScale, viewScale);
@@ -1040,6 +1056,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       document.getElementById("patternScaleNumber").value = document.getElementById("patternScale").value;
       document.getElementById("patternOffsetNumber").value = document.getElementById("patternOffset").value;
       document.getElementById("templateOpacityValue").value = `${document.getElementById("templateOpacity").value}%`;
+      document.getElementById("uvOpacityValue").value = `${document.getElementById("uvOpacity").value}%`;
     }
     function bindPathControl(id, property, conversion = value => value) {
       document.getElementById(id).addEventListener("input", event => {
@@ -1263,6 +1280,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       queueDraw();
     };
     document.getElementById("templateOpacity").oninput = () => { updateControlLabels(); queueDraw(); };
+    document.getElementById("showUvOverlay").onchange = queueDraw;
+    document.getElementById("uvOpacity").oninput = () => { updateControlLabels(); queueDraw(); };
     document.getElementById("showPoints").onchange = queueDraw;
     window.addEventListener("resize", resizeCanvas);
     resizeCanvas();

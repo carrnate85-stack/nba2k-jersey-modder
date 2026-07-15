@@ -1678,6 +1678,10 @@ class WebEditorServer:
                     data, content_type = app._run_on_ui_thread(app._trim_path_lab_background_image)
                     self._send(data, content_type)
                     return
+                if self.path.startswith("/api/trim-path/uv"):
+                    data, content_type = app._run_on_ui_thread(app._trim_path_lab_uv_image)
+                    self._send(data, content_type)
+                    return
                 if self.path.startswith("/api/trim-path/pattern"):
                     data, content_type = app._run_on_ui_thread(app._trim_path_lab_pattern_image)
                     self._send(data, content_type)
