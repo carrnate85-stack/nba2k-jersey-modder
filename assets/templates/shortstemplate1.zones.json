@@ -2,14 +2,14 @@
   "image_path": "assets/templates/shortstemplate1.png",
   "zones": [
     {
-      "name": "shorts_waistband_top",
+      "name": "shorts_waistband_left",
       "zone_type": "base",
-      "x": 0,
-      "y": 0,
-      "width": 1267,
-      "height": 119,
+      "x": 180,
+      "y": 28,
+      "width": 1050,
+      "height": 91,
       "color": "#5f61be",
-      "layer": 0
+      "layer": 1
     },
     {
       "name": "shorts_left_panel",
@@ -22,14 +22,14 @@
       "layer": 5
     },
     {
-      "name": "shorts_waistband_bottom",
+      "name": "shorts_waistband_right",
       "zone_type": "base",
-      "x": 0,
-      "y": 1024,
-      "width": 1222,
-      "height": 117,
+      "x": 200,
+      "y": 1052,
+      "width": 1000,
+      "height": 91,
       "color": "#5f61be",
-      "layer": 0
+      "layer": 1
     },
     {
       "name": "shorts_right_panel",

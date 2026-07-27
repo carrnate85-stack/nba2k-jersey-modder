@@ -1,13 +1,13 @@
 {
-  "image_path": "assets/templates/mastertemplate3.png",
+  "image_path": "assets/templates/mastertemplate4.png",
   "zones": [
     {
       "name": "front_jersey_base",
       "zone_type": "base",
       "x": 884,
-      "y": 394,
+      "y": 392,
       "width": 937,
-      "height": 1654,
+      "height": 1656,
       "color": "#05ff05",
       "layer": 0
     },
@@ -40,6 +40,26 @@
       "height": 389,
       "color": "#000000",
       "layer": 40
+    },
+    {
+      "name": "left_side_panel",
+      "zone_type": "stripe",
+      "x": 761,
+      "y": 1008,
+      "width": 246,
+      "height": 1040,
+      "color": "#1820c9",
+      "layer": 20
+    },
+    {
+      "name": "right_side_panel",
+      "zone_type": "stripe",
+      "x": 1699,
+      "y": 1010,
+      "width": 244,
+      "height": 1038,
+      "color": "#c92918",
+      "layer": 20
     },
     {
       "name": "collar_background",
@@ -80,6 +100,36 @@
       "height": 66,
       "color": "#cd12e3",
       "layer": 30
+    },
+    {
+      "name": "nike_logo",
+      "zone_type": "patch",
+      "x": 1081,
+      "y": 744,
+      "width": 139,
+      "height": 70,
+      "color": "#3c7344",
+      "layer": 50
+    },
+    {
+      "name": "sponsor_patch",
+      "zone_type": "patch",
+      "x": 1478,
+      "y": 706,
+      "width": 171,
+      "height": 87,
+      "color": "#be5f5f",
+      "layer": 50
+    },
+    {
+      "name": "nba_logo",
+      "zone_type": "logo",
+      "x": 343,
+      "y": 699,
+      "width": 38,
+      "height": 87,
+      "color": "#343194",
+      "layer": 50
     }
   ]
 }

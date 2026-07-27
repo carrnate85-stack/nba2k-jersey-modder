@@ -4,7 +4,13 @@ First-pass desktop GUI for opening NBA 2K jersey `.iff` mod files and inspecting
 
 ## Run
 
-Double-click `run.bat`, or run:
+Double-click `Launch NBA 2K Jersey Modder.bat`.
+
+The launcher checks the configured GitHub repository for updates before opening the
+app. It preserves local tracked-file edits with Git autostash and continues with
+the installed version if GitHub is unavailable.
+
+You can also run:
 
 ```powershell
 python main.py

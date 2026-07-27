@@ -22,6 +22,8 @@ output/
 exports/
 temp/
 tmp/
+analysis_outputs/
+patched_addons/
 
 *.iff
 unitweak_sample.bin

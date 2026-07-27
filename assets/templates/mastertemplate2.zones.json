@@ -1,5 +1,5 @@
 {
-  "image_path": "C:\\Users\\carrn\\OneDrive\\Documents\\NBA 2k Jersey Modder\\assets\\templates\\mastertemplate2.png",
+  "image_path": "assets/templates/mastertemplate2.png",
   "zones": [
     {
       "name": "front_jersey_base",
@@ -63,7 +63,7 @@
     },
     {
       "name": "collar_background",
-      "zone_type": "trim",
+      "zone_type": "base",
       "x": 0,
       "y": 0,
       "width": 2048,
@@ -100,6 +100,36 @@
       "height": 66,
       "color": "#cd12e3",
       "layer": 30
+    },
+    {
+      "name": "nike_logo",
+      "zone_type": "patch",
+      "x": 1081,
+      "y": 744,
+      "width": 139,
+      "height": 70,
+      "color": "#3c7344",
+      "layer": 50
+    },
+    {
+      "name": "sponsor_patch",
+      "zone_type": "patch",
+      "x": 1478,
+      "y": 706,
+      "width": 171,
+      "height": 87,
+      "color": "#be5f5f",
+      "layer": 50
+    },
+    {
+      "name": "nba_logo",
+      "zone_type": "logo",
+      "x": 343,
+      "y": 699,
+      "width": 38,
+      "height": 87,
+      "color": "#343194",
+      "layer": 50
     }
   ]
 }
