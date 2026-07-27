@@ -2121,14 +2121,22 @@ class JerseyModderApp(tk.Tk):
                     background_options,
                     text="Tile image",
                     variable=self.generator_background_tile_var,
-                    command=self._schedule_generator_preview_refresh,
+                    command=self._on_generator_background_tile_changed,
                 ).grid(row=0, column=0, sticky="w")
+                self.generator_background_tile_controls = ttk.Frame(
+                    background_options
+                )
+                self.generator_background_tile_controls.grid(
+                    row=1,
+                    column=0,
+                    sticky="ew",
+                )
                 ttk.Label(
-                    background_options,
+                    self.generator_background_tile_controls,
                     text="Tile size",
-                ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+                ).grid(row=0, column=0, sticky="w", pady=(4, 0))
                 tk.Scale(
-                    background_options,
+                    self.generator_background_tile_controls,
                     from_=10,
                     to=200,
                     orient=tk.HORIZONTAL,
@@ -2138,8 +2146,10 @@ class JerseyModderApp(tk.Tk):
                     command=lambda _value: (
                         self._schedule_generator_preview_refresh_debounced()
                     ),
-                ).grid(row=2, column=0, sticky="ew")
+                ).grid(row=1, column=0, sticky="ew")
+                self.generator_background_tile_controls.columnconfigure(0, weight=1)
                 background_options.columnconfigure(0, weight=1)
+                self._sync_generator_background_tile_controls()
                 self.generator_jersey_only_widgets.append(background_options)
                 image_row += 1
 
@@ -8733,6 +8743,19 @@ class JerseyModderApp(tk.Tk):
             self._run_scheduled_generator_preview_refresh,
         )
 
+    def _on_generator_background_tile_changed(self) -> None:
+        self._sync_generator_background_tile_controls()
+        self._schedule_generator_preview_refresh()
+
+    def _sync_generator_background_tile_controls(self) -> None:
+        controls = getattr(self, "generator_background_tile_controls", None)
+        if controls is None:
+            return
+        if self.generator_background_tile_var.get():
+            controls.grid()
+        else:
+            controls.grid_remove()
+
     def _schedule_generator_preview_refresh_debounced(
         self,
         delay_ms: int = 180,
@@ -9184,6 +9207,7 @@ class JerseyModderApp(tk.Tk):
                 else False
             )
         )
+        self._sync_generator_background_tile_controls()
         self.generator_background_tile_scale_var.set(
             self._project_int(
                 jersey_background.get("tileScalePercent")
