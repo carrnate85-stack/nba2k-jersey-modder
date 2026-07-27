@@ -86,6 +86,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           <option value="straight" selected>Straight segments</option>
           <option value="t">T shape (3 points)</option>
         </select>
+        <label id="curveStrengthLabel" for="curveStrength">Curve bend (smooth only)</label>
+        <div class="range-row"><input id="curveStrength" type="range" min="0" max="200" value="100"><input id="curveStrengthNumber" type="number" min="0" max="200" value="100" aria-label="Curve bend value"></div>
+        <div class="small">100% is the standard curve. Lower values tighten the bend; higher values create a broader sweep.</div>
         <label id="tJunctionLabel" for="tJunctionMode">T junction (T shape only)</label>
         <select id="tJunctionMode">
           <option value="open" selected>Open - middle band connected</option>
@@ -174,10 +177,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function setStatus(message) { statusNode.textContent = message; }
     function activePath() { return paths[activePathIndex] || null; }
     function defaultPath() {
-      return {name: `Trim Path ${paths.length + 1}`, points: [], width: 64, patternScale: 100, patternOffset: 0, curve: "straight", tJunctionMode: "open", visible: true, linkGroup: null, reverseCrossSection: false, finished: false};
+      return {name: `Trim Path ${paths.length + 1}`, points: [], width: 64, patternScale: 100, patternOffset: 0, curve: "straight", curveStrength: 100, tJunctionMode: "open", visible: true, linkGroup: null, reverseCrossSection: false, finished: false};
     }
     function cleanPath(raw, index) {
       const width = Math.max(2, Math.min(300, Number(raw?.width) || 64));
+      const rawCurveStrength = raw?.curveStrength == null ? 100 : Number(raw.curveStrength);
       return {
         name: String(raw?.name || `Trim Path ${index + 1}`),
         points: Array.isArray(raw?.points) ? raw.points.map(point => ({x: Number(point.x) || 0, y: Number(point.y) || 0})) : [],
@@ -185,6 +189,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         patternScale: Math.max(25, Math.min(400, Number(raw?.patternScale) || 100)),
         patternOffset: Math.max(-1024, Math.min(1024, Number(raw?.patternOffset) || 0)),
         curve: ["smooth", "straight", "t"].includes(raw?.curve) ? raw.curve : "straight",
+        curveStrength: Math.max(0, Math.min(200, Number.isFinite(rawCurveStrength) ? rawCurveStrength : 100)),
         tJunctionMode: raw?.tJunctionMode === "closed" ? "closed" : "open",
         visible: raw?.visible !== false,
         linkGroup: raw?.linkGroup ? String(raw.linkGroup) : null,
@@ -428,6 +433,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       if (points.length < 2) return points.slice();
       if (path.curve === "straight" || points.length < 3) return straightSamples(points, targetStep);
       const samples = [];
+      const tangentScale = Math.max(0, Math.min(2, Number(path.curveStrength ?? 100) / 100));
       for (let index = 0; index < points.length - 1; index++) {
         const p0 = points[Math.max(0, index - 1)];
         const p1 = points[index];
@@ -435,13 +441,25 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         const p3 = points[Math.min(points.length - 1, index + 2)];
         const distance = Math.hypot(p2.x - p1.x, p2.y - p1.y);
         const steps = Math.max(2, Math.ceil(distance / targetStep));
+        const tangent1 = {
+          x: (p2.x - p0.x) * .5 * tangentScale,
+          y: (p2.y - p0.y) * .5 * tangentScale,
+        };
+        const tangent2 = {
+          x: (p3.x - p1.x) * .5 * tangentScale,
+          y: (p3.y - p1.y) * .5 * tangentScale,
+        };
         for (let step = index === 0 ? 0 : 1; step <= steps; step++) {
           const t = step / steps;
           const t2 = t * t;
           const t3 = t2 * t;
+          const h00 = 2 * t3 - 3 * t2 + 1;
+          const h10 = t3 - 2 * t2 + t;
+          const h01 = -2 * t3 + 3 * t2;
+          const h11 = t3 - t2;
           samples.push({
-            x: .5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2*p0.x - 5*p1.x + 4*p2.x - p3.x) * t2 + (-p0.x + 3*p1.x - 3*p2.x + p3.x) * t3),
-            y: .5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2*p0.y - 5*p1.y + 4*p2.y - p3.y) * t2 + (-p0.y + 3*p1.y - 3*p2.y + p3.y) * t3),
+            x: h00 * p1.x + h10 * tangent1.x + h01 * p2.x + h11 * tangent2.x,
+            y: h00 * p1.y + h10 * tangent1.y + h01 * p2.y + h11 * tangent2.y,
           });
         }
       }
@@ -1238,13 +1256,17 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function syncControls() {
       const path = activePath();
       const disabled = !path;
-      ["curveMode", "tJunctionMode", "trimWidth", "trimWidthNumber", "patternScale", "patternScaleNumber", "patternOffset", "patternOffsetNumber", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
+      ["curveMode", "curveStrength", "curveStrengthNumber", "tJunctionMode", "trimWidth", "trimWidthNumber", "patternScale", "patternScaleNumber", "patternOffset", "patternOffsetNumber", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
       document.getElementById("linkStatus").textContent = "Layer is not linked.";
       if (!path) {
         updateSegmentReadout();
         return;
       }
       document.getElementById("curveMode").value = path.curve;
+      document.getElementById("curveStrength").value = path.curveStrength;
+      document.getElementById("curveStrengthNumber").value = path.curveStrength;
+      document.getElementById("curveStrength").disabled = path.curve !== "smooth";
+      document.getElementById("curveStrengthNumber").disabled = path.curve !== "smooth";
       document.getElementById("tJunctionMode").value = path.tJunctionMode;
       document.getElementById("tJunctionMode").disabled = path.curve !== "t";
       document.getElementById("trimWidth").value = path.width;
@@ -1259,6 +1281,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       updateControlLabels();
     }
     function updateControlLabels() {
+      document.getElementById("curveStrengthNumber").value = document.getElementById("curveStrength").value;
       document.getElementById("trimWidthNumber").value = document.getElementById("trimWidth").value;
       document.getElementById("patternScaleNumber").value = document.getElementById("patternScale").value;
       document.getElementById("patternOffsetNumber").value = document.getElementById("patternOffset").value;
@@ -1506,6 +1529,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     document.getElementById("loadJsonInput").onchange = event => event.target.files[0] && loadJsonFile(event.target.files[0]);
     document.getElementById("curveMode").addEventListener("change", changePathShape);
     bindPathControl("tJunctionMode", "tJunctionMode");
+    bindNumericRange("curveStrength", "curveStrengthNumber", "curveStrength", 0, 200);
     bindNumericRange("trimWidth", "trimWidthNumber", "width", 2, 300);
     bindNumericRange("patternScale", "patternScaleNumber", "patternScale", 25, 400);
     bindNumericRange("patternOffset", "patternOffsetNumber", "patternOffset", -1024, 1024);

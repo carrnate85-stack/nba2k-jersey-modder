@@ -83,6 +83,7 @@ from nba2k_jersey_modder.trim_creator import (
     create_trim_strip_from_line,
     create_trim_strips_from_mockup,
 )
+from nba2k_jersey_modder.trim_path_lab import TRIM_PATH_LAB_HTML
 from nba2k_jersey_modder.tweak_iff import (
     FRONT_NUMBER_HASHES,
     inspect_front_number_tweak,
@@ -105,6 +106,12 @@ def _fake_tweak_scalar(hash_id: str, value: float, minimum: float, maximum: floa
 
 
 class ScannerTests(unittest.TestCase):
+    def test_trim_path_lab_has_saved_smooth_curve_bend_control(self) -> None:
+        self.assertIn('id="curveStrength"', TRIM_PATH_LAB_HTML)
+        self.assertIn('id="curveStrengthNumber"', TRIM_PATH_LAB_HTML)
+        self.assertIn("curveStrength: 100", TRIM_PATH_LAB_HTML)
+        self.assertIn("Number(path.curveStrength ?? 100) / 100", TRIM_PATH_LAB_HTML)
+
     def test_logo_ai_prompt_straightens_only_accidental_distortion(self) -> None:
         app = object.__new__(JerseyModderApp)
         app._logo_creator_canvas_size = lambda: 1024
