@@ -32,6 +32,7 @@ from nba2k_jersey_modder.font_iff import (
 from nba2k_jersey_modder.game_manifest import (
     ManifestEntry,
     extract_manifest_iff,
+    find_manifest_entry,
     load_font_manifest_entries,
 )
 from nba2k_jersey_modder.iff_patch import Replacement, apply_replacements, can_replace_resource
@@ -233,6 +234,45 @@ class GameManifestTests(unittest.TestCase):
                 ManifestEntry("clothing/team_home_font.iff", "0A", 120, 4500),
                 ManifestEntry("clothing/team_away_font.iff", "0B", 10, 5000),
             ],
+        )
+
+    def test_find_manifest_entry_supports_exact_and_unique_basename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest = Path(tmp_dir) / "manifest"
+            manifest.write_text(
+                "clothing/team_home_font.iff,0A,120,4500\n"
+                "clothing/team_home_tweak.iff,0B,20,1500\n",
+                encoding="utf-8",
+            )
+
+            exact = find_manifest_entry(
+                manifest,
+                "clothing/team_home_tweak.iff",
+            )
+            basename = find_manifest_entry(
+                manifest,
+                "team_home_tweak.iff",
+                allow_unique_basename=True,
+            )
+
+        expected = ManifestEntry(
+            "clothing/team_home_tweak.iff",
+            "0B",
+            20,
+            1500,
+        )
+        self.assertEqual(exact, expected)
+        self.assertEqual(basename, expected)
+
+    def test_companion_tweak_name_replaces_font_suffix(self) -> None:
+        self.assertEqual(
+            JerseyModderApp._companion_tweak_name(
+                "clothing/clothing_resource_u005bos_current_home_font.iff"
+            ),
+            "clothing/clothing_resource_u005bos_current_home_tweak.iff",
+        )
+        self.assertIsNone(
+            JerseyModderApp._companion_tweak_name("unrelated_font_archive.zip")
         )
 
     def test_extract_manifest_iff_reads_standard_zip_archive_entry(self) -> None:

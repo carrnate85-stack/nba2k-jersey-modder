@@ -32,6 +32,7 @@ from .game_manifest import (
     DEFAULT_NBA2K26_ROOT,
     ManifestEntry,
     extract_manifest_iff,
+    find_manifest_entry,
     load_font_manifest_entries,
 )
 from .generator import (
@@ -6527,7 +6528,10 @@ class JerseyModderApp(tk.Tk):
             return
         try:
             iff_path = self._extract_game_font_to_cache(entry)
-            self._load_number_font_iff_path(iff_path)
+            self._load_number_font_iff_path(
+                iff_path,
+                companion_manifest_entry=entry,
+            )
             self._prune_game_font_iff_cache(iff_path)
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
             messagebox.showerror(
@@ -6611,7 +6615,12 @@ class JerseyModderApp(tk.Tk):
             text=f"Imported font colors from {Path(selected).name}."
         )
 
-    def _load_number_font_iff_path(self, selected: Path) -> None:
+    def _load_number_font_iff_path(
+        self,
+        selected: Path,
+        *,
+        companion_manifest_entry: ManifestEntry | None = None,
+    ) -> None:
         info = inspect_font_number_texture(selected)
         sheet = extract_number_sheet_from_font_iff(selected)
         digits = split_number_sheet_digits(sheet)
@@ -6641,6 +6650,123 @@ class JerseyModderApp(tk.Tk):
         )
         self._refresh_number_creator_digit_list()
         self.refresh_number_creator_sheet_preview()
+        self._auto_load_companion_tweak(
+            selected,
+            companion_manifest_entry=companion_manifest_entry,
+        )
+
+    def _auto_load_companion_tweak(
+        self,
+        font_path: Path,
+        *,
+        companion_manifest_entry: ManifestEntry | None,
+    ) -> None:
+        font_name = (
+            companion_manifest_entry.name
+            if companion_manifest_entry is not None
+            else font_path.name
+        )
+        tweak_name = self._companion_tweak_name(font_name)
+        if tweak_name is None:
+            self._clear_tweak_editor_for_companion(
+                f"No companion tweak naming match for {font_path.name}."
+            )
+            return
+
+        sibling = font_path.with_name(Path(tweak_name).name)
+        if companion_manifest_entry is None and sibling.is_file():
+            try:
+                self._load_tweak_iff_path(sibling, automatic=True)
+            except Exception as exc:  # noqa: BLE001 - automatic GUI boundary.
+                self._clear_tweak_editor_for_companion(
+                    f"Companion tweak could not be loaded: {exc}"
+                )
+            return
+
+        game_root = Path(
+            getattr(self, "game_font_root", DEFAULT_NBA2K26_ROOT)
+        )
+        manifest_path = game_root / "manifest"
+        if not manifest_path.is_file():
+            self._clear_tweak_editor_for_companion(
+                f"Companion tweak {Path(tweak_name).name} was not found."
+            )
+            return
+
+        logical_tweak_name = tweak_name
+        allow_basename = companion_manifest_entry is None
+        if companion_manifest_entry is None:
+            try:
+                relative_font = font_path.resolve().relative_to(
+                    (game_root / "mods").resolve()
+                )
+            except ValueError:
+                logical_tweak_name = Path(tweak_name).name
+            else:
+                relative_tweak = self._companion_tweak_name(
+                    relative_font.as_posix()
+                )
+                if relative_tweak is not None:
+                    logical_tweak_name = relative_tweak
+                    allow_basename = False
+
+        tweak_entry = find_manifest_entry(
+            manifest_path,
+            logical_tweak_name,
+            allow_unique_basename=allow_basename,
+        )
+        if tweak_entry is None:
+            self._clear_tweak_editor_for_companion(
+                f"Companion tweak {Path(tweak_name).name} was not found."
+            )
+            return
+
+        digest = hashlib.sha1(
+            (
+                f"{game_root.resolve()}|{tweak_entry.name}|"
+                f"{tweak_entry.archive_id}|{tweak_entry.offset}|{tweak_entry.size}"
+            ).encode("utf-8")
+        ).hexdigest()[:16]
+        tweak_cache_path = (
+            Path(tempfile.gettempdir())
+            / "nba2k_jersey_modder"
+            / "game_tweaks"
+            / digest
+            / Path(tweak_entry.name).name
+        )
+        try:
+            try:
+                inspect_front_number_tweak(tweak_cache_path)
+            except (OSError, ValueError, zipfile.BadZipFile):
+                tweak_cache_path.unlink(missing_ok=True)
+                extract_manifest_iff(tweak_entry, game_root, tweak_cache_path)
+            self._load_tweak_iff_path(tweak_cache_path, automatic=True)
+        except Exception as exc:  # noqa: BLE001 - automatic GUI boundary.
+            self._clear_tweak_editor_for_companion(
+                f"Companion tweak could not be loaded: {exc}"
+            )
+
+    @staticmethod
+    def _companion_tweak_name(font_name: str) -> str | None:
+        suffix = "_font.iff"
+        if not font_name.lower().endswith(suffix):
+            return None
+        return f"{font_name[:-len(suffix)]}_tweak.iff"
+
+    def _clear_tweak_editor_for_companion(self, message: str) -> None:
+        self.tweak_file_path = None
+        self.tweak_info = None
+        self.tweak_original_values = {}
+        self._set_tweak_values(
+            {
+                "x": 0.0,
+                "y": 0.0,
+                "width": 1.0,
+                "height": 1.0,
+            }
+        )
+        self._refresh_tweak_field_table()
+        self.tweak_status_var.set(message)
 
     def choose_number_recolor_color(self, target: str) -> None:
         variable = (
@@ -6840,11 +6966,19 @@ class JerseyModderApp(tk.Tk):
         if not selected:
             return
         try:
-            info = inspect_front_number_tweak(selected)
+            self._load_tweak_iff_path(Path(selected))
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
             messagebox.showerror("Tweak Editor", str(exc))
             return
-        self.tweak_file_path = Path(selected)
+
+    def _load_tweak_iff_path(
+        self,
+        selected: Path,
+        *,
+        automatic: bool = False,
+    ) -> None:
+        info = inspect_front_number_tweak(selected)
+        self.tweak_file_path = selected
         self.tweak_info = info
         self.tweak_original_values = {
             "x": info.x.value,
@@ -6856,8 +6990,9 @@ class JerseyModderApp(tk.Tk):
         self._capture_tweak_size_ratio()
         self._refresh_tweak_field_table()
         entry_label = info.entry_name or "raw file"
+        prefix = "Auto-loaded companion" if automatic else "Loaded"
         self.tweak_status_var.set(
-            f"Loaded {self.tweak_file_path.name} | {entry_label} | "
+            f"{prefix} {self.tweak_file_path.name} | {entry_label} | "
             f"{info.data_size:,} bytes of tweak data."
         )
 

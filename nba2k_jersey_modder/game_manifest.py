@@ -39,6 +39,33 @@ def load_font_manifest_entries(manifest_path: str | Path) -> list[ManifestEntry]
     return entries
 
 
+def find_manifest_entry(
+    manifest_path: str | Path,
+    target_name: str,
+    *,
+    allow_unique_basename: bool = False,
+) -> ManifestEntry | None:
+    normalized_target = target_name.replace("\\", "/").lower()
+    target_basename = Path(normalized_target).name
+    basename_matches: list[ManifestEntry] = []
+    with Path(manifest_path).open("r", encoding="utf-8", errors="replace") as manifest:
+        for line in manifest:
+            entry = _parse_manifest_line(line)
+            if entry is None:
+                continue
+            normalized_name = entry.name.replace("\\", "/").lower()
+            if normalized_name == normalized_target:
+                return entry
+            if (
+                allow_unique_basename
+                and Path(normalized_name).name == target_basename
+            ):
+                basename_matches.append(entry)
+    if allow_unique_basename and len(basename_matches) == 1:
+        return basename_matches[0]
+    return None
+
+
 def extract_manifest_iff(
     entry: ManifestEntry,
     game_root: str | Path,
@@ -57,15 +84,15 @@ def extract_manifest_iff(
     if len(wrapped) != entry.size:
         raise RuntimeError(f"Could not read the complete archive entry {entry.name}.")
 
-    if zipfile.is_zipfile(BytesIO(wrapped)):
-        iff_data = wrapped
-    elif len(wrapped) >= 20 and wrapped[12:16] == b"VCZ\x00":
+    if len(wrapped) >= 20 and wrapped[12:16] == b"VCZ\x00":
         raw_size = struct.unpack_from("<I", wrapped, len(wrapped) - 4)[0]
         iff_data = _oodle_decompress(
             wrapped[16:],
             raw_size,
             root / "data" / "oodle" / "oo2core_9_win64.dll",
         )
+    elif zipfile.is_zipfile(BytesIO(wrapped)):
+        iff_data = wrapped
     else:
         raise RuntimeError(f"{entry.name} is not a supported NBA 2K archive entry.")
 
