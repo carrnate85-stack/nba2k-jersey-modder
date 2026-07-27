@@ -11,6 +11,9 @@ from nba2k_jersey_modder.app import (
     BLENDER_PREVIEW_MODELS,
     JerseyModderApp,
     SHORTS_RETRO_NORMAL_IMAGE,
+    TRIM_CREATOR_GENERATOR_KEYS,
+    TRIM_CREATOR_TARGETS,
+    TRIM_GENERATOR_KEYS,
     _fit_transparent_image_to_square,
     _align_image_to_visible_center,
     _loaded_number_digit_keys,
@@ -102,6 +105,14 @@ def _fake_tweak_scalar(hash_id: str, value: float, minimum: float, maximum: floa
 
 
 class ScannerTests(unittest.TestCase):
+    def test_trim_creator_waistband_uses_the_dedicated_waistband_image_slot(self) -> None:
+        self.assertIn("waistband", TRIM_CREATOR_TARGETS)
+        self.assertEqual(
+            TRIM_CREATOR_GENERATOR_KEYS["waistband"],
+            "waistband_image",
+        )
+        self.assertNotIn("waistband", TRIM_GENERATOR_KEYS)
+
     def test_scan_pairs_dds_and_txtr_references(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             sample = Path(tmp_dir) / "jersey.iff"

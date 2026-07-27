@@ -117,6 +117,16 @@ TRIM_GENERATOR_KEYS = {
     "right_arm_hole_trim": "right_arm_hole_trim_image",
     "collar_trim": "collar_trim_image",
 }
+TRIM_CREATOR_TARGETS = (
+    "collar_trim",
+    "left_arm_hole_trim",
+    "right_arm_hole_trim",
+    "waistband",
+)
+TRIM_CREATOR_GENERATOR_KEYS = {
+    **TRIM_GENERATOR_KEYS,
+    "waistband": "waistband_image",
+}
 SIDE_PANEL_GENERATOR_KEYS = {
     "left_side_panel": "left_panel_image",
     "right_side_panel": "right_panel_image",
@@ -872,7 +882,7 @@ class JerseyModderApp(tk.Tk):
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         ttk.Button(
             toolbar,
-            text="Upload Jersey Mockup",
+            text="Upload Uniform Mockup",
             command=self.load_trim_creator_mockup,
         ).grid(row=0, column=0, sticky="w")
         ttk.Button(
@@ -883,8 +893,8 @@ class JerseyModderApp(tk.Tk):
         self.trim_creator_status = ttk.Label(
             toolbar,
             text=(
-                "Upload a jersey mockup, click two points across the collar or armhole trim, "
-                "crop/clean the preview, then stage trims and send them to the Generator."
+                "Upload a uniform mockup, click two points across a collar, armhole, or "
+                "waistband trim, crop/clean the preview, then stage it for the Generator."
             ),
             style="Muted.TLabel",
             wraplength=640,
@@ -909,7 +919,7 @@ class JerseyModderApp(tk.Tk):
         ttk.Combobox(
             left,
             textvariable=self.trim_creator_target_var,
-            values=("collar_trim", "left_arm_hole_trim", "right_arm_hole_trim"),
+            values=TRIM_CREATOR_TARGETS,
             state="readonly",
             width=18,
         ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
@@ -3192,7 +3202,7 @@ class JerseyModderApp(tk.Tk):
 
     def open_trim_creator_web_selector(self) -> None:
         if self.trim_creator_image_path is None:
-            messagebox.showinfo("Trim Creator", "Upload a jersey mockup first.")
+            messagebox.showinfo("Trim Creator", "Upload a uniform mockup first.")
             return
         try:
             if self.web_editor_server is None:
@@ -3284,7 +3294,7 @@ class JerseyModderApp(tk.Tk):
 
     def load_trim_creator_mockup(self) -> None:
         selected = filedialog.askopenfilename(
-            title="Upload Jersey Mockup",
+            title="Upload Uniform Mockup",
             filetypes=(
                 ("Image files", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
                 ("All files", "*.*"),
@@ -3310,7 +3320,7 @@ class JerseyModderApp(tk.Tk):
 
     def generate_trim_creator_line_strip(self) -> None:
         if self.trim_creator_image_path is None:
-            messagebox.showinfo("Trim Creator", "Upload a jersey mockup first.")
+            messagebox.showinfo("Trim Creator", "Upload a uniform mockup first.")
             return
         if self.trim_creator_line is None:
             messagebox.showinfo("Trim Creator", "Draw a sample line on the mockup first.")
@@ -3666,8 +3676,8 @@ class JerseyModderApp(tk.Tk):
                 "Even out gaps, wavy edges, compression artifacts, and blurry pixels without changing the design.",
                 "Return a PNG with a true transparent background and alpha channel.",
                 "Do not put the trim on white, black, gray, checkerboard, or any solid-color background.",
-                "Keep the strip tileable/repeatable left-to-right so it can wrap around a collar or armhole.",
-                "Do not place it on a jersey mockup. Only output the trim strip image.",
+                "Keep the strip tileable/repeatable left-to-right so it can wrap around a collar, armhole, or waistband.",
+                "Do not place it on a uniform mockup. Only output the trim strip image.",
             ]
         )
 
@@ -4233,17 +4243,30 @@ class JerseyModderApp(tk.Tk):
         if result is None:
             messagebox.showinfo("Trim Creator", "Select a staged trim first.")
             return
-        key = TRIM_GENERATOR_KEYS.get(result.name)
-        if key is None:
+        if not self._send_trim_creator_result_to_generator(result):
             messagebox.showinfo("Trim Creator", "This staged trim has no generator slot.")
             return
-        self.generator_paths[key] = result.output_path
-        self.generator_file_labels[key].configure(text=result.output_path.name)
-        self.generator_trim_placements[result.name] = TrimPlacementSettings()
+        self._schedule_generator_preview_refresh()
         self.trim_creator_status.configure(
             text=f"Sent {_human_label(result.name)} to the Generator."
         )
         self.tabs.select(self.generator_tab)
+
+    def _send_trim_creator_result_to_generator(self, result: TrimStrip) -> bool:
+        key = TRIM_CREATOR_GENERATOR_KEYS.get(result.name)
+        if key is None or not result.output_path.exists():
+            return False
+
+        self.generator_paths[key] = result.output_path
+        self.generator_file_labels[key].configure(text=result.output_path.name)
+        if result.name == "waistband":
+            for placement_name in WAISTBAND_GENERATOR_KEYS:
+                self.generator_trim_placements[placement_name] = TrimPlacementSettings()
+            self.generator_garment_var.set("Shorts")
+            self._sync_generator_template_controls(refresh_preview=False)
+        else:
+            self.generator_trim_placements[result.name] = TrimPlacementSettings()
+        return True
 
     def send_staged_trims_to_generator(self) -> None:
         if not self.trim_creator_results:
@@ -4252,13 +4275,8 @@ class JerseyModderApp(tk.Tk):
 
         sent_names: list[str] = []
         for result in self.trim_creator_results:
-            key = TRIM_GENERATOR_KEYS.get(result.name)
-            if key is None or not result.output_path.exists():
-                continue
-            self.generator_paths[key] = result.output_path
-            self.generator_file_labels[key].configure(text=result.output_path.name)
-            self.generator_trim_placements[result.name] = TrimPlacementSettings()
-            sent_names.append(_human_label(result.name))
+            if self._send_trim_creator_result_to_generator(result):
+                sent_names.append(_human_label(result.name))
 
         if not sent_names:
             messagebox.showinfo("Trim Creator", "No staged trims matched a generator slot.")
