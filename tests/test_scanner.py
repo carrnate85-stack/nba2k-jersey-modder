@@ -17,6 +17,7 @@ from nba2k_jersey_modder.app import (
     _fit_transparent_image_to_square,
     _align_image_to_visible_center,
     _loaded_number_digit_keys,
+    _new_project_payload,
     _nudge_image,
     _place_image_visible_center,
     _recolor_font_image,
@@ -1074,6 +1075,23 @@ class GeneratorTests(unittest.TestCase):
 
         self.assertEqual(app.generator_garment_var.get(), "Jersey")
         self.assertEqual(sync_calls, [False])
+
+    def test_new_project_payload_restores_clean_jersey_defaults(self) -> None:
+        first = _new_project_payload()
+        second = _new_project_payload()
+        generator = first["generator"]
+
+        self.assertEqual(generator["garment"], "Jersey")
+        self.assertEqual(generator["jerseyCut"], "Retro U")
+        self.assertEqual(generator["colors"]["front_color"], "#ffffff")
+        self.assertEqual(generator["colors"]["left_panel_color"], "")
+        self.assertTrue(generator["uvOverlay"]["enabled"])
+        self.assertEqual(generator["logos"], [])
+        self.assertEqual(generator["trimPathLayers"], [])
+        self.assertTrue(all(path is None for path in generator["images"].values()))
+
+        generator["logos"].append({"path": "changed.png"})
+        self.assertEqual(second["generator"]["logos"], [])
 
     def test_trim_path_lab_uses_selected_template_uv_overlay(self) -> None:
         class Selection:

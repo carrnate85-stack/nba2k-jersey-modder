@@ -143,6 +143,29 @@ FABRIC_OVERLAY_PRESETS = {
     "Subtle wrinkles": FABRIC_OVERLAY_DIR / "subtle_wrinkles.png",
     "Heavy wrinkles": FABRIC_OVERLAY_DIR / "heavy_wrinkles.png",
 }
+GENERATOR_DEFAULT_COLORS = {
+    "front_color": "#ffffff",
+    "back_color": "#ffffff",
+    "left_panel_color": "",
+    "right_panel_color": "",
+    "collar_background_color": "#ffffff",
+    "waistband_color": "#ffffff",
+    "left_arm_hole_trim_color": "#ffffff",
+    "right_arm_hole_trim_color": "#ffffff",
+    "collar_trim_color": "#ffffff",
+}
+GENERATOR_IMAGE_KEYS = (
+    "left_panel_image",
+    "right_panel_image",
+    "shorts_left_panel_image",
+    "shorts_right_panel_image",
+    "waistband_image",
+    "jersey_background_image",
+    "front_wordmark_image",
+    "left_arm_hole_trim_image",
+    "right_arm_hole_trim_image",
+    "collar_trim_image",
+)
 
 
 def _human_label(name: str) -> str:
@@ -173,6 +196,63 @@ LOGO_CREATOR_TARGET_DISPLAY_ORDER = (
     "back_center_logo",
     "shorts_belt_buckle_logo",
 )
+
+
+def _new_project_payload() -> dict:
+    return {
+        "app": __app_name__,
+        "projectVersion": 1,
+        "generator": {
+            "garment": "Jersey",
+            "jerseyCut": "Retro U",
+            "shortsTemplate": "Retro shorts",
+            "colors": dict(GENERATOR_DEFAULT_COLORS),
+            "images": {key: None for key in GENERATOR_IMAGE_KEYS},
+            "frontWordmark": {
+                "offsetX": 0,
+                "offsetY": 0,
+                "scalePercent": 100,
+                "scaleWidthPercent": 100,
+                "scaleHeightPercent": 100,
+            },
+            "jerseyBackground": {
+                "tile": False,
+                "tileScalePercent": 100,
+            },
+            "logos": [],
+            "trimPathLayers": [],
+            "trimPlacements": {},
+            "backgroundCleanup": {
+                "removeWhite": False,
+                "removeBlack": False,
+                "outsideOnly": True,
+                "tolerance": 32,
+            },
+            "fabricOverlay": {
+                "preset": "None",
+                "customPath": None,
+                "blendMode": "multiply",
+                "opacity": 0,
+            },
+            "uvOverlay": {
+                "enabled": True,
+                "opacity": 45,
+            },
+            "numberPreview": {
+                "enabled": True,
+                "text": "15",
+                "x": 1160,
+                "y": 780,
+                "scale": 100,
+                "scaleWidth": 100,
+                "scaleHeight": 100,
+            },
+            "webEditor": {
+                "layerOrder": [],
+                "layerCleanup": {},
+            },
+        },
+    }
 
 
 class JerseyModderApp(tk.Tk):
@@ -212,16 +292,7 @@ class JerseyModderApp(tk.Tk):
         self.zone_height_var = tk.IntVar(value=0)
         self.zone_layer_var = tk.IntVar(value=10)
         self.generator_paths: dict[str, Path | None] = {
-            "left_panel_image": None,
-            "right_panel_image": None,
-            "shorts_left_panel_image": None,
-            "shorts_right_panel_image": None,
-            "waistband_image": None,
-            "jersey_background_image": None,
-            "front_wordmark_image": None,
-            "left_arm_hole_trim_image": None,
-            "right_arm_hole_trim_image": None,
-            "collar_trim_image": None,
+            key: None for key in GENERATOR_IMAGE_KEYS
         }
         self.generator_garment_var = tk.StringVar(value="Jersey")
         self.generator_jersey_cut_var = tk.StringVar(value="Retro U")
@@ -433,10 +504,16 @@ class JerseyModderApp(tk.Tk):
     def _build_menu(self) -> None:
         menu = tk.Menu(self)
         file_menu = tk.Menu(menu, tearoff=False)
-        file_menu.add_command(label="Import .iff...", command=self.open_iff)
+        file_menu.add_command(
+            label="New Project",
+            command=self.new_project,
+            accelerator="Ctrl+N",
+        )
         file_menu.add_command(label="Open Project...", command=self.open_project)
         file_menu.add_command(label="Save Project As...", command=self.save_project_as)
         file_menu.add_command(label="Export Package As...", command=self.export_package_as)
+        file_menu.add_separator()
+        file_menu.add_command(label="Import .iff...", command=self.open_iff)
         file_menu.add_separator()
         file_menu.add_command(label="Open .rdat...", command=self.open_rdat)
         file_menu.add_command(label="Save .rdat", command=self.save_rdat)
@@ -465,6 +542,11 @@ class JerseyModderApp(tk.Tk):
         )
         menu.add_cascade(label="Advanced", menu=advanced_menu)
         self.config(menu=menu)
+        self.bind_all("<Control-n>", self._new_project_shortcut)
+
+    def _new_project_shortcut(self, _event: tk.Event | None = None) -> str:
+        self.new_project()
+        return "break"
 
     def _select_advanced_tab(self, tab_name: str) -> None:
         tab = {
@@ -1956,15 +2038,8 @@ class JerseyModderApp(tk.Tk):
         controls_shell.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
         self.generator_color_vars: dict[str, tk.StringVar] = {
-            "front_color": tk.StringVar(value="#ffffff"),
-            "back_color": tk.StringVar(value="#ffffff"),
-            "left_panel_color": tk.StringVar(value=""),
-            "right_panel_color": tk.StringVar(value=""),
-            "collar_background_color": tk.StringVar(value="#ffffff"),
-            "waistband_color": tk.StringVar(value="#ffffff"),
-            "left_arm_hole_trim_color": tk.StringVar(value="#ffffff"),
-            "right_arm_hole_trim_color": tk.StringVar(value="#ffffff"),
-            "collar_trim_color": tk.StringVar(value="#ffffff"),
+            key: tk.StringVar(value=value)
+            for key, value in GENERATOR_DEFAULT_COLORS.items()
         }
         self.generator_file_labels: dict[str, ttk.Label] = {}
         self.generator_color_row_frames: dict[str, ttk.Frame] = {}
@@ -10023,6 +10098,20 @@ class JerseyModderApp(tk.Tk):
             messagebox.showerror("Save Project", str(exc))
             return
         self.generator_status.configure(text=f"Saved project to {selected}.")
+
+    def new_project(self) -> None:
+        if not messagebox.askyesno(
+            "New Project",
+            "Clear the current project and start a new one?",
+        ):
+            return
+        self._apply_project_payload(_new_project_payload())
+        self.trim_path_lab_session_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        self.generated_texture_path = None
+        self.tabs.select(self.generator_tab)
+        self._schedule_generator_preview_refresh()
+        self._refresh_blender_preview_files_if_active()
+        self.generator_status.configure(text="New project ready.")
 
     def open_project(self) -> None:
         selected = filedialog.askopenfilename(
