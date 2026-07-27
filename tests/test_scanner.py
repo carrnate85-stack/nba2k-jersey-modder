@@ -42,6 +42,7 @@ from nba2k_jersey_modder.generator import (
     logo_target_zones,
     remove_detected_background,
     remove_image_background,
+    render_jersey_layers,
     render_jersey_normal_map,
     render_jersey_region_map,
     upscale_logo_image,
@@ -680,6 +681,66 @@ class TrimCreatorTests(unittest.TestCase):
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_background_jersey_image_tiles_between_base_and_detail_layers(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            background_path = tmp_path / "background.png"
+            background = Image.new("RGBA", (2, 1), (255, 0, 0, 255))
+            background.putpixel((1, 0), (0, 0, 255, 255))
+            background.save(background_path)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone(
+                        "front_jersey_base", "base", 0, 0, 8, 6, "#00ff00", 0
+                    ),
+                    TemplateZone(
+                        "collar_background", "base", 0, 0, 8, 1, "#ffaa00", 5
+                    ),
+                    TemplateZone(
+                        "left_side_panel", "stripe", 6, 1, 2, 5, "#ff0000", 10
+                    ),
+                ),
+            )
+            inputs = GeneratorInputs(
+                front_color="#ffffff",
+                back_color="",
+                left_panel_color="#00ff00",
+                right_panel_color="",
+                collar_background_color="#ffff00",
+                jersey_background_image=background_path,
+                jersey_background_tile=True,
+            )
+            layers = render_jersey_layers(template, inputs, (8, 6))
+            output = generate_jersey_texture(
+                template,
+                inputs,
+                tmp_path / "generated.png",
+                size=(8, 6),
+            )
+            with Image.open(output) as opened:
+                image = opened.convert("RGBA")
+
+        names = [layer.name for layer in layers]
+        self.assertLess(
+            names.index("Front Jersey Base"),
+            names.index("Background Jersey Image"),
+        )
+        self.assertLess(
+            names.index("Background Jersey Image"),
+            names.index("Left Side Panel"),
+        )
+        self.assertEqual(image.getpixel((0, 2))[:3], (255, 0, 0))
+        self.assertEqual(image.getpixel((1, 2))[:3], (0, 0, 255))
+        self.assertEqual(image.getpixel((2, 2))[:3], (255, 0, 0))
+        self.assertEqual(image.getpixel((7, 2))[:3], (0, 255, 0))
+        self.assertEqual(image.getpixel((1, 0))[:3], (255, 255, 0))
+
     def test_texture_creator_renders_retro_shorts_normal(self) -> None:
         class Selection:
             def __init__(self, value: str) -> None:

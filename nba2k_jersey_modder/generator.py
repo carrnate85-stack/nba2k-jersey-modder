@@ -176,6 +176,8 @@ class GeneratorInputs:
     left_panel_image: Path | None = None
     right_panel_image: Path | None = None
     waistband_image: Path | None = None
+    jersey_background_image: Path | None = None
+    jersey_background_tile: bool = False
     front_wordmark_image: Path | None = None
     left_arm_hole_trim_image: Path | None = None
     right_arm_hole_trim_image: Path | None = None
@@ -235,16 +237,18 @@ def render_jersey_layers(
     except ImportError as exc:
         raise RuntimeError("Jersey generation requires Pillow.") from exc
 
+    base_color_layers: list[RenderLayer] = []
     layers: list[RenderLayer] = []
     waistband_layers: list[RenderLayer] = []
     zones = sorted(template.zones, key=lambda zone: zone.layer)
     front_wordmark_zone: TemplateZone | None = None
     for zone in zones:
-        zone_layers = (
-            waistband_layers
-            if zone.name.startswith("shorts_waistband")
-            else layers
-        )
+        if zone.name.startswith("shorts_waistband"):
+            zone_layers = waistband_layers
+        elif _is_jersey_base_zone(zone):
+            zone_layers = base_color_layers
+        else:
+            zone_layers = layers
         fill = _fill_for_zone(zone, inputs)
         if fill is not None:
             layer = Image.new("RGBA", size, (0, 0, 0, 0))
@@ -260,6 +264,9 @@ def render_jersey_layers(
             layer = Image.new("RGBA", size, (0, 0, 0, 0))
             _paste_image_fit(layer, overlay, zone, inputs, cleanup_key=zone.name)
             zone_layers.append(RenderLayer(f"{_human_zone_name(zone.name)} Image", layer))
+
+    background_layer = jersey_background_layer(template, inputs, size)
+    layers = base_color_layers + ([background_layer] if background_layer else []) + layers
 
     # Waistband color and artwork sit above the shorts side panels.
     layers.extend(waistband_layers)
@@ -347,6 +354,64 @@ def render_jersey_layers(
         layers.append(RenderLayer("Front Wordmark Image", layer))
 
     return layers
+
+
+def jersey_background_layer(
+    template: JerseyTemplate,
+    inputs: GeneratorInputs,
+    size: tuple[int, int],
+) -> RenderLayer | None:
+    source_path = inputs.jersey_background_image
+    if source_path is None or not source_path.exists():
+        return None
+    try:
+        from PIL import Image, ImageChops, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError("Jersey background images require Pillow.") from exc
+
+    source = _prepared_overlay(source_path, inputs, "jersey_background")
+    artwork = Image.new("RGBA", size, (0, 0, 0, 0))
+    if inputs.jersey_background_tile:
+        for y in range(0, size[1], source.height):
+            for x in range(0, size[0], source.width):
+                artwork.alpha_composite(source, (x, y))
+    else:
+        artwork = source.resize(size, Image.Resampling.LANCZOS)
+
+    design_width, design_height = _template_design_size(template, size)
+    scale_x = size[0] / design_width
+    scale_y = size[1] / design_height
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+    for zone in template.zones:
+        if not _is_jersey_base_zone(zone):
+            continue
+        draw.rectangle(_scaled_zone_box(zone, scale_x, scale_y), fill=255)
+    for zone in template.zones:
+        if zone.name == "collar_background":
+            draw.rectangle(_scaled_zone_box(zone, scale_x, scale_y), fill=0)
+    if mask.getbbox() is None:
+        return None
+
+    artwork.putalpha(ImageChops.multiply(artwork.getchannel("A"), mask))
+    return RenderLayer("Background Jersey Image", artwork)
+
+
+def _is_jersey_base_zone(zone: TemplateZone) -> bool:
+    return zone.name.startswith(("front_jersey_base", "back_jersey_base"))
+
+
+def _scaled_zone_box(
+    zone: TemplateZone,
+    scale_x: float,
+    scale_y: float,
+) -> tuple[int, int, int, int]:
+    return (
+        round(zone.x * scale_x),
+        round(zone.y * scale_y),
+        round((zone.x + zone.width) * scale_x),
+        round((zone.y + zone.height) * scale_y),
+    )
 
 
 def _clear_trim_path_waistband(layer, template: JerseyTemplate) -> None:

@@ -37,6 +37,7 @@ from .generator import (
     generate_jersey_texture,
     generate_layered_jersey_psd,
     image_placement_rects,
+    jersey_background_layer,
     logo_target_zones,
     render_jersey_normal_map,
     render_jersey_texture,
@@ -198,6 +199,7 @@ class JerseyModderApp(tk.Tk):
             "shorts_left_panel_image": None,
             "shorts_right_panel_image": None,
             "waistband_image": None,
+            "jersey_background_image": None,
             "front_wordmark_image": None,
             "left_arm_hole_trim_image": None,
             "right_arm_hole_trim_image": None,
@@ -206,6 +208,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_garment_var = tk.StringVar(value="Jersey")
         self.generator_jersey_cut_var = tk.StringVar(value="Retro U")
         self.generator_shorts_template_var = tk.StringVar(value="Retro shorts")
+        self.generator_background_tile_var = tk.BooleanVar(value=False)
         self.generator_remove_white_var = tk.BooleanVar(value=False)
         self.generator_remove_black_var = tk.BooleanVar(value=False)
         self.generator_outside_only_var = tk.BooleanVar(value=True)
@@ -2088,6 +2091,7 @@ class JerseyModderApp(tk.Tk):
         image_row = 0
         for key, label in (
             ("front_wordmark_image", "Front wordmark image"),
+            ("jersey_background_image", "Background jersey image"),
             ("left_panel_image", "Left side panel image"),
             ("right_panel_image", "Right side panel image"),
             ("collar_trim_image", "Collar trim image"),
@@ -2097,12 +2101,29 @@ class JerseyModderApp(tk.Tk):
             self._add_generator_upload_row(image_controls, image_row, key, label)
             if key in {
                 "front_wordmark_image",
+                "jersey_background_image",
                 "left_arm_hole_trim_image",
                 "right_arm_hole_trim_image",
                 "collar_trim_image",
             }:
                 self.generator_jersey_only_widgets.append(self.generator_upload_row_frames[key])
             image_row += 1
+            if key == "jersey_background_image":
+                background_options = ttk.Frame(image_controls)
+                background_options.grid(
+                    row=image_row,
+                    column=0,
+                    sticky="ew",
+                    pady=(0, 8),
+                )
+                ttk.Checkbutton(
+                    background_options,
+                    text="Tile image",
+                    variable=self.generator_background_tile_var,
+                    command=self._schedule_generator_preview_refresh,
+                ).pack(side=tk.LEFT)
+                self.generator_jersey_only_widgets.append(background_options)
+                image_row += 1
 
         waistband_section, waistband_controls = self._add_generator_section(
             controls,
@@ -7336,6 +7357,34 @@ class JerseyModderApp(tk.Tk):
             if zone.name.startswith("shorts_waistband")
         ]
         overlays = []
+        background_layer = jersey_background_layer(template, inputs, (2048, 2048))
+        if background_layer is not None:
+            overlays.append(
+                {
+                    "key": "jersey_background",
+                    "label": "Background Jersey Image",
+                    "x": 0,
+                    "y": 0,
+                    "width": 2048,
+                    "height": 2048,
+                    "imageUrl": "/api/image/jersey_background",
+                    "blendMode": "normal",
+                    "lockX": True,
+                    "lockAspect": True,
+                    "canTransform": False,
+                    "canRotate": False,
+                    "rotation": 0,
+                    "canFlip": False,
+                    "flipX": False,
+                    "clipBox": None,
+                    "guideBox": None,
+                    "excludeBoxes": [],
+                    "canCleanup": False,
+                    "cleanup": self._web_editor_cleanup_payload("jersey_background"),
+                    "canReorder": False,
+                    "layerLabel": "Background layer",
+                }
+            )
         for active_index, (_stored_index, layer) in enumerate(
             self._active_generator_trim_path_layers()
         ):
@@ -7615,6 +7664,7 @@ class JerseyModderApp(tk.Tk):
             left_panel_image=None,
             right_panel_image=None,
             waistband_image=None,
+            jersey_background_image=None,
             front_wordmark_image=None,
             left_arm_hole_trim_image=None,
             right_arm_hole_trim_image=None,
@@ -7665,6 +7715,23 @@ class JerseyModderApp(tk.Tk):
                 active_index = -1
             entry = self._active_generator_trim_path_layer(active_index)
             path = entry[1].path if entry is not None else None
+        elif key == "jersey_background":
+            layer = jersey_background_layer(
+                self._current_generator_template(),
+                self._generator_inputs(),
+                (2048, 2048),
+            )
+            if layer is None:
+                raise FileNotFoundError("No background jersey image is active.")
+            output_path = (
+                Path(tempfile.gettempdir())
+                / "nba2k_jersey_modder"
+                / "web_editor"
+                / "jersey_background.png"
+            )
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            layer.image.save(output_path)
+            return output_path.read_bytes(), "image/png"
         elif key == "front_wordmark":
             path = self.generator_paths["front_wordmark_image"]
         elif key == "preview_number":
@@ -7769,7 +7836,7 @@ class JerseyModderApp(tk.Tk):
 
     def _web_editor_update(self, payload: dict) -> dict | None:
         key = str(payload.get("key", ""))
-        if key == "fabric_overlay":
+        if key in {"fabric_overlay", "jersey_background"}:
             return
         x = float(payload.get("x", 0))
         y = float(payload.get("y", 0))
@@ -7982,7 +8049,7 @@ class JerseyModderApp(tk.Tk):
 
     def _web_editor_transparency(self, payload: dict) -> None:
         key = str(payload.get("key", ""))
-        if not key or key == "fabric_overlay":
+        if not key or key in {"fabric_overlay", "jersey_background"}:
             return
         if payload.get("clearOverride"):
             self.web_editor_layer_cleanup.pop(key, None)
@@ -8949,6 +9016,9 @@ class JerseyModderApp(tk.Tk):
                     "offsetY": self._front_wordmark_offset_y(),
                     "scalePercent": self._front_wordmark_scale_percent(),
                 },
+                "jerseyBackground": {
+                    "tile": self.generator_background_tile_var.get(),
+                },
                 "logos": [
                     self._logo_placement_to_project(placement)
                     for placement in self.generator_logo_placements
@@ -9075,6 +9145,15 @@ class JerseyModderApp(tk.Tk):
             self.front_wordmark_scale_var.set(
                 self._project_int(front_wordmark.get("scalePercent"), 100, 1, 500)
             )
+
+        jersey_background = generator.get("jerseyBackground", {})
+        self.generator_background_tile_var.set(
+            bool(
+                jersey_background.get("tile", False)
+                if isinstance(jersey_background, dict)
+                else False
+            )
+        )
 
         self.generator_logo_placements = []
         logos = generator.get("logos", [])
@@ -9418,6 +9497,16 @@ class JerseyModderApp(tk.Tk):
             left_panel_image=self.generator_paths[left_panel_key],
             right_panel_image=self.generator_paths[right_panel_key],
             waistband_image=self.generator_paths["waistband_image"],
+            jersey_background_image=(
+                self.generator_paths["jersey_background_image"]
+                if garment != "Shorts"
+                else None
+            ),
+            jersey_background_tile=(
+                self.generator_background_tile_var.get()
+                if garment != "Shorts"
+                else False
+            ),
             front_wordmark_image=self.generator_paths["front_wordmark_image"],
             left_arm_hole_trim_image=self.generator_paths["left_arm_hole_trim_image"],
             right_arm_hole_trim_image=self.generator_paths["right_arm_hole_trim_image"],
