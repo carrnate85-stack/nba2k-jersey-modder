@@ -276,7 +276,7 @@ INDEX_HTML = """<!doctype html>
       posH.value = Math.round(item.height);
       rotation.value = Math.round(item.rotation || 0);
       posX.disabled = !item.canTransform || item.lockX;
-      posW.disabled = !item.canTransform || item.lockX;
+      posW.disabled = !item.canTransform || item.lockWidth;
       autoBackground.checked = Boolean(item.cleanup?.autoBackground);
       removeWhite.checked = Boolean(item.cleanup?.removeWhite);
       removeBlack.checked = Boolean(item.cleanup?.removeBlack);
@@ -410,7 +410,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     function localHandles(item) {
-      if (item.lockX) return [{x: item.width / 2, y: item.height / 2, sx: 0, sy: 1}];
+      if (item.lockWidth) return [{x: item.width / 2, y: item.height / 2, sx: 0, sy: 1}];
       return [
         {x: -item.width / 2, y: -item.height / 2, sx: -1, sy: -1},
         {x: item.width / 2, y: -item.height / 2, sx: 1, sy: -1},
@@ -584,16 +584,16 @@ INDEX_HTML = """<!doctype html>
       const dy = point.y - drag.start.y;
       if (drag.mode === "move") {
         if (item.lockX) {
-          item.x = 0;
+          item.x = drag.original.x;
           item.y = drag.original.y + dy;
         } else {
           item.x = drag.original.x + dx;
           item.y = drag.original.y + dy;
         }
       } else {
-        if (item.lockX) {
-          item.x = 0;
-          item.width = 2048;
+        if (item.lockWidth) {
+          item.x = drag.original.x;
+          item.width = drag.original.width;
           item.height = Math.max(1, drag.original.height + dy);
         } else {
           const handle = drag.handle || {sx: 1, sy: 1};
@@ -623,6 +623,7 @@ INDEX_HTML = """<!doctype html>
           const centerWorld = rotatedPoint(drag.original, centerLocal.x, centerLocal.y);
           item.x = centerWorld.x - item.width / 2;
           item.y = centerWorld.y - item.height / 2;
+          if (item.lockX) item.x = drag.original.x;
         }
       }
       draw();
@@ -657,10 +658,8 @@ INDEX_HTML = """<!doctype html>
     applyPosition.onclick = async () => {
       const item = activeItem();
       if (!item) return;
-      if (!item.lockX) {
-        item.x = Number(posX.value || 0);
-        item.width = Math.max(1, Number(posW.value || 1));
-      }
+      if (!item.lockX) item.x = Number(posX.value || 0);
+      if (!item.lockWidth) item.width = Math.max(1, Number(posW.value || 1));
       item.y = Number(posY.value || 0);
       item.height = Math.max(1, Number(posH.value || 1));
       item.rotation = Number(rotation.value || 0);

@@ -1015,12 +1015,19 @@ def _overlay_at_zone(
 
     if logo is not None and logo.stretch_x:
         ratio = zone.width / max(1, overlay.width)
+        width_scale = _independent_scale_percent(
+            logo.scale_width_percent,
+            100,
+        ) / 100
         height_scale = _independent_scale_percent(
             logo.scale_height_percent,
             logo.scale_percent,
         ) / 100
         overlay = overlay.resize(
-            (zone.width, max(1, round(overlay.height * ratio * height_scale))),
+            (
+                max(1, round(zone.width * width_scale)),
+                max(1, round(overlay.height * ratio * height_scale)),
+            ),
             Image.Resampling.LANCZOS,
         )
         return (

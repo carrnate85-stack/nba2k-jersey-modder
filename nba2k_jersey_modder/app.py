@@ -8382,6 +8382,7 @@ class JerseyModderApp(tk.Tk):
                     "imageUrl": "/api/image/jersey_background",
                     "blendMode": "normal",
                     "lockX": True,
+                    "lockWidth": True,
                     "lockAspect": True,
                     "canTransform": False,
                     "canRotate": False,
@@ -8412,6 +8413,7 @@ class JerseyModderApp(tk.Tk):
                     "imageUrl": f"/api/image/{key}",
                     "blendMode": "normal",
                     "lockX": False,
+                    "lockWidth": False,
                     "lockAspect": False,
                     "canTransform": True,
                     "canRotate": True,
@@ -8457,6 +8459,7 @@ class JerseyModderApp(tk.Tk):
                     "imageUrl": f"/api/image/{placement.key}",
                     "blendMode": "normal",
                     "lockX": self._web_editor_overlay_locks_x(placement.key),
+                    "lockWidth": False,
                     "lockAspect": not (
                         placement.key == "front_wordmark"
                         or is_side_panel
@@ -8522,6 +8525,7 @@ class JerseyModderApp(tk.Tk):
                     "imageUrl": "/api/image/fabric_overlay",
                     "blendMode": fabric_layer.blend_mode,
                     "lockX": True,
+                    "lockWidth": True,
                     "canTransform": False,
                     "canCleanup": False,
                     "cleanup": self._web_editor_cleanup_payload("fabric_overlay"),
@@ -8606,6 +8610,7 @@ class JerseyModderApp(tk.Tk):
             "imageUrl": "/api/image/preview_number?",
             "blendMode": "normal",
             "lockX": False,
+            "lockWidth": False,
             "lockAspect": False,
             "canTransform": True,
             "canFlip": False,
@@ -8936,6 +8941,12 @@ class JerseyModderApp(tk.Tk):
                 return
             logo = self.generator_logo_placements[index]
             if logo.stretch_x:
+                width_scale = _scale_dimension_percent(
+                    logo.scale_width_percent,
+                    100,
+                    width,
+                    current.width,
+                )
                 height_scale = _scale_dimension_percent(
                     logo.scale_height_percent,
                     logo.scale_percent,
@@ -8947,6 +8958,7 @@ class JerseyModderApp(tk.Tk):
                     offset_x=0,
                     offset_y=logo.offset_y + delta_y,
                     scale_percent=height_scale,
+                    scale_width_percent=width_scale,
                     scale_height_percent=height_scale,
                 )
             else:
@@ -11209,7 +11221,14 @@ class JerseyModderApp(tk.Tk):
         else:
             rect_x, rect_y, rect_width, rect_height = self.generator_drag_state["rect"]
             if logo.stretch_x:
+                new_width = max(1, texture_x - rect_x)
                 new_height = max(1, texture_y - rect_y)
+                width_scale = _scale_dimension_percent(
+                    logo.scale_width_percent,
+                    100,
+                    new_width,
+                    rect_width,
+                )
                 height_scale = _scale_dimension_percent(
                     logo.scale_height_percent,
                     logo.scale_percent,
@@ -11220,6 +11239,7 @@ class JerseyModderApp(tk.Tk):
                     logo,
                     offset_x=0,
                     scale_percent=height_scale,
+                    scale_width_percent=width_scale,
                     scale_height_percent=height_scale,
                 )
                 self.generator_logo_placements[index] = updated

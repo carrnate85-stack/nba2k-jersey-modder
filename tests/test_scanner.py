@@ -1767,6 +1767,50 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(placements[0].width, 30)
         self.assertEqual(placements[0].height, 30)
 
+    def test_shorts_panel_image_supports_independent_width_and_height_scale(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            image_path = Path(tmp_dir) / "shorts_panel.png"
+            Image.new("RGBA", (20, 10), (255, 0, 0, 255)).save(image_path)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone(
+                        "shorts_left_panel",
+                        "stripe",
+                        100,
+                        200,
+                        100,
+                        80,
+                        "#ff0000",
+                        10,
+                    ),
+                ),
+            )
+            placements = image_placement_rects(
+                template,
+                GeneratorInputs(
+                    front_color="#ffffff",
+                    back_color="#ffffff",
+                    left_panel_color="#ffffff",
+                    right_panel_color="#ffffff",
+                    left_panel_image=image_path,
+                    trim_placements={
+                        "shorts_left_panel": TrimPlacementSettings(
+                            scale_width_percent=200,
+                            scale_height_percent=50,
+                        )
+                    },
+                ),
+            )
+
+        self.assertEqual(placements[0].key, "shorts_left_panel")
+        self.assertEqual((placements[0].width, placements[0].height), (40, 5))
+
     def test_right_side_panel_exact_web_dimensions_override_scale(self) -> None:
         try:
             from PIL import Image
@@ -2238,6 +2282,37 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(placements[0].height, 2048)
         self.assertEqual(placements[0].x, 0)
         self.assertEqual(placements[0].y, -184)
+
+    def test_wrap_logo_scales_width_and_height_independently(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            logo = Path(tmp_dir) / "wrap.png"
+            Image.new("RGBA", (4, 2), (255, 200, 0, 255)).save(logo)
+            placements = image_placement_rects(
+                JerseyTemplate(image_path="", zones=()),
+                GeneratorInputs(
+                    front_color="#ffffff",
+                    back_color="#ffffff",
+                    left_panel_color="#ffffff",
+                    right_panel_color="#ffffff",
+                    logo_placements=(
+                        LogoPlacement(
+                            logo,
+                            "wrap_across_front_back_logo",
+                            scale_width_percent=50,
+                            scale_height_percent=150,
+                            stretch_x=True,
+                        ),
+                    ),
+                ),
+            )
+
+        self.assertEqual((placements[0].width, placements[0].height), (1024, 1536))
+        self.assertEqual(placements[0].x, 0)
 
     def test_front_wordmark_renders_above_logos(self) -> None:
         try:
