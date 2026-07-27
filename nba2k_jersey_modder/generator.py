@@ -375,7 +375,7 @@ def jersey_background_layer(
     if inputs.jersey_background_tile:
         tile_scale = max(
             10,
-            min(500, int(inputs.jersey_background_tile_scale_percent)),
+            min(200, int(inputs.jersey_background_tile_scale_percent)),
         )
         tile_size = (
             max(1, round(source.width * tile_scale / 100)),

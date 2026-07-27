@@ -2130,12 +2130,14 @@ class JerseyModderApp(tk.Tk):
                 tk.Scale(
                     background_options,
                     from_=10,
-                    to=300,
+                    to=200,
                     orient=tk.HORIZONTAL,
                     variable=self.generator_background_tile_scale_var,
                     showvalue=True,
                     length=220,
-                    command=lambda _value: self._schedule_generator_preview_refresh(),
+                    command=lambda _value: (
+                        self._schedule_generator_preview_refresh_debounced()
+                    ),
                 ).grid(row=2, column=0, sticky="ew")
                 background_options.columnconfigure(0, weight=1)
                 self.generator_jersey_only_widgets.append(background_options)
@@ -8731,6 +8733,17 @@ class JerseyModderApp(tk.Tk):
             self._run_scheduled_generator_preview_refresh,
         )
 
+    def _schedule_generator_preview_refresh_debounced(
+        self,
+        delay_ms: int = 180,
+    ) -> None:
+        if self.generator_preview_refresh_after_id is not None:
+            self.after_cancel(self.generator_preview_refresh_after_id)
+        self.generator_preview_refresh_after_id = self.after(
+            delay_ms,
+            self._run_scheduled_generator_preview_refresh,
+        )
+
     def _run_scheduled_generator_preview_refresh(self) -> None:
         self.generator_preview_refresh_after_id = None
         if self.generator_preview_refresh_running:
@@ -9178,7 +9191,7 @@ class JerseyModderApp(tk.Tk):
                 else None,
                 100,
                 10,
-                300,
+                200,
             )
         )
 
@@ -9579,7 +9592,7 @@ class JerseyModderApp(tk.Tk):
             value = self.generator_background_tile_scale_var.get()
         except tk.TclError:
             return 100
-        return max(10, min(300, value))
+        return max(10, min(200, value))
 
     def _front_wordmark_offset_y(self) -> int:
         try:
