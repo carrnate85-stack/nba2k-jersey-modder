@@ -209,6 +209,7 @@ class JerseyModderApp(tk.Tk):
         self.generator_jersey_cut_var = tk.StringVar(value="Retro U")
         self.generator_shorts_template_var = tk.StringVar(value="Retro shorts")
         self.generator_background_tile_var = tk.BooleanVar(value=False)
+        self.generator_background_tile_scale_var = tk.IntVar(value=100)
         self.generator_remove_white_var = tk.BooleanVar(value=False)
         self.generator_remove_black_var = tk.BooleanVar(value=False)
         self.generator_outside_only_var = tk.BooleanVar(value=True)
@@ -2121,7 +2122,22 @@ class JerseyModderApp(tk.Tk):
                     text="Tile image",
                     variable=self.generator_background_tile_var,
                     command=self._schedule_generator_preview_refresh,
-                ).pack(side=tk.LEFT)
+                ).grid(row=0, column=0, sticky="w")
+                ttk.Label(
+                    background_options,
+                    text="Tile size",
+                ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+                tk.Scale(
+                    background_options,
+                    from_=10,
+                    to=300,
+                    orient=tk.HORIZONTAL,
+                    variable=self.generator_background_tile_scale_var,
+                    showvalue=True,
+                    length=220,
+                    command=lambda _value: self._schedule_generator_preview_refresh(),
+                ).grid(row=2, column=0, sticky="ew")
+                background_options.columnconfigure(0, weight=1)
                 self.generator_jersey_only_widgets.append(background_options)
                 image_row += 1
 
@@ -9018,6 +9034,7 @@ class JerseyModderApp(tk.Tk):
                 },
                 "jerseyBackground": {
                     "tile": self.generator_background_tile_var.get(),
+                    "tileScalePercent": self._generator_background_tile_scale_percent(),
                 },
                 "logos": [
                     self._logo_placement_to_project(placement)
@@ -9152,6 +9169,16 @@ class JerseyModderApp(tk.Tk):
                 jersey_background.get("tile", False)
                 if isinstance(jersey_background, dict)
                 else False
+            )
+        )
+        self.generator_background_tile_scale_var.set(
+            self._project_int(
+                jersey_background.get("tileScalePercent")
+                if isinstance(jersey_background, dict)
+                else None,
+                100,
+                10,
+                300,
             )
         )
 
@@ -9507,6 +9534,11 @@ class JerseyModderApp(tk.Tk):
                 if garment != "Shorts"
                 else False
             ),
+            jersey_background_tile_scale_percent=(
+                self._generator_background_tile_scale_percent()
+                if garment != "Shorts"
+                else 100
+            ),
             front_wordmark_image=self.generator_paths["front_wordmark_image"],
             left_arm_hole_trim_image=self.generator_paths["left_arm_hole_trim_image"],
             right_arm_hole_trim_image=self.generator_paths["right_arm_hole_trim_image"],
@@ -9541,6 +9573,13 @@ class JerseyModderApp(tk.Tk):
             return self.front_wordmark_offset_x_var.get()
         except tk.TclError:
             return 0
+
+    def _generator_background_tile_scale_percent(self) -> int:
+        try:
+            value = self.generator_background_tile_scale_var.get()
+        except tk.TclError:
+            return 100
+        return max(10, min(300, value))
 
     def _front_wordmark_offset_y(self) -> int:
         try:

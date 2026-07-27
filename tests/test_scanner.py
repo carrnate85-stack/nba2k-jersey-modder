@@ -715,6 +715,7 @@ class GeneratorTests(unittest.TestCase):
                 collar_background_color="#ffff00",
                 jersey_background_image=background_path,
                 jersey_background_tile=True,
+                jersey_background_tile_scale_percent=200,
             )
             layers = render_jersey_layers(template, inputs, (8, 6))
             output = generate_jersey_texture(
@@ -735,9 +736,8 @@ class GeneratorTests(unittest.TestCase):
             names.index("Background Jersey Image"),
             names.index("Left Side Panel"),
         )
-        self.assertEqual(image.getpixel((0, 2))[:3], (255, 0, 0))
-        self.assertEqual(image.getpixel((1, 2))[:3], (0, 0, 255))
-        self.assertEqual(image.getpixel((2, 2))[:3], (255, 0, 0))
+        self.assertEqual(image.getpixel((0, 2)), image.getpixel((4, 2)))
+        self.assertNotEqual(image.getpixel((0, 2)), image.getpixel((2, 2)))
         self.assertEqual(image.getpixel((7, 2))[:3], (0, 255, 0))
         self.assertEqual(image.getpixel((1, 0))[:3], (255, 255, 0))
 

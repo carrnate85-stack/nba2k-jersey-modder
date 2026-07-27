@@ -178,6 +178,7 @@ class GeneratorInputs:
     waistband_image: Path | None = None
     jersey_background_image: Path | None = None
     jersey_background_tile: bool = False
+    jersey_background_tile_scale_percent: int = 100
     front_wordmark_image: Path | None = None
     left_arm_hole_trim_image: Path | None = None
     right_arm_hole_trim_image: Path | None = None
@@ -372,6 +373,16 @@ def jersey_background_layer(
     source = _prepared_overlay(source_path, inputs, "jersey_background")
     artwork = Image.new("RGBA", size, (0, 0, 0, 0))
     if inputs.jersey_background_tile:
+        tile_scale = max(
+            10,
+            min(500, int(inputs.jersey_background_tile_scale_percent)),
+        )
+        tile_size = (
+            max(1, round(source.width * tile_scale / 100)),
+            max(1, round(source.height * tile_scale / 100)),
+        )
+        if tile_size != source.size:
+            source = source.resize(tile_size, Image.Resampling.LANCZOS)
         for y in range(0, size[1], source.height):
             for x in range(0, size[0], source.width):
                 artwork.alpha_composite(source, (x, y))
