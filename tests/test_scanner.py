@@ -1479,6 +1479,46 @@ class GeneratorTests(unittest.TestCase):
 
         self.assertEqual(image.getpixel((2, 3))[:3], (255, 0, 0))
 
+    def test_front_wordmark_scales_width_and_height_independently(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            wordmark = Path(tmp_dir) / "wordmark.png"
+            Image.new("RGBA", (8, 4), (255, 0, 0, 255)).save(wordmark)
+            template = JerseyTemplate(
+                image_path="",
+                zones=(
+                    TemplateZone(
+                        "front_wordmark",
+                        "wordmark",
+                        10,
+                        10,
+                        20,
+                        10,
+                        "#000000",
+                        40,
+                    ),
+                ),
+            )
+
+            placements = image_placement_rects(
+                template,
+                GeneratorInputs(
+                    front_color="#ffffff",
+                    back_color="#ffffff",
+                    left_panel_color="#ffffff",
+                    right_panel_color="#ffffff",
+                    front_wordmark_image=wordmark,
+                    front_wordmark_scale_width_percent=150,
+                    front_wordmark_scale_height_percent=50,
+                ),
+            )
+
+        self.assertEqual((placements[0].width, placements[0].height), (12, 2))
+
     def test_generate_jersey_texture_places_logo_at_selected_zone(self) -> None:
         try:
             from PIL import Image

@@ -235,6 +235,7 @@ class JerseyModderApp(tk.Tk):
         self.front_wordmark_offset_x_var = tk.IntVar(value=0)
         self.front_wordmark_offset_y_var = tk.IntVar(value=0)
         self.front_wordmark_scale_var = tk.IntVar(value=100)
+        self.front_wordmark_scale_height_var = tk.IntVar(value=100)
         self.generator_logo_placements: list[LogoPlacement] = []
         self.generator_trim_path_layers: list[TrimPathLayer] = []
         self.generator_trim_placements: dict[str, TrimPlacementSettings] = {}
@@ -8319,6 +8320,7 @@ class JerseyModderApp(tk.Tk):
         self.front_wordmark_offset_x_var.set(0)
         self.front_wordmark_offset_y_var.set(0)
         self.front_wordmark_scale_var.set(100)
+        self.front_wordmark_scale_height_var.set(100)
 
     def open_web_editor(self) -> None:
         try:
@@ -8456,7 +8458,10 @@ class JerseyModderApp(tk.Tk):
                     "blendMode": "normal",
                     "lockX": self._web_editor_overlay_locks_x(placement.key),
                     "lockAspect": not (
-                        is_side_panel or is_waistband or logo_index is not None
+                        placement.key == "front_wordmark"
+                        or is_side_panel
+                        or is_waistband
+                        or logo_index is not None
                     ),
                     "canTransform": True,
                     "canRotate": is_side_panel,
@@ -8911,12 +8916,20 @@ class JerseyModderApp(tk.Tk):
         delta_y = round(y - current.y)
 
         if key == "front_wordmark":
-            scale = round(
+            width_scale = round(
                 self._front_wordmark_scale_percent() * width / max(1, current.width)
+            )
+            height_scale = round(
+                self._front_wordmark_height_scale_percent()
+                * height
+                / max(1, current.height)
             )
             self.front_wordmark_offset_x_var.set(self._front_wordmark_offset_x() + delta_x)
             self.front_wordmark_offset_y_var.set(self._front_wordmark_offset_y() + delta_y)
-            self.front_wordmark_scale_var.set(max(1, min(500, scale)))
+            self.front_wordmark_scale_var.set(max(1, min(500, width_scale)))
+            self.front_wordmark_scale_height_var.set(
+                max(1, min(500, height_scale))
+            )
         elif key.startswith("logo:"):
             index = int(key.split(":")[1])
             if not (0 <= index < len(self.generator_logo_placements)):
@@ -9107,6 +9120,7 @@ class JerseyModderApp(tk.Tk):
         self.front_wordmark_offset_x_var.set(0)
         self.front_wordmark_offset_y_var.set(0)
         self.front_wordmark_scale_var.set(100)
+        self.front_wordmark_scale_height_var.set(100)
         self.generator_logo_placements = [
             replace(
                 placement,
@@ -10049,6 +10063,8 @@ class JerseyModderApp(tk.Tk):
                     "offsetX": self._front_wordmark_offset_x(),
                     "offsetY": self._front_wordmark_offset_y(),
                     "scalePercent": self._front_wordmark_scale_percent(),
+                    "scaleWidthPercent": self._front_wordmark_scale_percent(),
+                    "scaleHeightPercent": self._front_wordmark_height_scale_percent(),
                 },
                 "jerseyBackground": {
                     "tile": self.generator_background_tile_var.get(),
@@ -10171,6 +10187,12 @@ class JerseyModderApp(tk.Tk):
 
         front_wordmark = generator.get("frontWordmark", {})
         if isinstance(front_wordmark, dict):
+            legacy_scale = self._project_int(
+                front_wordmark.get("scalePercent"),
+                100,
+                1,
+                500,
+            )
             self.front_wordmark_offset_x_var.set(
                 self._project_int(front_wordmark.get("offsetX"), 0, -9999, 9999)
             )
@@ -10178,7 +10200,20 @@ class JerseyModderApp(tk.Tk):
                 self._project_int(front_wordmark.get("offsetY"), 0, -9999, 9999)
             )
             self.front_wordmark_scale_var.set(
-                self._project_int(front_wordmark.get("scalePercent"), 100, 1, 500)
+                self._project_int(
+                    front_wordmark.get("scaleWidthPercent"),
+                    legacy_scale,
+                    1,
+                    500,
+                )
+            )
+            self.front_wordmark_scale_height_var.set(
+                self._project_int(
+                    front_wordmark.get("scaleHeightPercent"),
+                    legacy_scale,
+                    1,
+                    500,
+                )
             )
 
         jersey_background = generator.get("jerseyBackground", {})
@@ -10565,6 +10600,8 @@ class JerseyModderApp(tk.Tk):
             front_wordmark_offset_x=self._front_wordmark_offset_x(),
             front_wordmark_offset_y=self._front_wordmark_offset_y(),
             front_wordmark_scale_percent=self._front_wordmark_scale_percent(),
+            front_wordmark_scale_width_percent=self._front_wordmark_scale_percent(),
+            front_wordmark_scale_height_percent=self._front_wordmark_height_scale_percent(),
             logo_placements=tuple(self.generator_logo_placements),
             trim_path_layers=tuple(
                 layer
@@ -10609,6 +10646,13 @@ class JerseyModderApp(tk.Tk):
     def _front_wordmark_scale_percent(self) -> int:
         try:
             value = self.front_wordmark_scale_var.get()
+        except tk.TclError:
+            return 100
+        return max(1, min(500, value))
+
+    def _front_wordmark_height_scale_percent(self) -> int:
+        try:
+            value = self.front_wordmark_scale_height_var.get()
         except tk.TclError:
             return 100
         return max(1, min(500, value))
@@ -10999,6 +11043,7 @@ class JerseyModderApp(tk.Tk):
                 self._front_wordmark_offset_y(),
             ),
             "front_scale": self._front_wordmark_scale_percent(),
+            "front_height_scale": self._front_wordmark_height_scale_percent(),
             "logos": tuple(self.generator_logo_placements),
             "trim_placements": dict(self.generator_trim_placements),
             "placements": {
@@ -11027,7 +11072,13 @@ class JerseyModderApp(tk.Tk):
         mode = self.generator_drag_state["mode"]
 
         if key == "front_wordmark":
-            self._drag_front_wordmark(mode, delta_x, delta_y, texture_x)
+            self._drag_front_wordmark(
+                mode,
+                delta_x,
+                delta_y,
+                texture_x,
+                texture_y,
+            )
         elif key.startswith("logo:"):
             self._drag_logo(key, mode, delta_x, delta_y, texture_x, texture_y)
         elif key in SIDE_PANEL_GENERATOR_KEYS:
@@ -11070,11 +11121,28 @@ class JerseyModderApp(tk.Tk):
             self.front_wordmark_offset_y_var.set(start_y + delta_y)
             return
 
-        rect_x, _rect_y, rect_width, _rect_height = self.generator_drag_state["rect"]
+        rect_x, rect_y, rect_width, rect_height = self.generator_drag_state["rect"]
         new_width = max(1, texture_x - rect_x)
-        start_scale = self.generator_drag_state["front_scale"]
+        new_height = max(1, texture_y - rect_y)
+        start_width_scale = self.generator_drag_state["front_scale"]
+        start_height_scale = self.generator_drag_state["front_height_scale"]
         self.front_wordmark_scale_var.set(
-            max(1, min(500, round(start_scale * new_width / max(1, rect_width))))
+            max(
+                1,
+                min(
+                    500,
+                    round(start_width_scale * new_width / max(1, rect_width)),
+                ),
+            )
+        )
+        self.front_wordmark_scale_height_var.set(
+            max(
+                1,
+                min(
+                    500,
+                    round(start_height_scale * new_height / max(1, rect_height)),
+                ),
+            )
         )
 
     def _drag_generator_number_preview(

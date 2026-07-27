@@ -186,6 +186,8 @@ class GeneratorInputs:
     front_wordmark_offset_x: int = 0
     front_wordmark_offset_y: int = 0
     front_wordmark_scale_percent: int = 100
+    front_wordmark_scale_width_percent: int | None = None
+    front_wordmark_scale_height_percent: int | None = None
     logo_placements: tuple[LogoPlacement, ...] = ()
     trim_path_layers: tuple[TrimPathLayer, ...] = ()
     fabric_overlay_image: Path | None = None
@@ -1047,11 +1049,25 @@ def _overlay_at_zone(
             max(1, round(fit_height * height_scale / 100)),
         )
     else:
-        scale = _zone_image_scale(zone, inputs)
-        final_size = (
-            max(1, round(fit_width * scale)),
-            max(1, round(fit_height * scale)),
-        )
+        if zone.name == "front_wordmark":
+            width_scale = _independent_scale_percent(
+                inputs.front_wordmark_scale_width_percent,
+                inputs.front_wordmark_scale_percent,
+            )
+            height_scale = _independent_scale_percent(
+                inputs.front_wordmark_scale_height_percent,
+                inputs.front_wordmark_scale_percent,
+            )
+            final_size = (
+                max(1, round(fit_width * width_scale / 100)),
+                max(1, round(fit_height * height_scale / 100)),
+            )
+        else:
+            scale = _zone_image_scale(zone, inputs)
+            final_size = (
+                max(1, round(fit_width * scale)),
+                max(1, round(fit_height * scale)),
+            )
     if overlay.size != final_size:
         overlay = overlay.resize(final_size, Image.Resampling.LANCZOS)
     offset_x, offset_y = _zone_image_offset(zone, inputs, logo=logo)
