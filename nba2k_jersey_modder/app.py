@@ -6019,6 +6019,23 @@ class JerseyModderApp(tk.Tk):
             return
         self.game_font_entries = entries
         self._filter_game_font_entries()
+        cached = self._count_cached_game_font_previews(entries)
+        total = len(entries)
+        self.game_font_cache_progress.configure(maximum=max(1, total))
+        self.game_font_cache_progress_var.set(cached)
+        if total and cached == total:
+            self.game_font_cache_all_button.configure(text="All Previews Cached")
+            self.game_font_cache_all_button.state(["disabled"])
+            self.game_font_browser_status_var.set(
+                f"All {total:,} game font previews are cached."
+            )
+        else:
+            self.game_font_cache_all_button.configure(text="Cache All Previews")
+            if not self.game_font_cache_all_active:
+                self.game_font_cache_all_button.state(["!disabled"])
+            self.game_font_browser_status_var.set(
+                f"Showing {total:,} game fonts | {cached:,} previews cached."
+            )
 
     def _filter_game_font_entries(self) -> None:
         tree = getattr(self, "game_font_tree", None)
@@ -6218,6 +6235,16 @@ class JerseyModderApp(tk.Tk):
         cache_dir = self._game_font_thumbnail_cache_dir()
         return cache_dir / f"{stem}.webp", cache_dir / f"{stem}.json"
 
+    def _count_cached_game_font_previews(
+        self,
+        entries: list[ManifestEntry],
+    ) -> int:
+        return sum(
+            1
+            for entry in entries
+            if all(path.is_file() for path in self._game_font_thumbnail_paths(entry))
+        )
+
     def _ensure_game_font_thumbnail(
         self,
         entry: ManifestEntry,
@@ -6370,6 +6397,9 @@ class JerseyModderApp(tk.Tk):
                     cached_file.unlink(missing_ok=True)
                     removed += 1
         self._prepare_game_font_cache()
+        self.game_font_cache_all_button.configure(text="Cache All Previews")
+        self.game_font_cache_all_button.state(["!disabled"])
+        self.game_font_cache_progress_var.set(0)
         self.game_font_browser_status_var.set(
             f"Preview cache cleared ({removed:,} files removed)."
         )
@@ -6379,6 +6409,7 @@ class JerseyModderApp(tk.Tk):
             return
         self.game_font_cache_all_active = True
         self.game_font_cache_stop_event.clear()
+        self.game_font_cache_all_button.configure(text="Caching Previews...")
         self.game_font_cache_all_button.state(["disabled"])
         self.game_font_stop_cache_button.state(["!disabled"])
         self.game_font_clear_cache_button.state(["disabled"])
@@ -6472,6 +6503,13 @@ class JerseyModderApp(tk.Tk):
         self.game_font_stop_cache_button.state(["disabled"])
         self.game_font_clear_cache_button.state(["!disabled"])
         self.game_font_cache_progress_var.set(completed)
+        cached = self._count_cached_game_font_previews(self.game_font_entries)
+        all_cached = bool(total) and cached == total
+        self.game_font_cache_all_button.configure(
+            text="All Previews Cached" if all_cached else "Cache Missing Previews"
+        )
+        if all_cached:
+            self.game_font_cache_all_button.state(["disabled"])
         if stopped:
             self.game_font_browser_status_var.set(
                 f"Preview caching stopped at {completed:,} of {total:,}. "
