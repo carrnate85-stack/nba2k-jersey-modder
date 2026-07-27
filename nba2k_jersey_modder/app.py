@@ -5802,6 +5802,15 @@ class JerseyModderApp(tk.Tk):
         self.game_font_visible_entries: dict[str, ManifestEntry] = {}
         self.game_font_preview_after_id = None
         self.game_font_preview_token = 0
+        self.game_font_thumbnail_lock = threading.Lock()
+        if not hasattr(self, "game_font_cache_all_active"):
+            self.game_font_cache_all_active = False
+        if (
+            not hasattr(self, "game_font_cache_stop_event")
+            or not self.game_font_cache_all_active
+        ):
+            self.game_font_cache_stop_event = threading.Event()
+        self.game_font_cache_progress_var = tk.DoubleVar(value=0)
         self.game_font_search_var = tk.StringVar()
         self.game_font_browser_status_var = tk.StringVar(
             value="Reading the NBA 2K26 font catalog..."
@@ -5826,11 +5835,31 @@ class JerseyModderApp(tk.Tk):
             text="Choose Folder",
             command=self.choose_game_font_root,
         ).pack(side=tk.RIGHT)
-        ttk.Button(
+        self.game_font_cache_all_button = ttk.Button(
+            header,
+            text="Cache All Previews",
+            command=self.cache_all_game_font_previews,
+        )
+        self.game_font_cache_all_button.pack(side=tk.RIGHT, padx=(0, 8))
+        self.game_font_stop_cache_button = ttk.Button(
+            header,
+            text="Stop",
+            command=self.stop_game_font_preview_cache,
+        )
+        self.game_font_stop_cache_button.pack(side=tk.RIGHT, padx=(0, 8))
+        if self.game_font_cache_all_active:
+            self.game_font_cache_all_button.state(["disabled"])
+            self.game_font_stop_cache_button.state(["!disabled"])
+        else:
+            self.game_font_stop_cache_button.state(["disabled"])
+        self.game_font_clear_cache_button = ttk.Button(
             header,
             text="Clear Preview Cache",
             command=self.clear_game_font_preview_cache,
-        ).pack(side=tk.RIGHT, padx=(0, 8))
+        )
+        self.game_font_clear_cache_button.pack(side=tk.RIGHT, padx=(0, 8))
+        if self.game_font_cache_all_active:
+            self.game_font_clear_cache_button.state(["disabled"])
 
         search_row = ttk.Frame(browser, padding=(10, 0, 10, 8))
         search_row.grid(row=1, column=0, columnspan=2, sticky="ew")
@@ -5916,6 +5945,15 @@ class JerseyModderApp(tk.Tk):
             style="Muted.TLabel",
         ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(16, 0))
 
+        progress_frame = ttk.Frame(browser, padding=(10, 0, 10, 10))
+        progress_frame.grid(row=4, column=0, columnspan=2, sticky="ew")
+        self.game_font_cache_progress = ttk.Progressbar(
+            progress_frame,
+            variable=self.game_font_cache_progress_var,
+            mode="determinate",
+        )
+        self.game_font_cache_progress.pack(fill=tk.X, expand=True)
+
         browser.columnconfigure(0, weight=3)
         browser.columnconfigure(1, weight=2)
         browser.rowconfigure(2, weight=1)
@@ -5924,6 +5962,7 @@ class JerseyModderApp(tk.Tk):
         self._load_game_font_catalog()
 
     def _close_game_font_browser(self) -> None:
+        self.game_font_cache_stop_event.set()
         if getattr(self, "game_font_preview_after_id", None) is not None:
             self.after_cancel(self.game_font_preview_after_id)
             self.game_font_preview_after_id = None
@@ -6041,64 +6080,12 @@ class JerseyModderApp(tk.Tk):
 
         def worker() -> None:
             try:
-                from PIL import Image
-
-                preview_path, metadata_path = self._game_font_thumbnail_paths(entry)
-                metadata = None
-                if preview_path.is_file() and metadata_path.is_file():
-                    try:
-                        metadata = json.loads(
-                            metadata_path.read_text(encoding="utf-8")
-                        )
-                        with Image.open(preview_path) as cached_preview:
-                            cached_preview.verify()
-                        for key in ("width", "height", "format"):
-                            if key not in metadata:
-                                raise ValueError("Incomplete font preview metadata.")
-                    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-                        preview_path.unlink(missing_ok=True)
-                        metadata_path.unlink(missing_ok=True)
-                        metadata = None
-                if metadata is not None:
-                    preview_path.touch()
-                    metadata_path.touch()
-                    preview_label = (
-                        f"{entry.display_name} | {metadata['width']} x "
-                        f"{metadata['height']} | {metadata['format']} | cached"
+                preview_path, preview_label, _was_cached = (
+                    self._ensure_game_font_thumbnail(
+                        entry,
+                        keep_working_iff=True,
                     )
-                    self._prune_game_font_iff_cache(
-                        self._game_font_iff_cache_path(entry)
-                    )
-                else:
-                    iff_path = self._extract_game_font_to_cache(entry)
-                    sheet = extract_number_sheet_from_font_iff(iff_path)
-                    info = inspect_font_number_texture(iff_path)
-                    thumbnail = sheet.copy()
-                    thumbnail.thumbnail((1024, 256), Image.Resampling.LANCZOS)
-                    preview_path.parent.mkdir(parents=True, exist_ok=True)
-                    thumbnail.save(
-                        preview_path,
-                        format="WEBP",
-                        quality=82,
-                        method=4,
-                    )
-                    metadata_path.write_text(
-                        json.dumps(
-                            {
-                                "width": info.width,
-                                "height": info.height,
-                                "format": info.format_label,
-                            },
-                            separators=(",", ":"),
-                        ),
-                        encoding="utf-8",
-                    )
-                    preview_label = (
-                        f"{entry.display_name} | {info.width} x {info.height} | "
-                        f"{info.format_label}"
-                    )
-                    self._prune_game_font_iff_cache(iff_path)
-                    self._limit_game_font_thumbnail_cache()
+                )
             except Exception as exc:  # noqa: BLE001 - background GUI boundary.
                 self.after(
                     0,
@@ -6220,15 +6207,7 @@ class JerseyModderApp(tk.Tk):
 
     @staticmethod
     def _game_font_thumbnail_cache_dir() -> Path:
-        local_app_data = Path(
-            os.environ.get("LOCALAPPDATA", tempfile.gettempdir())
-        )
-        return (
-            local_app_data
-            / "NBA 2K Jersey Modder"
-            / "cache"
-            / "font_previews"
-        )
+        return PROJECT_ROOT / "cache" / "font_previews"
 
     def _game_font_thumbnail_paths(
         self,
@@ -6239,13 +6218,110 @@ class JerseyModderApp(tk.Tk):
         cache_dir = self._game_font_thumbnail_cache_dir()
         return cache_dir / f"{stem}.webp", cache_dir / f"{stem}.json"
 
+    def _ensure_game_font_thumbnail(
+        self,
+        entry: ManifestEntry,
+        *,
+        keep_working_iff: bool,
+    ) -> tuple[Path, str, bool]:
+        from PIL import Image
+
+        with self.game_font_thumbnail_lock:
+            preview_path, metadata_path = self._game_font_thumbnail_paths(entry)
+            metadata = None
+            if preview_path.is_file() and metadata_path.is_file():
+                try:
+                    metadata = json.loads(
+                        metadata_path.read_text(encoding="utf-8")
+                    )
+                    with Image.open(preview_path) as cached_preview:
+                        cached_preview.verify()
+                    for key in ("width", "height", "format"):
+                        if key not in metadata:
+                            raise ValueError("Incomplete font preview metadata.")
+                except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                    preview_path.unlink(missing_ok=True)
+                    metadata_path.unlink(missing_ok=True)
+                    metadata = None
+            if metadata is not None:
+                preview_path.touch()
+                metadata_path.touch()
+                label = (
+                    f"{entry.display_name} | {metadata['width']} x "
+                    f"{metadata['height']} | {metadata['format']} | cached"
+                )
+                if keep_working_iff:
+                    self._prune_game_font_iff_cache(
+                        self._game_font_iff_cache_path(entry)
+                    )
+                else:
+                    self._prune_game_font_iff_cache()
+                return preview_path, label, True
+
+            iff_path = self._extract_game_font_to_cache(entry)
+            sheet = extract_number_sheet_from_font_iff(iff_path)
+            info = inspect_font_number_texture(iff_path)
+            thumbnail = sheet.copy()
+            thumbnail.thumbnail((1024, 256), Image.Resampling.LANCZOS)
+            preview_path.parent.mkdir(parents=True, exist_ok=True)
+            thumbnail.save(
+                preview_path,
+                format="WEBP",
+                quality=82,
+                method=4,
+            )
+            metadata_path.write_text(
+                json.dumps(
+                    {
+                        "width": info.width,
+                        "height": info.height,
+                        "format": info.format_label,
+                    },
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
+            )
+            label = (
+                f"{entry.display_name} | {info.width} x {info.height} | "
+                f"{info.format_label}"
+            )
+            if keep_working_iff:
+                self._prune_game_font_iff_cache(iff_path)
+            else:
+                self._prune_game_font_iff_cache()
+            self._limit_game_font_thumbnail_cache()
+            return preview_path, label, False
+
     def _prepare_game_font_cache(self) -> None:
+        self._migrate_legacy_game_font_thumbnail_cache()
         work_cache = self._game_font_work_cache_dir()
         work_cache.mkdir(parents=True, exist_ok=True)
         for legacy_preview in work_cache.glob("*.png"):
             legacy_preview.unlink(missing_ok=True)
         self._prune_game_font_iff_cache()
         self._limit_game_font_thumbnail_cache()
+
+    def _migrate_legacy_game_font_thumbnail_cache(self) -> None:
+        legacy_root = Path(
+            os.environ.get("LOCALAPPDATA", tempfile.gettempdir())
+        )
+        legacy_cache = (
+            legacy_root
+            / "NBA 2K Jersey Modder"
+            / "cache"
+            / "font_previews"
+        )
+        target_cache = self._game_font_thumbnail_cache_dir()
+        if not legacy_cache.is_dir() or legacy_cache.resolve() == target_cache.resolve():
+            return
+        target_cache.mkdir(parents=True, exist_ok=True)
+        for pattern in ("*.webp", "*.json"):
+            for source in legacy_cache.glob(pattern):
+                destination = target_cache / source.name
+                if destination.exists():
+                    source.unlink(missing_ok=True)
+                else:
+                    shutil.move(source, destination)
 
     def _prune_game_font_iff_cache(self, *additional_keep: Path) -> None:
         keep = {path.resolve() for path in additional_keep if path.is_file()}
@@ -6281,6 +6357,11 @@ class JerseyModderApp(tk.Tk):
             metadata.unlink(missing_ok=True)
 
     def clear_game_font_preview_cache(self) -> None:
+        if self.game_font_cache_all_active:
+            self.game_font_browser_status_var.set(
+                "Stop preview caching before clearing the cache."
+            )
+            return
         cache_dir = self._game_font_thumbnail_cache_dir()
         removed = 0
         if cache_dir.is_dir():
@@ -6292,6 +6373,115 @@ class JerseyModderApp(tk.Tk):
         self.game_font_browser_status_var.set(
             f"Preview cache cleared ({removed:,} files removed)."
         )
+
+    def cache_all_game_font_previews(self) -> None:
+        if self.game_font_cache_all_active or not self.game_font_entries:
+            return
+        self.game_font_cache_all_active = True
+        self.game_font_cache_stop_event.clear()
+        self.game_font_cache_all_button.state(["disabled"])
+        self.game_font_stop_cache_button.state(["!disabled"])
+        self.game_font_clear_cache_button.state(["disabled"])
+        entries = list(self.game_font_entries)
+        self.game_font_cache_progress.configure(maximum=max(1, len(entries)))
+        self.game_font_cache_progress_var.set(0)
+        self.game_font_browser_status_var.set(
+            f"Caching previews: 0 of {len(entries):,}..."
+        )
+
+        def worker() -> None:
+            completed = 0
+            created = 0
+            errors = 0
+            for entry in entries:
+                if self.game_font_cache_stop_event.is_set():
+                    break
+                try:
+                    _path, _label, was_cached = self._ensure_game_font_thumbnail(
+                        entry,
+                        keep_working_iff=False,
+                    )
+                    if not was_cached:
+                        created += 1
+                except Exception:  # noqa: BLE001 - continue building the catalog.
+                    errors += 1
+                completed += 1
+                if completed == 1 or completed % 5 == 0:
+                    self.after(
+                        0,
+                        lambda done=completed, new=created, failed=errors: (
+                            self._update_game_font_cache_progress(
+                                done,
+                                len(entries),
+                                new,
+                                failed,
+                            )
+                        ),
+                    )
+            stopped = self.game_font_cache_stop_event.is_set()
+            self.after(
+                0,
+                lambda: self._finish_game_font_cache_all(
+                    completed,
+                    len(entries),
+                    created,
+                    errors,
+                    stopped,
+                ),
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def stop_game_font_preview_cache(self) -> None:
+        self.game_font_cache_stop_event.set()
+        browser = getattr(self, "game_font_browser", None)
+        if browser is not None and browser.winfo_exists():
+            self.game_font_browser_status_var.set(
+                "Stopping after the current font finishes..."
+            )
+
+    def _update_game_font_cache_progress(
+        self,
+        completed: int,
+        total: int,
+        created: int,
+        errors: int,
+    ) -> None:
+        browser = getattr(self, "game_font_browser", None)
+        if browser is None or not browser.winfo_exists():
+            return
+        self.game_font_cache_progress_var.set(completed)
+        self.game_font_browser_status_var.set(
+            f"Caching previews: {completed:,} of {total:,} | "
+            f"{created:,} new | {errors:,} skipped"
+        )
+
+    def _finish_game_font_cache_all(
+        self,
+        completed: int,
+        total: int,
+        created: int,
+        errors: int,
+        stopped: bool,
+    ) -> None:
+        self.game_font_cache_all_active = False
+        browser = getattr(self, "game_font_browser", None)
+        if browser is None or not browser.winfo_exists():
+            return
+        self.game_font_cache_all_button.state(["!disabled"])
+        self.game_font_stop_cache_button.state(["disabled"])
+        self.game_font_clear_cache_button.state(["!disabled"])
+        self.game_font_cache_progress_var.set(completed)
+        if stopped:
+            self.game_font_browser_status_var.set(
+                f"Preview caching stopped at {completed:,} of {total:,}. "
+                "Cache All Previews will resume the missing entries."
+            )
+        else:
+            self.game_font_browser_status_var.set(
+                f"Preview cache complete: {total:,} fonts | "
+                f"{created:,} new | {errors:,} skipped."
+            )
 
     def load_selected_game_font(self) -> None:
         entry = self._selected_game_font_entry()
