@@ -154,6 +154,11 @@ INDEX_HTML = """<!doctype html>
     let nudgeTimer = null;
     const HANDLE_SIZE = 56;
     const HANDLE_HIT_RADIUS = 58;
+    const ALPHA_HIT_THRESHOLD = 12;
+    const hitCanvas = document.createElement("canvas");
+    hitCanvas.width = 1;
+    hitCanvas.height = 1;
+    const hitContext = hitCanvas.getContext("2d", {willReadFrequently: true});
 
     function cacheBustedUrl(url) {
       const separator = url.includes("?") ? "&" : "?";
@@ -457,6 +462,38 @@ INDEX_HTML = """<!doctype html>
       };
     }
 
+    function pointInsideBox(point, box) {
+      return point.x >= box.x && point.x <= box.x + box.width &&
+             point.y >= box.y && point.y <= box.y + box.height;
+    }
+
+    function visiblePixelHit(point, item, local) {
+      if (item.clipBox && !pointInsideBox(point, item.clipBox)) return false;
+      if (item.excludeBoxes?.some(box => pointInsideBox(point, box))) return false;
+      const image = overlays.get(item.key);
+      if (!image?.complete || !image.naturalWidth || !image.naturalHeight) return true;
+      const normalizedX = (local.x + item.width / 2) / Math.max(1, item.width);
+      const normalizedY = (local.y + item.height / 2) / Math.max(1, item.height);
+      if (normalizedX < 0 || normalizedX > 1 || normalizedY < 0 || normalizedY > 1) {
+        return false;
+      }
+      const sourceX = Math.max(
+        0,
+        Math.min(image.naturalWidth - 1, Math.floor(normalizedX * image.naturalWidth)),
+      );
+      const sourceY = Math.max(
+        0,
+        Math.min(image.naturalHeight - 1, Math.floor(normalizedY * image.naturalHeight)),
+      );
+      try {
+        hitContext.clearRect(0, 0, 1, 1);
+        hitContext.drawImage(image, sourceX, sourceY, 1, 1, 0, 0, 1, 1);
+        return hitContext.getImageData(0, 0, 1, 1).data[3] >= ALPHA_HIT_THRESHOLD;
+      } catch (_) {
+        return true;
+      }
+    }
+
     function hitTest(point) {
       for (const item of [...project.overlays].reverse()) {
         if (!item.canTransform) continue;
@@ -469,7 +506,9 @@ INDEX_HTML = """<!doctype html>
         const local = localPoint(point, item);
         const inBody = local.x >= -item.width / 2 && local.x <= item.width / 2 &&
                        local.y >= -item.height / 2 && local.y <= item.height / 2;
-        if (inBody) return {item, mode: "move"};
+        if (inBody && visiblePixelHit(point, item, local)) {
+          return {item, mode: "move"};
+        }
       }
       return null;
     }

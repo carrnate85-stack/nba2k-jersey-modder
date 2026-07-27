@@ -89,6 +89,7 @@ from nba2k_jersey_modder.tweak_iff import (
     inspect_front_number_tweak,
     write_front_number_tweak,
 )
+from nba2k_jersey_modder.web_editor import INDEX_HTML
 
 
 def _fake_tweak_scalar(hash_id: str, value: float, minimum: float, maximum: float) -> bytes:
@@ -106,6 +107,11 @@ def _fake_tweak_scalar(hash_id: str, value: float, minimum: float, maximum: floa
 
 
 class ScannerTests(unittest.TestCase):
+    def test_web_editor_uses_visible_pixels_for_overlapping_layer_selection(self) -> None:
+        self.assertIn("function visiblePixelHit", INDEX_HTML)
+        self.assertIn("getImageData(0, 0, 1, 1).data[3]", INDEX_HTML)
+        self.assertIn("visiblePixelHit(point, item, local)", INDEX_HTML)
+
     def test_trim_path_lab_has_saved_smooth_curve_bend_control(self) -> None:
         self.assertIn('id="curveStrength"', TRIM_PATH_LAB_HTML)
         self.assertIn('id="curveStrengthNumber"', TRIM_PATH_LAB_HTML)
