@@ -3333,6 +3333,27 @@ class GeneratorTests(unittest.TestCase):
         self.assertLess(thickened_center[2], 40)
         self.assertEqual(thickened.getpixel((0, 7))[3], 0)
 
+    def test_recolor_font_image_supports_twenty_pixel_outline(self) -> None:
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            self.skipTest("Pillow not available")
+
+        image = Image.new("RGBA", (61, 61), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((1, 1, 59, 59), fill=(80, 80, 80, 255))
+        draw.rectangle((5, 5, 55, 55), fill=(240, 240, 240, 255))
+
+        thickened = _recolor_font_image(
+            image,
+            (0, 0, 255),
+            (255, 255, 0),
+            outline_thickness=20,
+        )
+
+        self.assertEqual(thickened.getpixel((24, 30))[:3], (0, 0, 255))
+        self.assertEqual(thickened.getpixel((30, 30))[:3], (255, 255, 0))
+
     def test_recolor_font_image_preserves_antialiased_alpha(self) -> None:
         try:
             from PIL import Image, ImageDraw

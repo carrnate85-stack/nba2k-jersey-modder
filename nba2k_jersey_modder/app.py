@@ -166,6 +166,7 @@ GENERATOR_IMAGE_KEYS = (
     "right_arm_hole_trim_image",
     "collar_trim_image",
 )
+MAX_NUMBER_OUTLINE_THICKNESS = 20
 
 
 def _human_label(name: str) -> str:
@@ -1801,7 +1802,7 @@ class JerseyModderApp(tk.Tk):
         ttk.Scale(
             thickness_row,
             from_=0,
-            to=3,
+            to=MAX_NUMBER_OUTLINE_THICKNESS,
             variable=self.number_recolor_outline_thickness_var,
             command=self._on_number_recolor_outline_thickness_changed,
         ).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 8))
@@ -6942,7 +6943,7 @@ class JerseyModderApp(tk.Tk):
 
     def _number_recolor_outline_thickness(self) -> int:
         value = int(round(self.number_recolor_outline_thickness_var.get()))
-        value = min(3, max(0, value))
+        value = min(MAX_NUMBER_OUTLINE_THICKNESS, max(0, value))
         self.number_recolor_outline_thickness_var.set(value)
         self.number_recolor_outline_thickness_label_var.set(f"{value} px")
         return value
@@ -12847,7 +12848,10 @@ def _recolor_font_image(
     if dark_color is None and light_color is None:
         return rgba
     edge_protection = _clamp(edge_protection, 0.0, 1.0)
-    outline_thickness = max(0, min(3, int(outline_thickness)))
+    outline_thickness = max(
+        0,
+        min(MAX_NUMBER_OUTLINE_THICKNESS, int(outline_thickness)),
+    )
     rgba_data = getattr(rgba, "get_flattened_data", rgba.getdata)
     pixels = list(rgba_data())
     distances = _font_alpha_edge_distances(rgba)
