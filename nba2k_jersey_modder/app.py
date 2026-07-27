@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from dataclasses import replace
 from datetime import datetime
+import hashlib
 from io import BytesIO
 import json
 import os
@@ -26,6 +27,12 @@ from .font_iff import (
     inspect_font_number_texture,
     split_number_sheet_digits,
     write_number_sheet_to_font_iff,
+)
+from .game_manifest import (
+    DEFAULT_NBA2K26_ROOT,
+    ManifestEntry,
+    extract_manifest_iff,
+    load_font_manifest_entries,
 )
 from .generator import (
     BackgroundCleanupSettings,
@@ -1611,6 +1618,11 @@ class JerseyModderApp(tk.Tk):
             text="Import Font IFF",
             command=self.import_number_font_iff,
         ).pack(side=tk.LEFT)
+        ttk.Button(
+            toolbar,
+            text="Browse Game Fonts",
+            command=self.open_game_font_browser,
+        ).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(
             toolbar,
             text="Save Recolored Font IFF As",
@@ -5771,6 +5783,427 @@ class JerseyModderApp(tk.Tk):
         self._advance_number_creator_digit_after_save(digit)
         self.number_creator_status.configure(text=f"Loaded digit {digit}.")
 
+    def open_game_font_browser(self) -> None:
+        existing = getattr(self, "game_font_browser", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.focus_force()
+            return
+
+        browser = tk.Toplevel(self)
+        self.game_font_browser = browser
+        browser.title("NBA 2K26 Game Fonts")
+        browser.geometry("1040x680")
+        browser.minsize(820, 520)
+        browser.transient(self)
+
+        self.game_font_root = DEFAULT_NBA2K26_ROOT
+        self.game_font_entries: list[ManifestEntry] = []
+        self.game_font_visible_entries: dict[str, ManifestEntry] = {}
+        self.game_font_preview_after_id = None
+        self.game_font_preview_token = 0
+        self.game_font_search_var = tk.StringVar()
+        self.game_font_browser_status_var = tk.StringVar(
+            value="Reading the NBA 2K26 font catalog..."
+        )
+
+        header = ttk.Frame(browser, padding=(10, 10, 10, 8))
+        header.grid(row=0, column=0, columnspan=2, sticky="ew")
+        ttk.Label(header, text="Game folder").pack(side=tk.LEFT)
+        self.game_font_root_label = ttk.Label(
+            header,
+            text=str(self.game_font_root),
+            style="Muted.TLabel",
+        )
+        self.game_font_root_label.pack(
+            side=tk.LEFT,
+            fill=tk.X,
+            expand=True,
+            padx=(8, 8),
+        )
+        ttk.Button(
+            header,
+            text="Choose Folder",
+            command=self.choose_game_font_root,
+        ).pack(side=tk.RIGHT)
+
+        search_row = ttk.Frame(browser, padding=(10, 0, 10, 8))
+        search_row.grid(row=1, column=0, columnspan=2, sticky="ew")
+        ttk.Label(search_row, text="Search").pack(side=tk.LEFT)
+        search = ttk.Entry(search_row, textvariable=self.game_font_search_var)
+        search.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+        search.focus_set()
+        self.game_font_search_var.trace_add(
+            "write",
+            lambda *_args: self._filter_game_font_entries(),
+        )
+
+        list_frame = ttk.Frame(browser, padding=(10, 0, 5, 0))
+        list_frame.grid(row=2, column=0, sticky="nsew")
+        self.game_font_tree = ttk.Treeview(
+            list_frame,
+            columns=("name", "archive", "size"),
+            show="headings",
+            selectmode="browse",
+        )
+        self.game_font_tree.heading("name", text="Font IFF")
+        self.game_font_tree.heading("archive", text="Archive")
+        self.game_font_tree.heading("size", text="Packed size")
+        self.game_font_tree.column("name", width=480, minwidth=260)
+        self.game_font_tree.column("archive", width=70, minwidth=55, anchor=tk.CENTER)
+        self.game_font_tree.column("size", width=90, minwidth=75, anchor=tk.E)
+        list_scroll = ttk.Scrollbar(
+            list_frame,
+            orient=tk.VERTICAL,
+            command=self.game_font_tree.yview,
+        )
+        self.game_font_tree.configure(yscrollcommand=list_scroll.set)
+        self.game_font_tree.grid(row=0, column=0, sticky="nsew")
+        list_scroll.grid(row=0, column=1, sticky="ns")
+        self.game_font_tree.bind(
+            "<<TreeviewSelect>>",
+            self._schedule_game_font_preview,
+        )
+        self.game_font_tree.bind(
+            "<Double-1>",
+            lambda _event: self.load_selected_game_font(),
+        )
+        list_frame.columnconfigure(0, weight=1)
+        list_frame.rowconfigure(0, weight=1)
+
+        preview_frame = ttk.Frame(browser, padding=(5, 0, 10, 0))
+        preview_frame.grid(row=2, column=1, sticky="nsew")
+        ttk.Label(
+            preview_frame,
+            text="Number sheet preview",
+            style="Status.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        self.game_font_preview_canvas = tk.Canvas(
+            preview_frame,
+            width=360,
+            background="#20242b",
+            highlightthickness=0,
+        )
+        self.game_font_preview_canvas.grid(row=1, column=0, sticky="nsew")
+        preview_frame.columnconfigure(0, weight=1)
+        preview_frame.rowconfigure(1, weight=1)
+
+        actions = ttk.Frame(browser, padding=(10, 8, 10, 10))
+        actions.grid(row=3, column=0, columnspan=2, sticky="ew")
+        ttk.Button(
+            actions,
+            text="Load in Number Editor",
+            command=self.load_selected_game_font,
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            actions,
+            text="Export Font IFF As",
+            command=self.export_selected_game_font_iff,
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(
+            actions,
+            text="Export Number Sheet PNG As",
+            command=self.export_selected_game_font_sheet,
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Label(
+            actions,
+            textvariable=self.game_font_browser_status_var,
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(16, 0))
+
+        browser.columnconfigure(0, weight=3)
+        browser.columnconfigure(1, weight=2)
+        browser.rowconfigure(2, weight=1)
+        browser.protocol("WM_DELETE_WINDOW", self._close_game_font_browser)
+        self._load_game_font_catalog()
+
+    def _close_game_font_browser(self) -> None:
+        if getattr(self, "game_font_preview_after_id", None) is not None:
+            self.after_cancel(self.game_font_preview_after_id)
+            self.game_font_preview_after_id = None
+        browser = getattr(self, "game_font_browser", None)
+        if browser is not None and browser.winfo_exists():
+            browser.destroy()
+        self.game_font_browser = None
+
+    def choose_game_font_root(self) -> None:
+        selected = filedialog.askdirectory(
+            title="Choose NBA 2K26 game folder",
+            initialdir=str(self.game_font_root),
+            parent=self.game_font_browser,
+        )
+        if not selected:
+            return
+        self.game_font_root = Path(selected)
+        self.game_font_root_label.configure(text=str(self.game_font_root))
+        self._load_game_font_catalog()
+
+    def _load_game_font_catalog(self) -> None:
+        manifest_path = self.game_font_root / "manifest"
+        if not manifest_path.is_file():
+            self.game_font_browser_status_var.set(
+                "No manifest found. Choose the NBA 2K26 game folder."
+            )
+            self.game_font_entries = []
+            self._filter_game_font_entries()
+            return
+
+        self.game_font_browser_status_var.set("Reading the game manifest...")
+        self.game_font_tree.delete(*self.game_font_tree.get_children())
+
+        def worker() -> None:
+            try:
+                entries = load_font_manifest_entries(manifest_path)
+            except Exception as exc:  # noqa: BLE001 - background GUI boundary.
+                self.after(0, lambda: self._finish_game_font_catalog_load([], exc))
+                return
+            self.after(0, lambda: self._finish_game_font_catalog_load(entries, None))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_game_font_catalog_load(
+        self,
+        entries: list[ManifestEntry],
+        error: Exception | None,
+    ) -> None:
+        browser = getattr(self, "game_font_browser", None)
+        if browser is None or not browser.winfo_exists():
+            return
+        if error is not None:
+            self.game_font_browser_status_var.set(str(error))
+            return
+        self.game_font_entries = entries
+        self._filter_game_font_entries()
+
+    def _filter_game_font_entries(self) -> None:
+        tree = getattr(self, "game_font_tree", None)
+        if tree is None or not tree.winfo_exists():
+            return
+        query = self.game_font_search_var.get().strip().lower()
+        tree.delete(*tree.get_children())
+        self.game_font_visible_entries = {}
+        visible = (
+            entry
+            for entry in self.game_font_entries
+            if not query or query in entry.name.lower()
+        )
+        for index, entry in enumerate(visible):
+            item_id = f"font_{index}"
+            self.game_font_visible_entries[item_id] = entry
+            tree.insert(
+                "",
+                tk.END,
+                iid=item_id,
+                values=(entry.display_name, entry.archive_id, f"{entry.size:,} B"),
+            )
+        count = len(self.game_font_visible_entries)
+        total = len(self.game_font_entries)
+        self.game_font_browser_status_var.set(
+            f"Showing {count:,} of {total:,} game fonts."
+        )
+
+    def _selected_game_font_entry(self) -> ManifestEntry | None:
+        selection = self.game_font_tree.selection()
+        if not selection:
+            messagebox.showinfo(
+                "Game Fonts",
+                "Select a font first.",
+                parent=self.game_font_browser,
+            )
+            return None
+        return self.game_font_visible_entries.get(selection[0])
+
+    def _schedule_game_font_preview(self, _event: tk.Event | None = None) -> None:
+        if self.game_font_preview_after_id is not None:
+            self.after_cancel(self.game_font_preview_after_id)
+        self.game_font_preview_after_id = self.after(
+            180,
+            self.preview_selected_game_font,
+        )
+
+    def preview_selected_game_font(self) -> None:
+        self.game_font_preview_after_id = None
+        selection = self.game_font_tree.selection()
+        if not selection:
+            return
+        entry = self.game_font_visible_entries.get(selection[0])
+        if entry is None:
+            return
+        self.game_font_preview_token += 1
+        token = self.game_font_preview_token
+        self.game_font_browser_status_var.set(f"Loading {entry.display_name}...")
+
+        def worker() -> None:
+            try:
+                iff_path = self._extract_game_font_to_cache(entry)
+                sheet = extract_number_sheet_from_font_iff(iff_path)
+                preview_path = iff_path.with_suffix(".png")
+                sheet.save(preview_path)
+                info = inspect_font_number_texture(iff_path)
+            except Exception as exc:  # noqa: BLE001 - background GUI boundary.
+                self.after(
+                    0,
+                    lambda: self._finish_game_font_preview(token, entry, None, None, exc),
+                )
+                return
+            self.after(
+                0,
+                lambda: self._finish_game_font_preview(
+                    token,
+                    entry,
+                    preview_path,
+                    info,
+                    None,
+                ),
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_game_font_preview(
+        self,
+        token: int,
+        entry: ManifestEntry,
+        preview_path: Path | None,
+        info: FontNumberTextureInfo | None,
+        error: Exception | None,
+    ) -> None:
+        browser = getattr(self, "game_font_browser", None)
+        if (
+            browser is None
+            or not browser.winfo_exists()
+            or token != self.game_font_preview_token
+        ):
+            return
+        if error is not None or preview_path is None or info is None:
+            self.game_font_browser_status_var.set(
+                f"Could not preview {entry.display_name}: {error}"
+            )
+            return
+        self._show_game_font_preview(preview_path)
+        self.game_font_browser_status_var.set(
+            f"{entry.display_name} | {info.width} x {info.height} | {info.format_label}"
+        )
+
+    def _show_game_font_preview(self, path: Path) -> None:
+        from PIL import Image, ImageDraw, ImageTk
+
+        canvas = self.game_font_preview_canvas
+        canvas.delete("all")
+        canvas.update_idletasks()
+        target_width = max(1, canvas.winfo_width() - 20)
+        target_height = max(1, canvas.winfo_height() - 20)
+        with Image.open(path) as opened:
+            sheet = opened.convert("RGBA")
+        scale = min(target_width / sheet.width, target_height / sheet.height, 1.0)
+        size = (
+            max(1, round(sheet.width * scale)),
+            max(1, round(sheet.height * scale)),
+        )
+        sheet = sheet.resize(size, Image.Resampling.LANCZOS)
+        background = Image.new("RGBA", size, (238, 238, 238, 255))
+        draw = ImageDraw.Draw(background)
+        square = 14
+        for y in range(0, size[1], square):
+            for x in range(0, size[0], square):
+                if (x // square + y // square) % 2:
+                    draw.rectangle(
+                        (x, y, x + square - 1, y + square - 1),
+                        fill=(205, 205, 205, 255),
+                    )
+        background.alpha_composite(sheet)
+        self.game_font_preview_image = ImageTk.PhotoImage(background)
+        canvas.create_image(
+            max(10, (canvas.winfo_width() - size[0]) // 2),
+            max(10, (canvas.winfo_height() - size[1]) // 2),
+            image=self.game_font_preview_image,
+            anchor=tk.NW,
+        )
+
+    def _extract_game_font_to_cache(self, entry: ManifestEntry) -> Path:
+        digest = hashlib.sha1(entry.name.encode("utf-8")).hexdigest()[:16]
+        cache_path = (
+            Path(tempfile.gettempdir())
+            / "nba2k_jersey_modder"
+            / "game_fonts"
+            / f"{Path(entry.name).stem}_{digest}.iff"
+        )
+        try:
+            inspect_font_number_texture(cache_path)
+        except (OSError, ValueError, zipfile.BadZipFile):
+            cache_path.unlink(missing_ok=True)
+            extract_manifest_iff(entry, self.game_font_root, cache_path)
+        return cache_path
+
+    def load_selected_game_font(self) -> None:
+        entry = self._selected_game_font_entry()
+        if entry is None:
+            return
+        try:
+            iff_path = self._extract_game_font_to_cache(entry)
+            self._load_number_font_iff_path(iff_path)
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror(
+                "Load Game Font",
+                str(exc),
+                parent=self.game_font_browser,
+            )
+            return
+        self.number_creator_status.configure(
+            text=f"Loaded game font {entry.display_name}."
+        )
+        self.game_font_browser_status_var.set(
+            f"Loaded {entry.display_name} in Number Editor."
+        )
+
+    def export_selected_game_font_iff(self) -> None:
+        entry = self._selected_game_font_entry()
+        if entry is None:
+            return
+        selected = filedialog.asksaveasfilename(
+            title="Export Game Font IFF",
+            defaultextension=".iff",
+            initialfile=entry.display_name,
+            filetypes=(("Font IFF files", "*.iff"), ("All files", "*.*")),
+            parent=self.game_font_browser,
+        )
+        if not selected:
+            return
+        try:
+            shutil.copy2(self._extract_game_font_to_cache(entry), selected)
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror(
+                "Export Game Font",
+                str(exc),
+                parent=self.game_font_browser,
+            )
+            return
+        self.game_font_browser_status_var.set(f"Exported {Path(selected).name}.")
+
+    def export_selected_game_font_sheet(self) -> None:
+        entry = self._selected_game_font_entry()
+        if entry is None:
+            return
+        selected = filedialog.asksaveasfilename(
+            title="Export Number Sheet PNG",
+            defaultextension=".png",
+            initialfile=f"{Path(entry.display_name).stem}_numbers.png",
+            filetypes=(("PNG files", "*.png"), ("All files", "*.*")),
+            parent=self.game_font_browser,
+        )
+        if not selected:
+            return
+        try:
+            iff_path = self._extract_game_font_to_cache(entry)
+            extract_number_sheet_from_font_iff(iff_path).save(selected)
+        except Exception as exc:  # noqa: BLE001 - GUI boundary.
+            messagebox.showerror(
+                "Export Number Sheet",
+                str(exc),
+                parent=self.game_font_browser,
+            )
+            return
+        self.game_font_browser_status_var.set(f"Exported {Path(selected).name}.")
+
     def import_number_font_iff(self) -> None:
         selected = filedialog.askopenfilename(
             title="Import Font IFF",
@@ -5779,41 +6212,44 @@ class JerseyModderApp(tk.Tk):
         if not selected:
             return
         try:
-            info = inspect_font_number_texture(selected)
-            sheet = extract_number_sheet_from_font_iff(selected)
-            digits = split_number_sheet_digits(sheet)
-            self.number_creator_digit_paths = {}
-            self.number_creator_original_digit_paths = {}
-            self.number_creator_font_digit_centers = {}
-            self.number_creator_font_digit_bounds = {}
-            for index, digit_image in enumerate(digits):
-                bbox = _visible_image_bounds(digit_image)
-                if bbox is not None:
-                    self.number_creator_font_digit_bounds[str(index)] = bbox
-                center = _visible_image_center(digit_image)
-                if center is not None:
-                    self.number_creator_font_digit_centers[str(index)] = center
-                output_path = self._number_creator_digit_output_path(
-                    str(index),
-                    prefix="font_original_digit",
-                )
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                digit_image.save(output_path)
-                self.number_creator_digit_paths[str(index)] = output_path
-                self.number_creator_original_digit_paths[str(index)] = output_path
-            self.number_creator_font_info = info
-            self.number_creator_font_status_var.set(
-                f"Font IFF: {Path(selected).name} | {info.width} x {info.height} | "
-                f"{info.cell_width} px cells | {info.format_label}"
-            )
+            self._load_number_font_iff_path(Path(selected))
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
             messagebox.showerror("Import Font IFF", str(exc))
             return
-        self._refresh_number_creator_digit_list()
-        self.refresh_number_creator_sheet_preview()
         self.number_creator_status.configure(
             text=f"Imported font colors from {Path(selected).name}."
         )
+
+    def _load_number_font_iff_path(self, selected: Path) -> None:
+        info = inspect_font_number_texture(selected)
+        sheet = extract_number_sheet_from_font_iff(selected)
+        digits = split_number_sheet_digits(sheet)
+        self.number_creator_digit_paths = {}
+        self.number_creator_original_digit_paths = {}
+        self.number_creator_font_digit_centers = {}
+        self.number_creator_font_digit_bounds = {}
+        for index, digit_image in enumerate(digits):
+            bbox = _visible_image_bounds(digit_image)
+            if bbox is not None:
+                self.number_creator_font_digit_bounds[str(index)] = bbox
+            center = _visible_image_center(digit_image)
+            if center is not None:
+                self.number_creator_font_digit_centers[str(index)] = center
+            output_path = self._number_creator_digit_output_path(
+                str(index),
+                prefix="font_original_digit",
+            )
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            digit_image.save(output_path)
+            self.number_creator_digit_paths[str(index)] = output_path
+            self.number_creator_original_digit_paths[str(index)] = output_path
+        self.number_creator_font_info = info
+        self.number_creator_font_status_var.set(
+            f"Font IFF: {selected.name} | {info.width} x {info.height} | "
+            f"{info.cell_width} px cells | {info.format_label}"
+        )
+        self._refresh_number_creator_digit_list()
+        self.refresh_number_creator_sheet_preview()
 
     def choose_number_recolor_color(self, target: str) -> None:
         variable = (

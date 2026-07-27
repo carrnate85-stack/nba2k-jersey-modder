@@ -29,6 +29,11 @@ from nba2k_jersey_modder.font_iff import (
     split_number_sheet_digits,
     write_number_sheet_to_font_iff,
 )
+from nba2k_jersey_modder.game_manifest import (
+    ManifestEntry,
+    extract_manifest_iff,
+    load_font_manifest_entries,
+)
 from nba2k_jersey_modder.iff_patch import Replacement, apply_replacements, can_replace_resource
 from nba2k_jersey_modder.generator import (
     BackgroundCleanupSettings,
@@ -206,6 +211,57 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(pair.txtr_hits[0].name, "jersey_color.TXTR")
         self.assertEqual(pair.dds_hits[0].source, "archive entry")
         self.assertTrue(can_replace_resource(pair.dds_hits[0]))
+
+
+class GameManifestTests(unittest.TestCase):
+    def test_load_font_manifest_entries_filters_and_parses_font_iffs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest = Path(tmp_dir) / "manifest"
+            manifest.write_text(
+                "clothing/team_home_font.iff,0A,120,4500\n"
+                "clothing/team_home_tweak.iff,0A,4620,1200\n"
+                "bad line\n"
+                "clothing/team_away_font.iff,0B,10,5000\n",
+                encoding="utf-8",
+            )
+
+            entries = load_font_manifest_entries(manifest)
+
+        self.assertEqual(
+            entries,
+            [
+                ManifestEntry("clothing/team_home_font.iff", "0A", 120, 4500),
+                ManifestEntry("clothing/team_away_font.iff", "0B", 10, 5000),
+            ],
+        )
+
+    def test_extract_manifest_iff_reads_standard_zip_archive_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_root = Path(tmp_dir)
+            archive_path = game_root / "0A"
+            output_path = game_root / "exported.iff"
+            prefix = b"archive-prefix"
+            iff_buffer = BytesIO()
+            with zipfile.ZipFile(iff_buffer, "w") as archive:
+                archive.writestr("font_number.UniformFontMap", b"font map")
+            iff_data = iff_buffer.getvalue()
+            archive_path.write_bytes(prefix + iff_data + b"archive-suffix")
+            entry = ManifestEntry(
+                "clothing/team_home_font.iff",
+                "0A",
+                len(prefix),
+                len(iff_data),
+            )
+
+            result = extract_manifest_iff(entry, game_root, output_path)
+
+            self.assertEqual(result, output_path)
+            self.assertTrue(zipfile.is_zipfile(output_path))
+            with zipfile.ZipFile(output_path) as archive:
+                self.assertEqual(
+                    archive.read("font_number.UniformFontMap"),
+                    b"font map",
+                )
 
 
 class IffPatchTests(unittest.TestCase):
