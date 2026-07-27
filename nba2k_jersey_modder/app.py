@@ -5583,6 +5583,8 @@ class JerseyModderApp(tk.Tk):
                 "Clean up and redraw these basketball jersey logos as transparent PNGs.",
                 f"Logo type(s): {logo_type_text}.",
                 "Keep the same design, colors, proportions, outline thickness, and visual style.",
+                "If a reference is photographed on curved fabric or at an angle, correct the perspective and warping so the finished logo is flat, level, and viewed straight-on.",
+                "Straighten accidental skew, uneven baselines, and wavy edges, but preserve intentional arches, italic lettering, curves, and asymmetry that are part of the original design.",
                 "Remove background noise, jagged edges, compression artifacts, and blur.",
                 "Use a true transparent background with an alpha channel.",
                 "Do not put the logo on white, black, gray, checkerboard, or any solid-color background.",

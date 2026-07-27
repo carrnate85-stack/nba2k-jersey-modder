@@ -105,6 +105,16 @@ def _fake_tweak_scalar(hash_id: str, value: float, minimum: float, maximum: floa
 
 
 class ScannerTests(unittest.TestCase):
+    def test_logo_ai_prompt_straightens_only_accidental_distortion(self) -> None:
+        app = object.__new__(JerseyModderApp)
+        app._logo_creator_canvas_size = lambda: 1024
+
+        prompt = app._logo_ai_prompt_text(["Center chest logo"])
+
+        self.assertIn("correct the perspective and warping", prompt)
+        self.assertIn("flat, level, and viewed straight-on", prompt)
+        self.assertIn("preserve intentional arches", prompt)
+
     def test_trim_creator_waistband_uses_the_dedicated_waistband_image_slot(self) -> None:
         self.assertIn("waistband", TRIM_CREATOR_TARGETS)
         self.assertEqual(
