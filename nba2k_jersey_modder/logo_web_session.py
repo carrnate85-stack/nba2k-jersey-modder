@@ -33,6 +33,7 @@ class StagedLogo:
     typeLabel: str
     target: str
     path: str
+    thumbnailPath: str
     points: list[dict[str, int]]
     auto: bool = False
     removeWhite: bool = False
@@ -98,10 +99,12 @@ class LogoWebSession:
             typeLabel=type_label,
             target=target,
             path="",
+            thumbnailPath="",
             points=points,
         )
         self._apply_options(item, payload)
         item.path = str(self.folder / f"{item.id}.png")
+        item.thumbnailPath = str(self.folder / f"{item.id}.thumb.png")
         self._render(item)
         self.items.append(item)
         self.selected_id = item.id
@@ -127,6 +130,7 @@ class LogoWebSession:
         item = self._find(str(payload.get("id") or self.selected_id or ""))
         self.items.remove(item)
         Path(item.path).unlink(missing_ok=True)
+        Path(item.thumbnailPath).unlink(missing_ok=True)
         self.selected_id = self.items[-1].id if self.items else None
         self._write_state()
         return self.project()
@@ -134,6 +138,7 @@ class LogoWebSession:
     def clear(self) -> dict:
         for item in self.items:
             Path(item.path).unlink(missing_ok=True)
+            Path(item.thumbnailPath).unlink(missing_ok=True)
         self.items.clear()
         self.selected_id = None
         self._write_state()
@@ -167,7 +172,13 @@ class LogoWebSession:
         )
         if item.scale > 1:
             logo = upscale_logo_image(logo, scale_factor=item.scale, sharpen=True)
-        logo.save(item.path, "PNG", compress_level=1)
+        output_path = Path(item.path)
+        temporary = output_path.with_suffix(".writing")
+        logo.save(temporary, "PNG", compress_level=1)
+        temporary.replace(output_path)
+        thumbnail = logo.copy()
+        thumbnail.thumbnail((180, 120), Image.Resampling.LANCZOS)
+        thumbnail.save(item.thumbnailPath, "PNG", compress_level=1)
 
     def _apply_options(self, item: StagedLogo, payload: dict) -> None:
         item.auto = bool(payload.get("auto", item.auto))

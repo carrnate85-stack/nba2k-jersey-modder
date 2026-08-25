@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Markup;
 using System.Windows.Threading;
 using JerseyModder.Wpf.Controls;
 using JerseyModder.Wpf.Services;
@@ -12,8 +13,10 @@ namespace JerseyModder.Wpf.Views;
 
 public sealed class LogoCreatorPage : ToolPageBase
 {
-    private sealed record StagedLogo(string Id, string Path, string Target, string TypeLabel)
+    public sealed record StagedLogo(
+        string Id, string Path, string ThumbnailPath, string Target, string TypeLabel)
     {
+        public string FileName => System.IO.Path.GetFileName(Path);
         public override string ToString() => $"{TypeLabel}  |  {System.IO.Path.GetFileName(Path)}";
     }
 
@@ -55,40 +58,62 @@ public sealed class LogoCreatorPage : ToolPageBase
         commandBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var upload = Ui.Button("Upload Reference and Open Web Logo Creator", OnOpen, true);
         _reopenButton = Ui.Button("Reopen Web Logo Creator", (_, _) => ReopenWebEditor());
+        _reopenButton.Margin = new Thickness(8, 0, 0, 0);
         _reopenButton.IsEnabled = false;
         commandBar.Children.Add(upload);
         Grid.SetColumn(_reopenButton, 1);
         commandBar.Children.Add(_reopenButton);
         body.Children.Add(commandBar);
 
-        var left = new Grid();
-        left.RowDefinitions.Add(new RowDefinition());
-        left.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        left.Children.Add(_reference);
-        Grid.SetRow(_sourceLabel, 1);
-        _sourceLabel.Margin = new Thickness(0, 8, 0, 0);
+        var left = new StackPanel();
+        _reference.Height = 175;
+        left.Children.Add(new GroupBox { Header = "Reference", Content = _reference });
+        _sourceLabel.Margin = new Thickness(2, 7, 2, 12);
         left.Children.Add(_sourceLabel);
+        _preview.Height = 225;
+        left.Children.Add(new GroupBox { Header = "Selected Logo", Content = _preview });
+        left.Children.Add(Ui.Button("Open Web Logo Creator", (_, _) => ReopenWebEditor(), true));
 
-        var right = new StackPanel();
-        _preview.Height = 250;
-        right.Children.Add(new GroupBox { Header = "Selected Logo Preview", Content = _preview });
-        _stagedList.Height = 250;
+        var right = new Grid();
+        right.RowDefinitions.Add(new RowDefinition());
+        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _stagedList.ItemTemplate = BuildStageTemplate();
+        _stagedList.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         _stagedList.SelectionChanged += async (_, _) => await ShowSelectedPreviewAsync();
-        right.Children.Add(new GroupBox
+        var stagedGroup = new GroupBox
         {
             Header = "Staged Logos",
             Content = _stagedList,
-            Margin = new Thickness(0, 10, 0, 0),
-        });
+        };
+        right.Children.Add(stagedGroup);
+        Grid.SetRow(_stageSummary, 1);
         right.Children.Add(_stageSummary);
-        right.Children.Add(Ui.Button("Edit Staged Logos in Web Creator", (_, _) => ReopenWebEditor(), true));
-        right.Children.Add(Ui.Button("Send All Staged Logos to Generator", OnSend));
+        var stageButtons = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+        stageButtons.ColumnDefinitions.Add(new ColumnDefinition());
+        stageButtons.ColumnDefinitions.Add(new ColumnDefinition());
+        var edit = Ui.Button("Edit Staged Logos", (_, _) => ReopenWebEditor());
+        var send = Ui.Button("Send All to Generator", OnSend, true);
+        edit.Margin = new Thickness(0, 0, 4, 0);
+        send.Margin = new Thickness(4, 0, 0, 0);
+        stageButtons.Children.Add(edit);
+        Grid.SetColumn(send, 1);
+        stageButtons.Children.Add(send);
+        Grid.SetRow(stageButtons, 2);
+        right.Children.Add(stageButtons);
 
-        var split = Ui.Split(left, new ScrollViewer
+        var split = new Grid();
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        split.ColumnDefinitions.Add(new ColumnDefinition());
+        var leftScroll = new ScrollViewer
         {
-            Content = right,
+            Content = left,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        }, 420);
+        };
+        split.Children.Add(leftScroll);
+        Grid.SetColumn(right, 2);
+        split.Children.Add(right);
         Grid.SetRow(split, 1);
         body.Children.Add(split);
         Content = Ui.Page(
@@ -96,6 +121,24 @@ public sealed class LogoCreatorPage : ToolPageBase
             "Load one reference, select several logos in the browser, then review and send the staged set to the Generator.",
             body);
     }
+
+    private static DataTemplate BuildStageTemplate() => (DataTemplate)XamlReader.Parse("""
+        <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+          <Grid Margin="4" Height="64">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="84" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Background="#EEF1F4" BorderBrush="#CBD2DB" BorderThickness="1" CornerRadius="3" Padding="3">
+              <Image Source="{Binding ThumbnailPath}" Stretch="Uniform" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+              <TextBlock Text="{Binding TypeLabel}" FontWeight="SemiBold" FontSize="14" />
+              <TextBlock Text="{Binding FileName}" Foreground="#667180" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+          </Grid>
+        </DataTemplate>
+        """);
 
     private async void OnOpen(object sender, RoutedEventArgs e)
     {
@@ -158,6 +201,7 @@ public sealed class LogoCreatorPage : ToolPageBase
                 return new StagedLogo(
                     item["id"]!.GetValue<string>(),
                     item["path"]!.GetValue<string>(),
+                    item["thumbnailPath"]?.GetValue<string>() ?? item["path"]!.GetValue<string>(),
                     item["target"]!.GetValue<string>(),
                     item["typeLabel"]!.GetValue<string>());
             }).ToList() ?? [];
