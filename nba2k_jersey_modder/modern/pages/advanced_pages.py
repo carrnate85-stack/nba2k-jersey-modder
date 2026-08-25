@@ -7,14 +7,18 @@ import zipfile
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMessageBox,
+    QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMessageBox,
     QPushButton, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTextEdit,
     QVBoxLayout, QWidget,
 )
 
 from ...iff_patch import Replacement, apply_replacements, can_replace_resource
 from ...scanner import ResourceHit, scan_iff
-from ...template import JerseyTemplate, TemplateZone, load_template, save_template
+from ...template import (
+    JERSEY_TEMPLATE_OPTIONS, SHORTS_TEMPLATE_MAP_OPTIONS, SHORTS_TEMPLATE_OPTIONS,
+    SHORTS_TEMPLATE_RETRO_UV_IMAGE, JerseyTemplate, TemplateZone, load_template,
+    save_template,
+)
 from ..widgets import ImageView, PageHeader
 from .base import FeaturePage
 
@@ -111,10 +115,20 @@ class TemplateEditorPage(FeaturePage):
     def __init__(self,parent=None):
         super().__init__(parent);self.image_path=None;self.zones_path=None;self.zones=[]
         root=QVBoxLayout(self);root.setContentsMargins(18,16,18,16);root.addWidget(PageHeader("Template Editor","Maintain color-coded template zones and exact 2048 coordinate data."))
+        builtins=QHBoxLayout();builtins.addWidget(QLabel("Garment"));self.garment=QComboBox();self.garment.addItems(("Jersey","Shorts"));builtins.addWidget(self.garment);builtins.addWidget(QLabel("Template"));self.variant=QComboBox();builtins.addWidget(self.variant);builtins.addWidget(QLabel("Map"));self.map=QComboBox();builtins.addWidget(self.map,1);load_builtin=QPushButton("Load Built-in Template");builtins.addWidget(load_builtin);root.addLayout(builtins)
         row=QHBoxLayout();image=QPushButton("Open Template Image");zones=QPushButton("Open Zones");save=QPushButton("Save Zones As");add=QPushButton("Add Zone");remove=QPushButton("Remove Zone");[row.addWidget(x) for x in (image,zones,save,add,remove)];row.addStretch();root.addLayout(row)
         split=QSplitter(Qt.Orientation.Horizontal);root.addWidget(split,1);self.preview=ImageView();self.preview.pointClicked.connect(self._coordinate);split.addWidget(self.preview);right=QWidget();rl=QVBoxLayout(right);self.coord=QLabel("Mouse: --");self.coord.setObjectName("muted");rl.addWidget(self.coord)
         self.table=QTableWidget(0,8);self.table.setHorizontalHeaderLabels(("Name","Type","X","Y","Width","Height","Hex","Layer"));self.table.horizontalHeader().setStretchLastSection(True);rl.addWidget(self.table,1);split.addWidget(right);split.setSizes([650,520])
-        image.clicked.connect(self._open_image);zones.clicked.connect(self._open_zones);save.clicked.connect(self._save);add.clicked.connect(self._add);remove.clicked.connect(self._remove)
+        image.clicked.connect(self._open_image);zones.clicked.connect(self._open_zones);save.clicked.connect(self._save);add.clicked.connect(self._add);remove.clicked.connect(self._remove);self.garment.currentTextChanged.connect(self._populate_builtins);load_builtin.clicked.connect(self._load_builtin);self._populate_builtins();self._load_builtin()
+    def _populate_builtins(self):
+        jersey=self.garment.currentText()=="Jersey";self.variant.clear();self.variant.addItems(("Retro U",) if jersey else tuple(SHORTS_TEMPLATE_OPTIONS));self.map.clear();self.map.addItems(tuple(JERSEY_TEMPLATE_OPTIONS) if jersey else (*SHORTS_TEMPLATE_MAP_OPTIONS,"Shorts normal"))
+    def _load_builtin(self):
+        try:
+            if self.garment.currentText()=="Jersey":image,zones=JERSEY_TEMPLATE_OPTIONS[self.map.currentText()]
+            else:
+                base_image,zones=SHORTS_TEMPLATE_OPTIONS[self.variant.currentText()];choice=self.map.currentText();image=SHORTS_TEMPLATE_RETRO_UV_IMAGE if choice=="Shorts UV" else (Path(__file__).resolve().parents[3]/"blendermodels"/"shorts_retro_normal.png" if choice=="Shorts normal" else base_image)
+            self.image_path=Path(image);self.zones_path=Path(zones);self.preview.load_path(self.image_path);self.zones=list(load_template(self.zones_path).zones);self._populate();self.statusChanged.emit(f"Loaded {self.variant.currentText()} {self.map.currentText()} master.")
+        except Exception as e:self.show_error("Template Editor",e)
     def _open_image(self):
         p,_=QFileDialog.getOpenFileName(self,"Open template image","","Images (*.png *.jpg *.jpeg)")
         if p:self.image_path=Path(p);self.preview.load_path(self.image_path)

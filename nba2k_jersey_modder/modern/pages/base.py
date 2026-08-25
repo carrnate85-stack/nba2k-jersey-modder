@@ -15,8 +15,14 @@ class Worker(QRunnable):
 
     @Slot()
     def run(self) -> None:
-        try: self.signals.finished.emit(self.callback())
-        except Exception as exc: self.signals.failed.emit(str(exc))
+        try:
+            result = self.callback()
+        except Exception as exc:
+            try: self.signals.failed.emit(str(exc))
+            except RuntimeError: pass
+            return
+        try: self.signals.finished.emit(result)
+        except RuntimeError: pass
 
 
 class FeaturePage(QWidget):
@@ -25,4 +31,3 @@ class FeaturePage(QWidget):
 
     def show_info(self, title: str, text: str) -> None:
         QMessageBox.information(self, title, text)
-

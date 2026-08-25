@@ -7,6 +7,8 @@ import unittest
 from PIL import Image
 
 from nba2k_jersey_modder.modern.document import ProjectDocument
+from nba2k_jersey_modder.modern.font_catalog import describe_manifest_font
+from nba2k_jersey_modder.game_manifest import ManifestEntry
 
 
 class ModernProjectDocumentTests(unittest.TestCase):
@@ -44,6 +46,16 @@ class ModernProjectDocumentTests(unittest.TestCase):
             document.generator["images"]["shorts_left_panel_image"] = str(shorts_panel)
             inputs = document.to_generator_inputs()
             self.assertEqual(inputs.left_panel_image, shorts_panel)
+
+    def test_manifest_font_description_adds_team_and_uniform_search_terms(self) -> None:
+        entry = ManifestEntry(
+            "clothing/clothing_resource_u006lac_current_city_font.iff",
+            "0A", 0, 100,
+        )
+        self.assertEqual(
+            describe_manifest_font(entry),
+            ("LA Clippers", "Current City", "LAC"),
+        )
 
 
 if __name__ == "__main__":

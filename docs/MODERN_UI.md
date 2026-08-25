@@ -28,6 +28,8 @@ New project fields must:
 
 Use `Worker` and `QThreadPool` for 2048 texture rendering, scanning large IFFs, thumbnail caching, or other work that can block the event loop. Debounce sliders with a single-shot `QTimer`; do not render a full texture for every raw movement event.
 
+The manifest catalog cache remains at `cache/font_previews`, matching the classic workspace. Cache keys include the resolved game root and manifest entry identity. Preserve this format so users do not need to rebuild thousands of previews after UI changes.
+
 ## Migration Status
 
 All major desktop tools have PySide6 pages. The browser layer editor still uses the classic application's established host callbacks, so **Open Web Editor** launches the classic workspace during this transition. The next clean migration step is a standalone `WebEditorAdapter` backed by `ProjectDocument` and `GeneratorService`; after that, the classic bridge and the Number Editor's temporary recolor import from `app.py` can be removed.
