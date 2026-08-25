@@ -40,25 +40,32 @@ if defined GIT_EXE (
     echo Git was not found. Starting without checking for updates.
 )
 
+set "BASE_PY="
 set "BUNDLED_PY=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+if exist "%BUNDLED_PY%" set BASE_PY="%BUNDLED_PY%"
 
-if exist "%BUNDLED_PY%" (
-    "%BUNDLED_PY%" "%~dp0main.py"
-    exit /b %ERRORLEVEL%
+if not defined BASE_PY (
+    where python >nul 2>nul
+    if not errorlevel 1 set "BASE_PY=python"
+)
+if not defined BASE_PY (
+    py -3 -c "import sys" >nul 2>nul
+    if not errorlevel 1 set "BASE_PY=py -3"
+)
+if not defined BASE_PY (
+    echo Python 3 was not found.
+    echo Install Python 3 or open this project through Codex again so the bundled runtime is available.
+    pause
+    exit /b 1
 )
 
-python -c "import sys" >nul 2>nul
-if not errorlevel 1 (
-    python "%~dp0main.py"
-    exit /b %ERRORLEVEL%
+%BASE_PY% "%~dp0tools\bootstrap_modern.py"
+if errorlevel 1 (
+    echo.
+    echo The modern desktop components could not be prepared.
+    pause
+    exit /b 1
 )
 
-py -3 -c "import sys" >nul 2>nul
-if not errorlevel 1 (
-    py -3 "%~dp0main.py"
-    exit /b %ERRORLEVEL%
-)
-
-echo Python 3 was not found.
-echo Install Python 3 or open this project through Codex again so the bundled runtime is available.
-pause
+"%~dp0.venv\Scripts\python.exe" "%~dp0main.py"
+exit /b %ERRORLEVEL%

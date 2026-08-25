@@ -13619,6 +13619,18 @@ def _scale_dimension_percent(
 
 def main() -> None:
     app = JerseyModderApp()
+    bridge_project = os.environ.get("NBA2K_BRIDGE_PROJECT")
+    if bridge_project:
+        def load_bridge_project() -> None:
+            try:
+                payload = json.loads(Path(bridge_project).read_text(encoding="utf-8"))
+                app._apply_project_payload(payload)
+                if os.environ.get("NBA2K_BRIDGE_OPEN_WEB") == "1":
+                    app.after(250, app.open_web_editor)
+            except Exception as exc:  # noqa: BLE001 - startup compatibility boundary.
+                messagebox.showerror("Open modern project", str(exc))
+
+        app.after_idle(load_bridge_project)
     app.mainloop()
 
 
