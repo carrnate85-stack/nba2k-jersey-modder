@@ -16,6 +16,8 @@ env/
 
 dist/
 build/
+**/bin/
+**/obj/
 *.egg-info/
 
 output/

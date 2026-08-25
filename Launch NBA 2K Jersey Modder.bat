@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
-title NBA 2K Mod Tools Launcher
+title NBA 2K Jersey Modder Launcher
 
 set "GIT_EXE="
 where git >nul 2>nul
@@ -67,5 +67,22 @@ if errorlevel 1 (
     exit /b 1
 )
 
-"%~dp0.venv\Scripts\python.exe" "%~dp0main.py"
-exit /b %ERRORLEVEL%
+where dotnet >nul 2>nul
+if errorlevel 1 (
+    echo .NET 8 SDK was not found.
+    echo Install the .NET 8 SDK to build and run the WPF application.
+    pause
+    exit /b 1
+)
+
+echo Preparing WPF workspace...
+dotnet build "%~dp0wpf\JerseyModder.Wpf\JerseyModder.Wpf.csproj" -c Release --nologo --verbosity quiet
+if errorlevel 1 (
+    echo.
+    echo The WPF application could not be built.
+    pause
+    exit /b 1
+)
+
+start "" "%~dp0wpf\JerseyModder.Wpf\bin\Release\net8.0-windows\NBA2KJerseyModder.exe"
+exit /b 0
