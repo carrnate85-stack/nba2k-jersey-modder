@@ -4,7 +4,7 @@ from pathlib import Path
 import threading
 
 from PIL import Image
-from PySide6.QtCore import QObject, QRunnable, QSettings, QThreadPool, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, QSettings, QThreadPool, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
     QDialog, QLabel, QLineEdit, QProgressBar, QPushButton, QScrollArea, QSlider,
@@ -102,10 +102,10 @@ class FontCatalogDialog(QDialog):
     fontSelected=Signal(object)
     def __init__(self,parent=None):
         super().__init__(parent);self.setWindowTitle("NBA 2K26 Game Fonts");self.resize(1180,720);self.setMinimumSize(860,560)
-        self.pool=QThreadPool.globalInstance();self.workers=[];self.entries=[];self.preview_token=0;self.stop_event=threading.Event();self.settings=QSettings("NBA2KModTools","JerseyModder")
+        self.pool=QThreadPool.globalInstance();self.workers=[];self.entries=[];self.search_terms=[];self.cached_stems=set();self.preview_token=0;self.stop_event=threading.Event();self.settings=QSettings("NBA2KModTools","JerseyModder");self.search_timer=QTimer(self);self.search_timer.setSingleShot(True);self.search_timer.setInterval(180);self.search_timer.timeout.connect(self._filter)
         self.game_root=Path(str(self.settings.value("gameRoot",str(DEFAULT_NBA2K26_ROOT))));self.catalog=FontCatalog(self.game_root)
         root=QVBoxLayout(self);top=QHBoxLayout();top.addWidget(QLabel("Game folder"));self.root_label=QLabel(str(self.game_root));self.root_label.setObjectName("muted");top.addWidget(self.root_label,1);choose=QPushButton("Choose Folder");choose.clicked.connect(self._choose_root);top.addWidget(choose);root.addLayout(top)
-        search_row=QHBoxLayout();search_row.addWidget(QLabel("Search"));self.search=QLineEdit();self.search.setPlaceholderText("Team, uniform, code, or IFF name");self.search.textChanged.connect(self._filter);search_row.addWidget(self.search,1);self.cache_button=QPushButton("Cache Missing Previews");self.cache_button.clicked.connect(self._cache_all);search_row.addWidget(self.cache_button);self.stop_button=QPushButton("Stop");self.stop_button.setEnabled(False);self.stop_button.clicked.connect(self.stop_event.set);search_row.addWidget(self.stop_button);root.addLayout(search_row)
+        search_row=QHBoxLayout();search_row.addWidget(QLabel("Search"));self.search=QLineEdit();self.search.setPlaceholderText("Team, uniform, code, or IFF name");self.search.textChanged.connect(lambda:self.search_timer.start());search_row.addWidget(self.search,1);self.cache_button=QPushButton("Cache Missing Previews");self.cache_button.clicked.connect(self._cache_all);search_row.addWidget(self.cache_button);self.stop_button=QPushButton("Stop");self.stop_button.setEnabled(False);self.stop_button.clicked.connect(self.stop_event.set);search_row.addWidget(self.stop_button);root.addLayout(search_row)
         split=QSplitter(Qt.Orientation.Horizontal);root.addWidget(split,1);self.table=QTableWidget(0,5);self.table.setHorizontalHeaderLabels(("Team","Uniform","Font IFF","Archive","Cached"));self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows);self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection);self.table.horizontalHeader().setStretchLastSection(False);self.table.horizontalHeader().setSectionResizeMode(0,self.table.horizontalHeader().ResizeMode.ResizeToContents);self.table.horizontalHeader().setSectionResizeMode(1,self.table.horizontalHeader().ResizeMode.ResizeToContents);self.table.horizontalHeader().setSectionResizeMode(2,self.table.horizontalHeader().ResizeMode.Stretch);self.table.itemSelectionChanged.connect(self._preview_selected);self.table.cellDoubleClicked.connect(lambda *_:self._load_selected());split.addWidget(self.table)
         preview_panel=QWidget();pl=QVBoxLayout(preview_panel);pl.setContentsMargins(8,0,0,0);pl.addWidget(QLabel("Number sheet preview"));self.preview=ImageView();pl.addWidget(self.preview,1);self.preview_info=QLabel("Select a font to preview it.");self.preview_info.setWordWrap(True);self.preview_info.setObjectName("muted");pl.addWidget(self.preview_info);split.addWidget(preview_panel);split.setSizes([760,400])
         actions=QHBoxLayout();load=QPushButton("Load in Number Editor");load.setObjectName("primaryBar");load.clicked.connect(self._load_selected);actions.addWidget(load);export_iff=QPushButton("Export Font IFF As");export_iff.clicked.connect(self._export_iff);actions.addWidget(export_iff);export_sheet=QPushButton("Export Number Sheet PNG As");export_sheet.clicked.connect(self._export_sheet);actions.addWidget(export_sheet);actions.addStretch();root.addLayout(actions)
@@ -116,33 +116,34 @@ class FontCatalogDialog(QDialog):
     def _run(self,callback,done):
         worker=Worker(callback);self.workers.append(worker);worker.signals.finished.connect(done);worker.signals.failed.connect(lambda error:self.status.setText(error));self.pool.start(worker)
     def _load_catalog(self):
-        self.status.setText("Reading the game manifest...");self.table.setRowCount(0);self._run(self.catalog.entries,self._catalog_ready)
-    def _catalog_ready(self,entries):
-        self.entries=list(entries);cached=self.catalog.cached_count(self.entries);self.progress.setRange(0,max(1,len(self.entries)));self.progress.setValue(cached);self.status.setText(f"Found {len(self.entries):,} game fonts | {cached:,} previews cached.");self._filter()
-    def _filter(self):
-        query=self.search.text().strip().casefold();visible=[]
-        for entry in self.entries:
-            team,uniform,code=describe_manifest_font(entry);haystack=f"{entry.name} {entry.display_name} {team} {uniform} {code}".casefold()
-            if not query or query in haystack:visible.append(entry)
-        self.table.setRowCount(len(visible))
-        for row,entry in enumerate(visible):
-            team,uniform,_code=describe_manifest_font(entry);cached=self.catalog.is_cached(entry)
+        self.status.setText("Reading the game manifest and cache index...");self.table.setRowCount(0);self._run(lambda:(self.catalog.entries(),self.catalog.cached_stems()),self._catalog_ready)
+    def _catalog_ready(self,result):
+        entries,cached_stems=result;self.entries=list(entries);self.cached_stems=set(cached_stems);self._populate_table();cached=self.catalog.cached_count(self.entries,self.cached_stems);self.progress.setRange(0,max(1,len(self.entries)));self.progress.setValue(cached);self.status.setText(f"Showing {len(self.entries):,} game fonts | {cached:,} previews cached.")
+    def _populate_table(self):
+        self.table.setUpdatesEnabled(False);self.table.setSortingEnabled(False);self.table.setRowCount(len(self.entries));self.search_terms=[]
+        for row,entry in enumerate(self.entries):
+            team,uniform,code=describe_manifest_font(entry);cached=self.catalog.cache_stem(entry) in self.cached_stems;self.search_terms.append(f"{entry.name} {entry.display_name} {team} {uniform} {code}".casefold())
             for col,value in enumerate((team,uniform,entry.display_name,entry.archive_id,"Yes" if cached else "")):self.table.setItem(row,col,QTableWidgetItem(str(value)))
             self.table.item(row,0).setData(Qt.ItemDataRole.UserRole,entry)
-        if self.entries:self.status.setText(f"Showing {len(visible):,} of {len(self.entries):,} game fonts | search includes team and uniform names.")
+        self.table.setUpdatesEnabled(True)
+    def _filter(self):
+        query=self.search.text().strip().casefold();visible=0;self.table.setUpdatesEnabled(False)
+        for row,haystack in enumerate(self.search_terms):
+            show=not query or query in haystack;self.table.setRowHidden(row,not show);visible+=int(show)
+        self.table.setUpdatesEnabled(True);self.table.viewport().update()
+        if self.entries:self.status.setText(f"Showing {visible:,} of {len(self.entries):,} game fonts | search includes team and uniform names.")
     def _selected(self):
         row=self.table.currentRow();return self.table.item(row,0).data(Qt.ItemDataRole.UserRole) if row>=0 and self.table.item(row,0) else None
     def _preview_selected(self):
         entry=self._selected()
         if not entry:return
-        self.preview_token+=1;token=self.preview_token;cached=self.catalog.cached_thumbnail(entry)
-        if cached:self.preview.load_path(cached[0]);self.preview_info.setText(self.catalog._label(entry,cached[1],cached=True));return
-        self.preview_info.setText(f"Creating preview for {entry.display_name}...");self._run(lambda:self.catalog.ensure_thumbnail(entry),lambda result:self._preview_ready(token,result))
+        self.preview_token+=1;token=self.preview_token;self.preview_info.setText(f"Loading preview for {entry.display_name}...");self._run(lambda:self.catalog.ensure_thumbnail(entry),lambda result:self._preview_ready(token,result))
     def _preview_ready(self,token,result):
         if token!=self.preview_token:return
-        path,label,_cached=result;self.preview.load_path(path);self.preview_info.setText(label);self._mark_cached(self._selected())
+        path,label,_cached=result;self.preview.load_path(path);self.preview_info.setText(label);entry=self._selected();self._mark_cached(entry)
     def _mark_cached(self,entry):
         if entry is None:return
+        self.cached_stems.add(self.catalog.cache_stem(entry))
         for row in range(self.table.rowCount()):
             if self.table.item(row,0).data(Qt.ItemDataRole.UserRole)==entry:self.table.item(row,4).setText("Yes");break
     def _load_selected(self):
@@ -161,13 +162,16 @@ class FontCatalogDialog(QDialog):
         if p:self._run(lambda:self.catalog.ensure_working_iff(entry),lambda source:(extract_number_sheet_from_font_iff(source).save(p),self.status.setText(f"Exported {Path(p).name}.")))
     def _cache_all(self):
         if not self.entries:return
-        missing=[entry for entry in self.entries if not self.catalog.is_cached(entry)]
+        missing=[entry for entry in self.entries if self.catalog.cache_stem(entry) not in self.cached_stems]
         if not missing:self.status.setText("All manifest font previews are already cached.");return
         self.stop_event.clear();self.cache_button.setEnabled(False);self.stop_button.setEnabled(True);self.progress.setRange(0,len(missing));worker=_FontCacheWorker(self.catalog,missing,self.stop_event);self.workers.append(worker);worker.signals.progress.connect(self._cache_progress);worker.signals.finished.connect(self._cache_finished);self.pool.start(worker)
     def _cache_progress(self,done,total,created,errors):
         self.progress.setMaximum(max(1,total));self.progress.setValue(done);self.status.setText(f"Caching previews: {done:,} of {total:,} | {created:,} new | {errors:,} skipped")
     def _cache_finished(self,done,total,created,errors,stopped):
-        self.cache_button.setEnabled(True);self.stop_button.setEnabled(False);self._filter();word="stopped" if stopped else "complete";self.status.setText(f"Preview cache {word}: {done:,} of {total:,} | {created:,} new | {errors:,} skipped.")
+        self.cache_button.setEnabled(True);self.stop_button.setEnabled(False);word="stopped" if stopped else "complete";self.status.setText(f"Preview cache {word}: {done:,} of {total:,} | {created:,} new | {errors:,} skipped.");self._run(self.catalog.cached_stems,self._cache_index_ready)
+    def _cache_index_ready(self,stems):
+        self.cached_stems=set(stems)
+        for row,entry in enumerate(self.entries):self.table.item(row,4).setText("Yes" if self.catalog.cache_stem(entry) in self.cached_stems else "")
     def closeEvent(self,event):self.stop_event.set();super().closeEvent(event)
 
 

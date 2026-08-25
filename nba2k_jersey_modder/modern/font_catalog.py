@@ -74,14 +74,25 @@ class FontCatalog:
         return hashlib.sha1(identity.encode("utf-8")).hexdigest()[:16]
 
     def thumbnail_paths(self, entry: ManifestEntry) -> tuple[Path, Path]:
-        stem = f"{Path(entry.name).stem}_{self.cache_key(entry)}"
+        stem = self.cache_stem(entry)
         return self.preview_cache / f"{stem}.webp", self.preview_cache / f"{stem}.json"
+
+    def cache_stem(self, entry: ManifestEntry) -> str:
+        return f"{Path(entry.name).stem}_{self.cache_key(entry)}"
+
+    def cached_stems(self) -> set[str]:
+        if not self.preview_cache.is_dir():
+            return set()
+        previews = {path.stem for path in self.preview_cache.glob("*.webp")}
+        metadata = {path.stem for path in self.preview_cache.glob("*.json")}
+        return previews & metadata
 
     def working_iff_path(self, entry: ManifestEntry) -> Path:
         return self.work_cache / f"{Path(entry.name).stem}_{self.cache_key(entry)}.iff"
 
-    def cached_count(self, entries: list[ManifestEntry]) -> int:
-        return sum(1 for entry in entries if self.is_cached(entry))
+    def cached_count(self, entries: list[ManifestEntry], stems: set[str] | None = None) -> int:
+        known = stems if stems is not None else self.cached_stems()
+        return sum(1 for entry in entries if self.cache_stem(entry) in known)
 
     def is_cached(self, entry: ManifestEntry) -> bool:
         return all(path.is_file() for path in self.thumbnail_paths(entry))
