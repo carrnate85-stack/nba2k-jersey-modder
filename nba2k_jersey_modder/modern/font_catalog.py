@@ -10,11 +10,18 @@ import zipfile
 
 from PIL import Image
 
-from ..font_iff import extract_number_sheet_from_font_iff, inspect_font_number_texture
+from ..font_iff import (
+    extract_number_sheet_from_font_iff,
+    inspect_font_number_texture,
+    split_number_sheet_digits,
+)
 from ..game_manifest import ManifestEntry, extract_manifest_iff, load_font_manifest_entries
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PREVIEW_CACHE_VERSION = 2
+PREVIEW_CELL_SIZE = 256
+PREVIEW_COLUMNS = 5
 TEAM_NAMES = {
     "atl":"Atlanta Hawks", "bos":"Boston Celtics", "bkn":"Brooklyn Nets",
     "cha":"Charlotte Hornets", "chi":"Chicago Bulls", "cle":"Cleveland Cavaliers",
@@ -75,7 +82,7 @@ class FontCatalog:
 
     def thumbnail_paths(self, entry: ManifestEntry) -> tuple[Path, Path]:
         stem = self.cache_stem(entry)
-        return self.preview_cache / f"{stem}.webp", self.preview_cache / f"{stem}.json"
+        return self.preview_cache / f"{stem}.png", self.preview_cache / f"{stem}.json"
 
     def cache_stem(self, entry: ManifestEntry) -> str:
         return f"{Path(entry.name).stem}_{self.cache_key(entry)}"
@@ -83,9 +90,16 @@ class FontCatalog:
     def cached_stems(self) -> set[str]:
         if not self.preview_cache.is_dir():
             return set()
-        previews = {path.stem for path in self.preview_cache.glob("*.webp")}
-        metadata = {path.stem for path in self.preview_cache.glob("*.json")}
-        return previews & metadata
+        result = set()
+        for preview in self.preview_cache.glob("*.png"):
+            metadata_path = preview.with_suffix(".json")
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                if metadata.get("preview_version") == PREVIEW_CACHE_VERSION:
+                    result.add(preview.stem)
+            except (OSError, TypeError, json.JSONDecodeError):
+                continue
+        return result
 
     def working_iff_path(self, entry: ManifestEntry) -> Path:
         return self.work_cache / f"{Path(entry.name).stem}_{self.cache_key(entry)}.iff"
@@ -105,6 +119,8 @@ class FontCatalog:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             if not all(key in metadata for key in ("width", "height", "format")):
                 raise ValueError("Incomplete metadata")
+            if metadata.get("preview_version") != PREVIEW_CACHE_VERSION:
+                raise ValueError("Outdated preview cache")
             with Image.open(preview) as opened:
                 opened.verify()
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
@@ -123,12 +139,22 @@ class FontCatalog:
             iff_path = self.ensure_working_iff(entry)
             sheet = extract_number_sheet_from_font_iff(iff_path)
             info = inspect_font_number_texture(iff_path)
-            thumbnail = sheet.copy()
-            thumbnail.thumbnail((1024, 256), Image.Resampling.LANCZOS)
+            thumbnail = build_number_preview(sheet)
             preview, metadata_path = self.thumbnail_paths(entry)
             preview.parent.mkdir(parents=True, exist_ok=True)
-            thumbnail.save(preview, format="WEBP", quality=82, method=4)
-            metadata = {"width": info.width, "height": info.height, "format": info.format_label}
+            temporary = preview.with_suffix(".tmp.png")
+            thumbnail.save(temporary, format="PNG", compress_level=4)
+            temporary.replace(preview)
+            preview.with_suffix(".webp").unlink(missing_ok=True)
+            metadata = {
+                "width": info.width,
+                "height": info.height,
+                "format": info.format_label,
+                "preview_version": PREVIEW_CACHE_VERSION,
+                "preview_width": thumbnail.width,
+                "preview_height": thumbnail.height,
+                "preview_layout": "5x2",
+            }
             metadata_path.write_text(json.dumps(metadata, separators=(",", ":")), encoding="utf-8")
             return preview, self._label(entry, metadata, cached=False), False
 
@@ -144,5 +170,27 @@ class FontCatalog:
 
     @staticmethod
     def _label(entry: ManifestEntry, metadata: dict, *, cached: bool) -> str:
-        suffix = " | cached" if cached else ""
+        suffix = " | HQ cached" if cached else " | HQ preview"
         return f"{entry.display_name} | {metadata['width']} x {metadata['height']} | {metadata['format']}{suffix}"
+
+
+def build_number_preview(sheet: Image.Image) -> Image.Image:
+    """Lay out ten digits as a lossless 5x2 contact sheet for readable previews."""
+    digits = split_number_sheet_digits(sheet)
+    preview = Image.new(
+        "RGBA",
+        (PREVIEW_COLUMNS * PREVIEW_CELL_SIZE, 2 * PREVIEW_CELL_SIZE),
+        (0, 0, 0, 0),
+    )
+    for index, digit in enumerate(digits[:10]):
+        fitted = digit.convert("RGBA")
+        fitted.thumbnail(
+            (PREVIEW_CELL_SIZE, PREVIEW_CELL_SIZE),
+            Image.Resampling.LANCZOS,
+        )
+        x = (index % PREVIEW_COLUMNS) * PREVIEW_CELL_SIZE
+        y = (index // PREVIEW_COLUMNS) * PREVIEW_CELL_SIZE
+        x += (PREVIEW_CELL_SIZE - fitted.width) // 2
+        y += (PREVIEW_CELL_SIZE - fitted.height) // 2
+        preview.alpha_composite(fitted, (x, y))
+    return preview

@@ -33,7 +33,7 @@ The persistent top command bar contains project, garment, template, save, packag
 
 The layer editor is native WPF. It supports independent width and height, rotation, arrow-key nudging, UV opacity, and per-layer background cleanup. Blender preview is persistently available from the top command bar.
 
-The Number Editor's **Browse Game Fonts** catalog reads the NBA 2K26 manifest, searches by team name, uniform name, three-letter code, or IFF filename, and reuses persistent previews in `cache/font_previews`. **Cache Missing Previews** processes only entries that are not already present.
+The Number Editor's **Browse Game Fonts** catalog reads the NBA 2K26 manifest, searches by team name, uniform name, three-letter code, or IFF filename, and reuses persistent previews in `cache/font_previews`. High-quality previews use a lossless 5-by-2 PNG contact sheet so each digit stays readable. **Cache Missing Previews** upgrades only missing or older cache entries.
 
 The Template Editor exposes all bundled masters through its Garment, Template, and Map selectors, including Retro U color, region, normal, and UV maps and the existing shorts color, UV, and normal maps.
 

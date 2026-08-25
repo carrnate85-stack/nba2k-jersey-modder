@@ -6331,7 +6331,7 @@ class JerseyModderApp(tk.Tk):
         digest = self._game_font_cache_key(entry)
         stem = f"{Path(entry.name).stem}_{digest}"
         cache_dir = self._game_font_thumbnail_cache_dir()
-        return cache_dir / f"{stem}.webp", cache_dir / f"{stem}.json"
+        return cache_dir / f"{stem}.png", cache_dir / f"{stem}.json"
 
     def _count_cached_game_font_previews(
         self,
@@ -6364,6 +6364,8 @@ class JerseyModderApp(tk.Tk):
                     for key in ("width", "height", "format"):
                         if key not in metadata:
                             raise ValueError("Incomplete font preview metadata.")
+                    if metadata.get("preview_version") != 2:
+                        raise ValueError("Outdated font preview metadata.")
                 except (OSError, ValueError, TypeError, json.JSONDecodeError):
                     preview_path.unlink(missing_ok=True)
                     metadata_path.unlink(missing_ok=True)
@@ -6386,21 +6388,26 @@ class JerseyModderApp(tk.Tk):
             iff_path = self._extract_game_font_to_cache(entry)
             sheet = extract_number_sheet_from_font_iff(iff_path)
             info = inspect_font_number_texture(iff_path)
-            thumbnail = sheet.copy()
-            thumbnail.thumbnail((1024, 256), Image.Resampling.LANCZOS)
+            from .modern.font_catalog import build_number_preview
+
+            thumbnail = build_number_preview(sheet)
             preview_path.parent.mkdir(parents=True, exist_ok=True)
             thumbnail.save(
                 preview_path,
-                format="WEBP",
-                quality=82,
-                method=4,
+                format="PNG",
+                compress_level=4,
             )
+            preview_path.with_suffix(".webp").unlink(missing_ok=True)
             metadata_path.write_text(
                 json.dumps(
                     {
                         "width": info.width,
                         "height": info.height,
                         "format": info.format_label,
+                        "preview_version": 2,
+                        "preview_width": thumbnail.width,
+                        "preview_height": thumbnail.height,
+                        "preview_layout": "5x2",
                     },
                     separators=(",", ":"),
                 ),
@@ -6460,13 +6467,13 @@ class JerseyModderApp(tk.Tk):
 
     def _limit_game_font_thumbnail_cache(
         self,
-        maximum_bytes: int = 128 * 1024 * 1024,
+        maximum_bytes: int = 512 * 1024 * 1024,
     ) -> None:
         cache_dir = self._game_font_thumbnail_cache_dir()
         if not cache_dir.is_dir():
             return
         previews = sorted(
-            cache_dir.glob("*.webp"),
+            cache_dir.glob("*.png"),
             key=lambda path: path.stat().st_mtime,
             reverse=True,
         )
@@ -6490,7 +6497,7 @@ class JerseyModderApp(tk.Tk):
         cache_dir = self._game_font_thumbnail_cache_dir()
         removed = 0
         if cache_dir.is_dir():
-            for pattern in ("*.webp", "*.json"):
+            for pattern in ("*.png", "*.webp", "*.json"):
                 for cached_file in cache_dir.glob(pattern):
                     cached_file.unlink(missing_ok=True)
                     removed += 1

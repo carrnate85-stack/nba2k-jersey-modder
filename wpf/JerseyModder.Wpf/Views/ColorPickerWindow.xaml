@@ -1,0 +1,18 @@
+<Window x:Class="JerseyModder.Wpf.Views.ColorPickerWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Choose Color" Width="430" Height="500" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <Grid Margin="18">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Border x:Name="ColorPreview" Height="72" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4"/>
+      <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center"><TextBlock Text="Hex color" FontWeight="SemiBold"/><TextBox x:Name="HexValue" TextChanged="OnHexChanged" Margin="0,6,0,0" MaxLength="7" FontSize="16"/></StackPanel>
+    </Grid>
+    <GroupBox Grid.Row="1" Header="Common colors" Margin="0,14,0,10"><WrapPanel x:Name="Palette"/></GroupBox>
+    <StackPanel Grid.Row="2">
+      <Grid Margin="0,4"><Grid.ColumnDefinitions><ColumnDefinition Width="45"/><ColumnDefinition/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions><TextBlock Text="Red" VerticalAlignment="Center"/><Slider x:Name="Red" Grid.Column="1" Minimum="0" Maximum="255" ValueChanged="OnRgbChanged"/><TextBlock x:Name="RedText" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"/></Grid>
+      <Grid Margin="0,4"><Grid.ColumnDefinitions><ColumnDefinition Width="45"/><ColumnDefinition/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions><TextBlock Text="Green" VerticalAlignment="Center"/><Slider x:Name="Green" Grid.Column="1" Minimum="0" Maximum="255" ValueChanged="OnRgbChanged"/><TextBlock x:Name="GreenText" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"/></Grid>
+      <Grid Margin="0,4"><Grid.ColumnDefinitions><ColumnDefinition Width="45"/><ColumnDefinition/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions><TextBlock Text="Blue" VerticalAlignment="Center"/><Slider x:Name="Blue" Grid.Column="1" Minimum="0" Maximum="255" ValueChanged="OnRgbChanged"/><TextBlock x:Name="BlueText" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"/></Grid>
+    </StackPanel>
+    <TextBlock Grid.Row="3" Text="Use the sliders, a swatch, or type an exact six-digit hex value." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" VerticalAlignment="Top" Margin="0,12,0,0"/>
+    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Cancel" IsCancel="True"/><Button Style="{StaticResource PrimaryButton}" Content="Use Color" IsDefault="True" Click="OnAccept" Margin="0"/></StackPanel>
+  </Grid>
+</Window>
