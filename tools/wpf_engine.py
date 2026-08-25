@@ -13,7 +13,7 @@ import traceback
 import uuid
 import zipfile
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -120,6 +120,24 @@ def logo_process(params: dict):
     output = _output("logos")
     image.save(output, "PNG")
     return {"path": str(output), "width": image.width, "height": image.height}
+
+
+def image_thumbnail(params: dict):
+    maximum_width = max(320, min(2048, int(params.get("maximumWidth") or 1200)))
+    maximum_height = max(240, min(2048, int(params.get("maximumHeight") or 900)))
+    with Image.open(params["path"]) as opened:
+        image = ImageOps.exif_transpose(opened).convert("RGBA")
+        source_width, source_height = image.size
+        image.thumbnail((maximum_width, maximum_height), Image.Resampling.LANCZOS)
+    output = _output("thumbnails")
+    image.save(output, "PNG", compress_level=1)
+    return {
+        "path": str(output),
+        "width": image.width,
+        "height": image.height,
+        "sourceWidth": source_width,
+        "sourceHeight": source_height,
+    }
 
 
 def trim_process(params: dict):
@@ -317,7 +335,8 @@ def blender_prepare(params: dict):
 
 METHODS = {
     "ping": lambda _params: {"version": 1}, "render": render, "export_package": export_package,
-    "save_texture": save_texture, "logo_process": logo_process, "trim_process": trim_process, "trim_path_render": trim_path_render,
+    "save_texture": save_texture, "logo_process": logo_process, "image_thumbnail": image_thumbnail,
+    "trim_process": trim_process, "trim_path_render": trim_path_render,
     "iff_scan": iff_scan, "iff_export": iff_export, "iff_replace": iff_replace,
     "rdat_read": rdat_read, "rdat_write": rdat_write,
     "template_catalog": template_catalog, "template_load": template_load, "template_save": template_save,

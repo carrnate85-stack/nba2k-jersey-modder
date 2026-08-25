@@ -1,7 +1,9 @@
 using System.IO;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using JerseyModder.Wpf.Controls;
 using JerseyModder.Wpf.Services;
 using Microsoft.Win32;
@@ -10,33 +12,222 @@ namespace JerseyModder.Wpf.Views;
 
 public sealed class LogoCreatorPage : ToolPageBase
 {
+    private sealed record StagedLogo(string Id, string Path, string Target, string TypeLabel)
+    {
+        public override string ToString() => $"{TypeLabel}  |  {System.IO.Path.GetFileName(Path)}";
+    }
+
     private readonly ImageViewport _reference = new(), _preview = new();
-    private readonly TextBlock _selection = new() { Foreground = (System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"] };
-    private readonly ComboBox _type = new(); private readonly Slider _tolerance = new() { Minimum = 0, Maximum = 255, Value = 32 };
-    private readonly ComboBox _upscale = new(); private readonly CheckBox _auto = new() { Content="Auto background" }, _white = new() { Content="Remove white" }, _black = new() { Content="Remove black" }, _outside = new() { Content="Outside only", IsChecked=true };
-    private readonly ListBox _stagedList = new(); private readonly List<Point> _points = new(); private readonly List<(string Path,string Target)> _staged = new();
-    private string? _source, _current;
+    private readonly TextBlock _sourceLabel = new()
+    {
+        Foreground = (System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"],
+        Text = "No reference loaded.",
+        TextWrapping = TextWrapping.Wrap,
+    };
+    private readonly TextBlock _stageSummary = new()
+    {
+        Foreground = (System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"],
+        Text = "Selections made in the browser will appear here.",
+        Margin = new Thickness(0, 7, 0, 0),
+    };
+    private readonly ListBox _stagedList = new();
+    private readonly Button _reopenButton;
+    private readonly LogoWebSessionService _webSession;
+    private readonly DispatcherTimer _stateTimer;
+    private List<StagedLogo> _staged = [];
+    private string? _source;
+    private long _lastStateWrite;
+    private bool _readingState;
 
     public LogoCreatorPage(WorkspaceContext context) : base(context)
     {
-        _reference.ImagePointClicked += (_, p) => Point(p); var left = new Grid(); left.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});left.RowDefinitions.Add(new RowDefinition());left.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
-        var open=Ui.Button("Upload Reference Photo",OnOpen,true);left.Children.Add(open);Grid.SetRow(_reference,1);left.Children.Add(_reference);Grid.SetRow(_selection,2);_selection.Margin=new Thickness(0,7,0,0);left.Children.Add(_selection);
-        var right=new StackPanel();_preview.Height=285;right.Children.Add(_preview);
-        foreach(var item in new[]{"Center Chest Logo","Left Chest Logo","Right Chest Logo","Front Wordmark","Wrap Logo","Back Neck Logo","Back Center Logo","Belt Buckle Logo"})_type.Items.Add(item);_type.SelectedIndex=0;right.Children.Add(Ui.Row("Logo type",_type));
-        var checks=new WrapPanel{Margin=new Thickness(0,4,0,5)};foreach(var c in new[]{_auto,_white,_black,_outside})checks.Children.Add(c);right.Children.Add(new GroupBox{Header="Cleanup",Content=checks});
-        right.Children.Add(Ui.Row("Tolerance",_tolerance));_upscale.Items.Add("1x");_upscale.Items.Add("2x");_upscale.Items.Add("4x");_upscale.SelectedIndex=2;right.Children.Add(Ui.Row("Upscale",_upscale));
-        right.Children.Add(Ui.Buttons(Ui.Button("Refresh Logo Preview",OnProcess,true)));right.Children.Add(Ui.Buttons(Ui.Button("Stage Current Logo",OnStage),Ui.Button("Send Staged to Generator",OnSend)));
-        _stagedList.Height=130;right.Children.Add(new GroupBox{Header="Staged Logos",Content=_stagedList});right.Children.Add(Ui.Button("Clear Staged",(_,_)=>{_staged.Clear();RefreshStaged();}));
-        Content=Ui.Page("Logo Creator","Select, straighten, clean, upscale, and stage transparent logos before placing them on a uniform.",Ui.Split(left,new ScrollViewer{Content=right,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}));
+        _webSession = new LogoWebSessionService(context.ProjectRoot);
+        _stateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _stateTimer.Tick += async (_, _) => await RefreshStateAsync();
+        _stateTimer.Start();
+        Application.Current.Exit += (_, _) => _webSession.Dispose();
+
+        var body = new Grid();
+        body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        body.RowDefinitions.Add(new RowDefinition());
+        var commandBar = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        commandBar.ColumnDefinitions.Add(new ColumnDefinition());
+        commandBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var upload = Ui.Button("Upload Reference and Open Web Logo Creator", OnOpen, true);
+        _reopenButton = Ui.Button("Reopen Web Logo Creator", (_, _) => ReopenWebEditor());
+        _reopenButton.IsEnabled = false;
+        commandBar.Children.Add(upload);
+        Grid.SetColumn(_reopenButton, 1);
+        commandBar.Children.Add(_reopenButton);
+        body.Children.Add(commandBar);
+
+        var left = new Grid();
+        left.RowDefinitions.Add(new RowDefinition());
+        left.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        left.Children.Add(_reference);
+        Grid.SetRow(_sourceLabel, 1);
+        _sourceLabel.Margin = new Thickness(0, 8, 0, 0);
+        left.Children.Add(_sourceLabel);
+
+        var right = new StackPanel();
+        _preview.Height = 250;
+        right.Children.Add(new GroupBox { Header = "Selected Logo Preview", Content = _preview });
+        _stagedList.Height = 250;
+        _stagedList.SelectionChanged += async (_, _) => await ShowSelectedPreviewAsync();
+        right.Children.Add(new GroupBox
+        {
+            Header = "Staged Logos",
+            Content = _stagedList,
+            Margin = new Thickness(0, 10, 0, 0),
+        });
+        right.Children.Add(_stageSummary);
+        right.Children.Add(Ui.Button("Edit Staged Logos in Web Creator", (_, _) => ReopenWebEditor(), true));
+        right.Children.Add(Ui.Button("Send All Staged Logos to Generator", OnSend));
+
+        var split = Ui.Split(left, new ScrollViewer
+        {
+            Content = right,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        }, 420);
+        Grid.SetRow(split, 1);
+        body.Children.Add(split);
+        Content = Ui.Page(
+            "Logo Creator",
+            "Load one reference, select several logos in the browser, then review and send the staged set to the Generator.",
+            body);
     }
-    private void OnOpen(object s,RoutedEventArgs e){var d=new OpenFileDialog{Filter="Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp|All files|*.*"};if(d.ShowDialog()!=true)return;_source=d.FileName;_points.Clear();_reference.Load(_source);_selection.Text="Click the top-left and bottom-right of the logo.";}
-    private void Point(Point p){if(_source is null)return;_points.Add(p);while(_points.Count>2)_points.RemoveAt(0);_selection.Text=_points.Count==1?$"First point: {p.X:0}, {p.Y:0}":$"Selection: {_points[0].X:0}, {_points[0].Y:0} to {_points[1].X:0}, {_points[1].Y:0}";if(_points.Count==2)_=ProcessAsync();}
-    private void OnProcess(object s,RoutedEventArgs e)=>_=ProcessAsync();
-    private async Task ProcessAsync(){if(_source is null)return;try{object? box=_points.Count==2?new[]{(int)_points[0].X,(int)_points[0].Y,(int)_points[1].X,(int)_points[1].Y}:null;var result=(await Context.Bridge.CallAsync("logo_process",new{path=_source,box,auto=_auto.IsChecked==true,removeWhite=_white.IsChecked==true,removeBlack=_black.IsChecked==true,outsideOnly=_outside.IsChecked==true,tolerance=(int)_tolerance.Value,scale=_upscale.SelectedIndex switch{1=>2,2=>4,_=>1}}))!.AsObject();_current=result["path"]?.GetValue<string>();_preview.Load(_current);Status("Logo preview updated.");}catch(Exception ex){Error("Logo Creator",ex);}}
-    private void OnStage(object s,RoutedEventArgs e){if(_current is null)return;_staged.Add((_current,Target()));RefreshStaged();}
-    private string Target()=>new[]{"front_center_chest_logo","front_left_chest_logo","front_right_chest_logo","front_wordmark","wrap_across_front_back_logo","back_neck_logo","back_center_logo","shorts_belt_buckle_logo"}[Math.Max(0,_type.SelectedIndex)];
-    private void RefreshStaged(){_stagedList.ItemsSource=null;_stagedList.ItemsSource=_staged.Select(x=>$"{x.Target} | {Path.GetFileName(x.Path)}").ToList();}
-    private void OnSend(object s,RoutedEventArgs e){var logos=(JsonArray)Context.Project.Generator["logos"]!;foreach(var item in _staged)logos.Add(new JsonObject{{"path",item.Path},{"targetName",item.Target},{"offsetX",0},{"offsetY",0},{"scalePercent",100},{"scaleWidthPercent",100},{"scaleHeightPercent",100},{"rotationDegrees",0}});if(_staged.Count>0){Context.Project.MarkChanged();Status($"Sent {_staged.Count} staged logo(s) to Generator.");}}
+
+    private async void OnOpen(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Choose a logo reference image",
+            Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif|All files|*.*",
+        };
+        if (dialog.ShowDialog() != true) return;
+        _source = dialog.FileName;
+        _sourceLabel.Text = $"Loading {Path.GetFileName(_source)}...";
+        _staged = [];
+        RefreshStagedList();
+        try
+        {
+            var thumbnail = (await Context.Bridge.CallAsync("image_thumbnail", new
+            {
+                path = _source,
+                maximumWidth = 1200,
+                maximumHeight = 900,
+            }))!.AsObject();
+            _reference.Load(thumbnail["path"]?.GetValue<string>());
+            _sourceLabel.Text = $"Reference: {Path.GetFileName(_source)}  |  " +
+                $"{thumbnail["sourceWidth"]} x {thumbnail["sourceHeight"]}";
+            Status("Starting web Logo Creator...");
+            await _webSession.StartAsync(_source);
+            _lastStateWrite = 0;
+            _reopenButton.IsEnabled = true;
+            await RefreshStateAsync(true);
+            Status("Web Logo Creator opened. Stage as many logos as you need from this reference.");
+        }
+        catch (Exception ex)
+        {
+            Error("Logo Creator", ex);
+            _sourceLabel.Text = $"Could not open {Path.GetFileName(_source)}.";
+        }
+    }
+
+    private void ReopenWebEditor()
+    {
+        try { _webSession.OpenBrowser(); }
+        catch (Exception ex) { Error("Logo Creator", ex); }
+    }
+
+    private async Task RefreshStateAsync(bool force = false)
+    {
+        if (_readingState || string.IsNullOrWhiteSpace(_webSession.StatePath) ||
+            !File.Exists(_webSession.StatePath)) return;
+        var write = File.GetLastWriteTimeUtc(_webSession.StatePath).Ticks;
+        if (!force && write == _lastStateWrite) return;
+        _readingState = true;
+        try
+        {
+            var root = JsonNode.Parse(await File.ReadAllTextAsync(_webSession.StatePath))?.AsObject();
+            if (root is null) return;
+            var selectedId = root["selectedId"]?.GetValue<string>();
+            _staged = (root["items"] as JsonArray)?.Select(node =>
+            {
+                var item = node!.AsObject();
+                return new StagedLogo(
+                    item["id"]!.GetValue<string>(),
+                    item["path"]!.GetValue<string>(),
+                    item["target"]!.GetValue<string>(),
+                    item["typeLabel"]!.GetValue<string>());
+            }).ToList() ?? [];
+            _lastStateWrite = write;
+            RefreshStagedList(selectedId);
+        }
+        catch (IOException) { }
+        catch (JsonException) { }
+        finally { _readingState = false; }
+    }
+
+    private void RefreshStagedList(string? selectedId = null)
+    {
+        var selected = selectedId is null
+            ? _stagedList.SelectedItem as StagedLogo
+            : _staged.FirstOrDefault(item => item.Id == selectedId);
+        _stagedList.ItemsSource = null;
+        _stagedList.ItemsSource = _staged;
+        if (selected is not null)
+            _stagedList.SelectedItem = _staged.FirstOrDefault(item => item.Id == selected.Id);
+        else if (_staged.Count > 0)
+            _stagedList.SelectedIndex = _staged.Count - 1;
+        _stageSummary.Text = _staged.Count == 0
+            ? "Selections made in the browser will appear here."
+            : $"{_staged.Count} logo{(_staged.Count == 1 ? "" : "s")} staged and ready for the Generator.";
+    }
+
+    private async Task ShowSelectedPreviewAsync()
+    {
+        if (_stagedList.SelectedItem is not StagedLogo item || !File.Exists(item.Path)) return;
+        try
+        {
+            var result = (await Context.Bridge.CallAsync("image_thumbnail", new
+            {
+                path = item.Path,
+                maximumWidth = 900,
+                maximumHeight = 650,
+            }))!.AsObject();
+            if (_stagedList.SelectedItem is StagedLogo current && current.Id == item.Id)
+                _preview.Load(result["path"]?.GetValue<string>());
+        }
+        catch (Exception ex) { Status(ex.Message); }
+    }
+
+    private void OnSend(object sender, RoutedEventArgs e)
+    {
+        if (_staged.Count == 0)
+        {
+            MessageBox.Show("Stage one or more logos in the web Logo Creator first.", "Logo Creator");
+            return;
+        }
+        var logos = (JsonArray)Context.Project.Generator["logos"]!;
+        foreach (var item in _staged)
+        {
+            if (item.Target == "front_wordmark")
+            {
+                Context.Project.SetImage("front_wordmark_image", item.Path);
+                continue;
+            }
+            logos.Add(new JsonObject
+            {
+                { "path", item.Path }, { "targetName", item.Target },
+                { "offsetX", 0 }, { "offsetY", 0 }, { "scalePercent", 100 },
+                { "scaleWidthPercent", 100 }, { "scaleHeightPercent", 100 },
+                { "rotationDegrees", 0 },
+            });
+        }
+        Context.Project.MarkChanged();
+        Status($"Sent {_staged.Count} staged logo(s) to Generator.");
+    }
 }
 
 public sealed class TrimCreatorPage : ToolPageBase
