@@ -73,9 +73,15 @@ public sealed class ProjectStore : INotifyPropertyChanged
 
     public async Task SaveAsync(string? path = null)
     {
-        FilePath = path ?? FilePath ?? throw new InvalidOperationException("Choose a project file first.");
-        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        await File.WriteAllTextAsync(FilePath, Root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        var filePath = PrepareSave(path);
+        await File.WriteAllTextAsync(filePath, Serialize());
+        MarkClean();
+    }
+
+    public void Save(string? path = null)
+    {
+        var filePath = PrepareSave(path);
+        File.WriteAllText(filePath, Serialize());
         MarkClean();
     }
 
@@ -85,7 +91,22 @@ public sealed class ProjectStore : INotifyPropertyChanged
         return new ProjectStore(JsonNode.Parse(text)?.AsObject() ?? throw new InvalidDataException("Project JSON is invalid."), path);
     }
 
+    public static ProjectStore Load(string path)
+    {
+        var text = File.ReadAllText(path);
+        return new ProjectStore(JsonNode.Parse(text)?.AsObject() ?? throw new InvalidDataException("Project JSON is invalid."), path);
+    }
+
     public JsonObject Snapshot() => JsonNode.Parse(Root.ToJsonString())!.AsObject();
+
+    private string PrepareSave(string? path)
+    {
+        FilePath = path ?? FilePath ?? throw new InvalidOperationException("Choose a project file first.");
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        return FilePath;
+    }
+
+    private string Serialize() => Root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 
     private void Set(JsonObject target, string key, object? value)
     {

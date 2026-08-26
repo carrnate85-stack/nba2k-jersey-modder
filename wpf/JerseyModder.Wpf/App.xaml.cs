@@ -41,7 +41,7 @@ public partial class App : Application
                 {
                     var path = ProjectWorkspace.Create(dialog.ParentFolder, dialog.ProjectName);
                     var project = new ProjectStore();
-                    project.SaveAsync(path).GetAwaiter().GetResult();
+                    project.Save(path);
                     return project;
                 }
                 catch (Exception ex)
@@ -60,7 +60,7 @@ public partial class App : Application
             try
             {
                 ProjectWorkspace.EnsureStructure(open.FileName);
-                return ProjectStore.LoadAsync(open.FileName).GetAwaiter().GetResult();
+                return ProjectStore.Load(open.FileName);
             }
             catch (Exception ex)
             {
