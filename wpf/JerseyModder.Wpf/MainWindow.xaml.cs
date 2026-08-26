@@ -16,6 +16,8 @@ public partial class MainWindow : Window
     private readonly WorkspaceContext _context;
     private readonly Dictionary<string, ToolPageBase> _pages;
     private bool _syncingScope;
+    private bool _startupShown;
+    private ProjectStore? _subscribedProject;
 
     public MainWindow()
     {
@@ -24,7 +26,8 @@ public partial class MainWindow : Window
         _context = new WorkspaceContext(root);
         _context.StatusChanged += (_, message) => Dispatcher.Invoke(() => StatusText.Text = message);
         _context.ProjectReplaced += (_, _) => Dispatcher.Invoke(SyncProject);
-        _context.Project.Changed += OnProjectChanged;
+        _context.ProjectPathChanged += (_, _) => Dispatcher.Invoke(SyncProject);
+        SubscribeToProject();
         _pages = new()
         {
             ["generator"] = new GeneratorPage(_context), ["logo"] = new LogoCreatorPage(_context),
@@ -39,6 +42,14 @@ public partial class MainWindow : Window
         {
             try { await _context.Bridge.CallAsync("ping"); StatusText.Text = "Python engine ready."; }
             catch (Exception ex) { Error("Python Engine", ex); }
+            if (!_startupShown)
+            {
+                _startupShown = true;
+                var welcome = new StartupDialog { Owner = this };
+                welcome.ShowDialog();
+                if (welcome.Choice == StartupChoice.New) await CreateNewProjectAsync(false);
+                else if (welcome.Choice == StartupChoice.Open) await OpenProjectAsync(false);
+            }
         };
     }
 
@@ -61,11 +72,18 @@ public partial class MainWindow : Window
 
     private void SyncProject()
     {
-        _context.Project.Changed -= OnProjectChanged;
-        _context.Project.Changed += OnProjectChanged;
-        ProjectName.Text = _context.Project.FilePath is null ? "Untitled project" : Path.GetFileNameWithoutExtension(_context.Project.FilePath);
+        SubscribeToProject();
+        ProjectName.Text = _context.Project.FilePath is null ? "Untitled project" : ProjectWorkspace.DisplayName(_context.Project.FilePath);
         ProjectState.Text = _context.Project.IsDirty ? "Unsaved changes" : "Ready";
         SyncScope();
+    }
+
+    private void SubscribeToProject()
+    {
+        if (ReferenceEquals(_subscribedProject, _context.Project)) return;
+        if (_subscribedProject is not null) _subscribedProject.Changed -= OnProjectChanged;
+        _subscribedProject = _context.Project;
+        _subscribedProject.Changed += OnProjectChanged;
     }
 
     private void SyncScope()
@@ -104,21 +122,42 @@ public partial class MainWindow : Window
         PageHost.Content = page;
     }
 
-    private void OnNew(object sender, RoutedEventArgs e)
+    private async void OnNew(object sender, RoutedEventArgs e) => await CreateNewProjectAsync(true);
+
+    private async Task<bool> CreateNewProjectAsync(bool confirmDiscard)
     {
-        if (!ConfirmDiscard()) return;
-        _context.ReplaceProject(new ProjectStore());
-        GeneratorNav.IsChecked = true;
-        StatusText.Text = "New project created.";
+        if (confirmDiscard && !ConfirmDiscard()) return false;
+        var dialog = new NewProjectDialog { Owner = this };
+        if (dialog.ShowDialog() != true) return false;
+        try
+        {
+            var path = ProjectWorkspace.Create(dialog.ParentFolder, dialog.ProjectName);
+            var project = new ProjectStore();
+            await project.SaveAsync(path);
+            _context.ReplaceProject(project);
+            GeneratorNav.IsChecked = true;
+            StatusText.Text = $"Created {ProjectWorkspace.DisplayName(path)}.";
+            return true;
+        }
+        catch (Exception ex) { Error("Create Project", ex); return false; }
     }
 
-    private async void OnOpen(object sender, RoutedEventArgs e)
+    private async void OnOpen(object sender, RoutedEventArgs e) => await OpenProjectAsync(true);
+
+    private async Task<bool> OpenProjectAsync(bool confirmDiscard)
     {
-        if (!ConfirmDiscard()) return;
+        if (confirmDiscard && !ConfirmDiscard()) return false;
         var dialog = new OpenFileDialog { Title = "Open jersey project", Filter = "NBA 2K projects (*.nba2kproject.json;*.json)|*.nba2kproject.json;*.json|All files|*.*" };
-        if (dialog.ShowDialog(this) != true) return;
-        try { _context.ReplaceProject(await ProjectStore.LoadAsync(dialog.FileName)); StatusText.Text = $"Opened {Path.GetFileName(dialog.FileName)}."; }
-        catch (Exception ex) { Error("Open Project", ex); }
+        if (dialog.ShowDialog(this) != true) return false;
+        try
+        {
+            ProjectWorkspace.EnsureStructure(dialog.FileName);
+            _context.ReplaceProject(await ProjectStore.LoadAsync(dialog.FileName));
+            GeneratorNav.IsChecked = true;
+            StatusText.Text = $"Opened {ProjectWorkspace.DisplayName(dialog.FileName)}.";
+            return true;
+        }
+        catch (Exception ex) { Error("Open Project", ex); return false; }
     }
 
     private async void OnSave(object sender, RoutedEventArgs e)
@@ -126,9 +165,10 @@ public partial class MainWindow : Window
         var path = _context.Project.FilePath;
         if (path is null)
         {
-            var dialog = new SaveFileDialog { Title = "Save jersey project", Filter = "NBA 2K project (*.nba2kproject.json)|*.nba2kproject.json", FileName = "jersey.nba2kproject.json", AddExtension = true };
-            if (dialog.ShowDialog(this) != true) return;
-            path = dialog.FileName;
+            var dialog = new NewProjectDialog { Owner = this };
+            if (dialog.ShowDialog() != true) return;
+            try { path = ProjectWorkspace.Create(dialog.ParentFolder, dialog.ProjectName); }
+            catch (Exception ex) { Error("Save Project", ex); return; }
         }
         try { await _context.Project.SaveAsync(path); SyncProject(); StatusText.Text = $"Saved {Path.GetFileName(path)}."; }
         catch (Exception ex) { Error("Save Project", ex); }
@@ -147,7 +187,11 @@ public partial class MainWindow : Window
         catch (Exception ex) { Error("Export Package", ex); }
     }
 
-    private void OnLayerEditor(object sender, RoutedEventArgs e) => new LayerEditorWindow(_context) { Owner = this }.Show();
+    private void OnLayerEditor(object sender, RoutedEventArgs e)
+    {
+        GeneratorNav.IsChecked = true;
+        if (_pages["generator"] is GeneratorPage generator) generator.OpenWebLayerEditor();
+    }
 
     private async void OnBlender(object sender, RoutedEventArgs e)
     {

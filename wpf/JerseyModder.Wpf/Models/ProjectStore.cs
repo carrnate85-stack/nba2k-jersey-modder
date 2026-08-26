@@ -50,6 +50,14 @@ public sealed class ProjectStore : INotifyPropertyChanged
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    public void ApplyExternal(JsonObject root)
+    {
+        Root = Normalize(root);
+        IsDirty = true;
+        PropertyChanged?.Invoke(this, new(null));
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     public void MarkClean()
     {
         IsDirty = false;

@@ -1,9 +1,11 @@
 using System.IO;
 using System.Text.Json.Nodes;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using JerseyModder.Wpf.Services;
+using JerseyModder.Wpf.Models;
 using Microsoft.Win32;
 
 namespace JerseyModder.Wpf.Views;
@@ -13,6 +15,11 @@ public partial class GeneratorPage : ToolPageBase
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(120) };
     private bool _loading;
     private int _revision;
+    private readonly LayerWebSessionService _layerWeb;
+    private readonly DispatcherTimer _layerStateTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    private DateTime _lastLayerStateWrite;
+    private bool _returnHandled;
+    private ProjectStore? _subscribedProject;
     private static readonly (string Key, string Label, bool Jersey, bool Shorts)[] Colors =
     {
         ("front_color","Front base",true,false),("back_color","Back base",true,false),
@@ -35,11 +42,13 @@ public partial class GeneratorPage : ToolPageBase
     public GeneratorPage(WorkspaceContext context) : base(context)
     {
         InitializeComponent();
+        _layerWeb = new LayerWebSessionService(context.ProjectRoot);
         _timer.Tick += (_, _) => { _timer.Stop(); _ = RenderAsync(); };
-        foreach (var item in new[] { "Center Chest Logo", "Left Chest Logo", "Right Chest Logo", "Front Wordmark", "Wrap Logo", "Back Neck Logo", "Back Center Logo", "Belt Buckle Logo" }) LogoType.Items.Add(item);
-        LogoType.SelectedIndex = 0;
+        _layerStateTimer.Tick += async (_, _) => await RefreshLayerStateAsync();
+        _layerStateTimer.Start();
+        Application.Current.Exit += (_, _) => _layerWeb.Dispose();
         BuildColorRows(); BuildImageRows(); LoadProject();
-        Context.Project.Changed += (_, _) => { if (!_loading) Schedule(); };
+        SubscribeToProject();
     }
 
     private void BuildColorRows()
@@ -72,7 +81,15 @@ public partial class GeneratorPage : ToolPageBase
         ImagePanel.Children.Add(tile);
     }
 
-    protected override void OnProjectReplaced() => LoadProject();
+    protected override void OnProjectReplaced() { _layerWeb.Stop(); _lastLayerStateWrite = default; SubscribeToProject(); LoadProject(); }
+    private void SubscribeToProject()
+    {
+        if (ReferenceEquals(_subscribedProject, Context.Project)) return;
+        if (_subscribedProject is not null) _subscribedProject.Changed -= OnProjectChanged;
+        _subscribedProject = Context.Project;
+        _subscribedProject.Changed += OnProjectChanged;
+    }
+    private void OnProjectChanged(object? sender, EventArgs e) { if (!_loading) Schedule(); }
     private void LoadProject()
     {
         _loading = true;
@@ -101,7 +118,6 @@ public partial class GeneratorPage : ToolPageBase
 
     private void RefreshLists()
     {
-        LogoList.ItemsSource = (Context.Project.Generator["logos"] as JsonArray)?.Select((node, index) => new { index, label = $"{node?["targetName"]}: {Path.GetFileName(node?["path"]?.GetValue<string>())}" }).ToList();
         TrimPathSummary.Text = $"{(Context.Project.Generator["trimPathLayers"] as JsonArray)?.Count ?? 0} path layer(s) for this project";
     }
 
@@ -130,17 +146,53 @@ public partial class GeneratorPage : ToolPageBase
     {
         if (_loading) return; var number = Context.Project.Generator["numberPreview"]!.AsObject(); number["enabled"] = NumberEnabled.IsChecked == true; number["text"] = NumberText.Text; Context.Project.MarkChanged();
     }
-    private void OnAddLogo(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog { Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp|All files|*.*" }; if (dialog.ShowDialog() != true) return;
-        var targets = new[] { "front_center_chest_logo","front_left_chest_logo","front_right_chest_logo","front_wordmark","wrap_across_front_back_logo","back_neck_logo","back_center_logo","shorts_belt_buckle_logo" };
-        var target = targets[Math.Max(0, LogoType.SelectedIndex)];
-        ((JsonArray)Context.Project.Generator["logos"]!).Add(new JsonObject { ["path"] = dialog.FileName, ["targetName"] = target, ["offsetX"] = 0, ["offsetY"] = 0, ["scalePercent"] = 100, ["scaleWidthPercent"] = 100, ["scaleHeightPercent"] = 100, ["rotation"] = 0 }); Context.Project.MarkChanged(); RefreshLists();
-    }
-    private void OnRemoveLogo(object sender, RoutedEventArgs e) { if (LogoList.SelectedIndex >= 0) { ((JsonArray)Context.Project.Generator["logos"]!).RemoveAt(LogoList.SelectedIndex); Context.Project.MarkChanged(); RefreshLists(); } }
     private void OnGenerate(object sender, RoutedEventArgs e) => _ = RenderAsync();
     private void OnFit(object sender, RoutedEventArgs e) => Preview.Fit();
-    private void OnLayerEditor(object sender, RoutedEventArgs e) => new LayerEditorWindow(Context) { Owner = Window.GetWindow(this) }.Show();
+    private void OnLayerEditor(object sender, RoutedEventArgs e) => OpenWebLayerEditor();
+    public async void OpenWebLayerEditor()
+    {
+        try
+        {
+            if (_layerWeb.Url is not null) { _layerWeb.OpenBrowser(); return; }
+            Status("Opening web layer editor...");
+            await _layerWeb.StartAsync(Context.Project.Snapshot());
+            _lastLayerStateWrite = _layerWeb.StatePath is not null && File.Exists(_layerWeb.StatePath)
+                ? File.GetLastWriteTimeUtc(_layerWeb.StatePath) : default;
+            _returnHandled = false;
+            Status("Web layer editor opened. Changes will update this preview automatically.");
+        }
+        catch (Exception ex) { Error("Web Layer Editor", ex); }
+    }
+
+    private async Task RefreshLayerStateAsync()
+    {
+        var path = _layerWeb.StatePath;
+        if (path is null || !File.Exists(path)) return;
+        var write = File.GetLastWriteTimeUtc(path);
+        if (write <= _lastLayerStateWrite) return;
+        try
+        {
+            var root = JsonNode.Parse(await File.ReadAllTextAsync(path))?.AsObject();
+            var project = root?["project"]?.AsObject();
+            if (project is null) return;
+            _lastLayerStateWrite = write;
+            if (project.ToJsonString() != Context.Project.Snapshot().ToJsonString())
+                Context.Project.ApplyExternal((JsonObject)project.DeepClone());
+            if (root?["returnRequested"]?.GetValue<bool>() == true && !_returnHandled)
+            {
+                _returnHandled = true;
+                var window = Window.GetWindow(this) ?? Application.Current.MainWindow;
+                if (window is not null)
+                {
+                    if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+                    window.Show(); window.Activate(); window.Topmost = true; window.Topmost = false; window.Focus();
+                }
+                Status("Returned from the web layer editor.");
+            }
+        }
+        catch (IOException) { }
+        catch (JsonException) { }
+    }
     private void OnOpenPaths(object sender, RoutedEventArgs e) => Status("Select Trim Path Lab in the left navigation.");
     private void Schedule() { RefreshGarmentVisibility(); _timer.Stop(); _timer.Start(); }
 

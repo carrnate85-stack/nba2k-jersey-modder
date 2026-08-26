@@ -9,6 +9,7 @@ public sealed class WorkspaceContext
     public string ProjectRoot { get; }
     public event EventHandler<string>? StatusChanged;
     public event EventHandler? ProjectReplaced;
+    public event EventHandler? ProjectPathChanged;
 
     public WorkspaceContext(string projectRoot)
     {
@@ -23,4 +24,5 @@ public sealed class WorkspaceContext
     }
 
     public void SetStatus(string message) => StatusChanged?.Invoke(this, message);
+    public void NotifyProjectPathChanged() => ProjectPathChanged?.Invoke(this, EventArgs.Empty);
 }

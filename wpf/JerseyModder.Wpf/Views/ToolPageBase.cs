@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using JerseyModder.Wpf.Models;
 using JerseyModder.Wpf.Services;
 
 namespace JerseyModder.Wpf.Views;
@@ -18,6 +19,23 @@ public abstract class ToolPageBase : UserControl
     protected void Status(string message) => Context.SetStatus(message);
     protected static void Error(string title, Exception exception) =>
         MessageBox.Show(exception.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+
+    protected async Task<string?> EnsureProjectFileAsync()
+    {
+        if (Context.Project.FilePath is not null) return Context.Project.FilePath;
+        var dialog = new NewProjectDialog { Owner = Window.GetWindow(this) ?? Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true) return null;
+        var path = ProjectWorkspace.Create(dialog.ParentFolder, dialog.ProjectName);
+        await Context.Project.SaveAsync(path);
+        Context.NotifyProjectPathChanged();
+        return path;
+    }
+
+    protected async Task<string?> StoreProjectAssetAsync(string category, string sourcePath, string label)
+    {
+        var projectFile = await EnsureProjectFileAsync();
+        return projectFile is null ? null : ProjectWorkspace.StoreAsset(projectFile, category, sourcePath, label);
+    }
 
     protected static Grid Header(string title, string description)
     {

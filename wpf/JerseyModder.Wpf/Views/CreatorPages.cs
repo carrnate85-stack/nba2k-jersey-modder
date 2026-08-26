@@ -352,31 +352,40 @@ public sealed class LogoCreatorPage : ToolPageBase
         catch (Exception ex) { Status(ex.Message); }
     }
 
-    private void OnSend(object sender, RoutedEventArgs e)
+    private async void OnSend(object sender, RoutedEventArgs e)
     {
         if (_staged.Count == 0)
         {
             MessageBox.Show("Stage one or more logos in the web Logo Creator first.", "Logo Creator");
             return;
         }
-        var logos = (JsonArray)Context.Project.Generator["logos"]!;
-        foreach (var item in _staged)
+        try
         {
-            if (item.Target == "front_wordmark")
+            var projectFile = await EnsureProjectFileAsync();
+            if (projectFile is null) return;
+            var logos = (JsonArray)Context.Project.Generator["logos"]!;
+            foreach (var item in _staged)
             {
-                Context.Project.SetImage("front_wordmark_image", item.Path);
-                continue;
+                var storedPath = ProjectWorkspace.StoreAsset(projectFile, "logos", item.Path, item.TypeLabel);
+                if (item.Target == "front_wordmark")
+                {
+                    Context.Project.SetImage("front_wordmark_image", storedPath);
+                    continue;
+                }
+                logos.Add(new JsonObject
+                {
+                    { "path", storedPath }, { "targetName", item.Target },
+                    { "offsetX", 0 }, { "offsetY", 0 }, { "scalePercent", 100 },
+                    { "scaleWidthPercent", 100 }, { "scaleHeightPercent", 100 },
+                    { "rotationDegrees", 0 },
+                });
             }
-            logos.Add(new JsonObject
-            {
-                { "path", item.Path }, { "targetName", item.Target },
-                { "offsetX", 0 }, { "offsetY", 0 }, { "scalePercent", 100 },
-                { "scaleWidthPercent", 100 }, { "scaleHeightPercent", 100 },
-                { "rotationDegrees", 0 },
-            });
+            Context.Project.MarkChanged();
+            await Context.Project.SaveAsync();
+            Context.NotifyProjectPathChanged();
+            Status($"Saved and sent {_staged.Count} staged logo(s) to Generator.");
         }
-        Context.Project.MarkChanged();
-        Status($"Sent {_staged.Count} staged logo(s) to Generator.");
+        catch (Exception ex) { Error("Send Logos to Generator", ex); }
     }
 }
 
@@ -533,11 +542,23 @@ public sealed class TrimCreatorPage : ToolPageBase
         Status($"Returned from web Trim Creator with {_staged.Count} staged trim(s).");
     }
 
-    private void OnSend(object sender, RoutedEventArgs e)
+    private async void OnSend(object sender, RoutedEventArgs e)
     {
         if (_staged.Count == 0) { MessageBox.Show("Stage one or more trims in the web Trim Selector first.", "Trim Creator"); return; }
-        foreach (var item in _staged) Context.Project.SetImage(item.Target, item.Path);
-        Status($"Sent {_staged.Count} staged trim(s) to Generator.");
+        try
+        {
+            var projectFile = await EnsureProjectFileAsync();
+            if (projectFile is null) return;
+            foreach (var item in _staged)
+            {
+                var storedPath = ProjectWorkspace.StoreAsset(projectFile, "trims", item.Path, item.TypeLabel);
+                Context.Project.SetImage(item.Target, storedPath);
+            }
+            await Context.Project.SaveAsync();
+            Context.NotifyProjectPathChanged();
+            Status($"Saved and sent {_staged.Count} staged trim(s) to Generator.");
+        }
+        catch (Exception ex) { Error("Send Trims to Generator", ex); }
     }
 
     private void ExportAiPack(object sender, RoutedEventArgs e)

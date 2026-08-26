@@ -5,8 +5,12 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <ApplicationIcon />
+    <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
     <AssemblyName>NBA2KJerseyModder</AssemblyName>
     <RootNamespace>JerseyModder.Wpf</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\app-icon.png" />
+    <Resource Include="Assets\app-icon.ico" />
+  </ItemGroup>
 </Project>

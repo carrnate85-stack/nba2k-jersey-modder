@@ -40,6 +40,7 @@ INDEX_HTML = """<!doctype html>
     .buttons { display: flex; gap: 8px; margin-top: 10px; }
     .buttons button { flex: 1; padding: 7px 8px; }
     button.secondary { background: #303746; color: #edf1f7; border: 1px solid #475064; }
+    #returnToApp { margin-left: auto; background: #168579; color: white; }
     button:disabled { opacity: .45; cursor: default; }
     .small { color: #9aa4b5; font-size: 12px; line-height: 1.4; margin-top: 12px; }
     .uv-panel { border: 1px solid #343b49; border-radius: 6px; padding: 10px; margin-bottom: 12px; background: #202632; }
@@ -61,6 +62,7 @@ INDEX_HTML = """<!doctype html>
     <span id="editorZoomLabel" class="hint">100%</span>
     <span id="loadStatus" class="hint"></span>
     <span class="hint">Scroll to zoom. Hold the scroll wheel and drag to pan.</span>
+    <button id="returnToApp">Return to App</button>
   </header>
   <div id="wrap">
     <main id="stage"><canvas id="canvas" width="2048" height="2048"></canvas></main>
@@ -133,6 +135,7 @@ INDEX_HTML = """<!doctype html>
     const viewRegion = document.getElementById("viewRegion");
     const editorZoomLabel = document.getElementById("editorZoomLabel");
     const loadStatus = document.getElementById("loadStatus");
+    const returnToApp = document.getElementById("returnToApp");
     const uvPanel = document.getElementById("uvPanel");
     const showUvOverlay = document.getElementById("showUvOverlay");
     const uvOpacity = document.getElementById("uvOpacity");
@@ -803,6 +806,17 @@ INDEX_HTML = """<!doctype html>
       await fetch("/api/reset", {method: "POST"});
       activeKey = null;
       await loadProject();
+    };
+
+    returnToApp.onclick = async () => {
+      returnToApp.disabled = true;
+      loadStatus.textContent = "Returning to desktop app...";
+      try {
+        await fetch("/api/return", {method: "POST"});
+        loadStatus.textContent = "Returned to desktop app. This editor can remain open.";
+      } finally {
+        returnToApp.disabled = false;
+      }
     };
 
     document.getElementById("refresh").onclick = loadProject;
@@ -1836,6 +1850,12 @@ class WebEditorServer:
                     return
                 if self.path.startswith("/api/reset"):
                     app._run_on_ui_thread(app._web_editor_reset)
+                    self._send_json({"ok": True})
+                    return
+                if self.path.startswith("/api/return"):
+                    callback = getattr(app, "_web_editor_return", None)
+                    if callback is not None:
+                        app._run_on_ui_thread(callback)
                     self._send_json({"ok": True})
                     return
                 else:
