@@ -268,6 +268,7 @@ def handler_class(session: LogoWebSession):
                 path = urlparse(self.path).path
                 action = {
                     "/api/stage": lambda: session.stage(payload),
+                    "/api/import": lambda: session.import_image(payload),
                     "/api/update": lambda: session.update(payload),
                     "/api/select": lambda: session.select(payload),
                     "/api/remove": lambda: session.remove(payload),

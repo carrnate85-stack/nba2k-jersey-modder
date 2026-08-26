@@ -11,6 +11,41 @@ from nba2k_jersey_modder.trim_web_session import TrimWebSession
 
 
 class TrimWebSessionTests(unittest.TestCase):
+    def test_imports_finished_trim_without_reextracting_from_mockup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            reference = folder / "mockup.png"
+            imported = folder / "finished_trim.png"
+            Image.new("RGB", (20, 20), "white").save(reference)
+            trim = Image.new("RGBA", (320, 30), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(trim)
+            draw.rectangle((0, 5, 319, 24), fill="#d1123f")
+            trim.save(imported)
+
+            session = TrimWebSession(reference, folder / "state.json")
+            project = session.import_image({
+                "path": str(imported),
+                "target": "waistband_image",
+            })
+            item = project["items"][0]
+            self.assertEqual("Waistband", item["typeLabel"])
+            self.assertTrue(item["imported"])
+            self.assertFalse(item["correct"])
+            with Image.open(item["path"]) as output:
+                self.assertEqual((320, 30), output.size)
+
+            updated = session.update({
+                "id": item["id"],
+                "target": "collar_trim_image",
+                "cropTop": 2,
+                "cropBottom": 3,
+                "scale": 1,
+            })
+            changed = updated["items"][0]
+            self.assertEqual("Collar Trim", changed["typeLabel"])
+            with Image.open(changed["path"]) as output:
+                self.assertEqual((320, 25), output.size)
+
     def test_stages_multiple_lines_and_reprocesses_trim_edits(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

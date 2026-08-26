@@ -11,6 +11,35 @@ from nba2k_jersey_modder.logo_web_session import LogoWebSession
 
 
 class LogoWebSessionTests(unittest.TestCase):
+    def test_imports_finished_logo_as_editable_staged_item(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            reference = folder / "reference.png"
+            imported = folder / "finished_logo.png"
+            Image.new("RGBA", (20, 20), (0, 0, 0, 0)).save(reference)
+            Image.new("RGBA", (96, 48), (18, 60, 140, 255)).save(imported)
+
+            session = LogoWebSession(reference, folder / "state.json")
+            project = session.import_image({
+                "path": str(imported),
+                "target": "front_center_chest_logo",
+            })
+            item = project["items"][0]
+            self.assertEqual("Center Chest Logo", item["typeLabel"])
+            self.assertEqual(str(imported.resolve()), item["sourcePath"])
+            with Image.open(item["path"]) as output:
+                self.assertEqual((96, 48), output.size)
+
+            updated = session.update({
+                "id": item["id"],
+                "target": "back_neck_logo",
+                "scale": 2,
+            })
+            changed = updated["items"][0]
+            self.assertEqual("Back Neck Logo", changed["typeLabel"])
+            with Image.open(changed["path"]) as output:
+                self.assertEqual((192, 96), output.size)
+
     def test_stages_multiple_logos_and_reprocesses_selected_item(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

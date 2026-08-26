@@ -57,13 +57,18 @@ public sealed class LogoCreatorPage : ToolPageBase
         var commandBar = new Grid { Margin = new Thickness(0, 0, 0, 12) };
         commandBar.ColumnDefinitions.Add(new ColumnDefinition());
         commandBar.ColumnDefinitions.Add(new ColumnDefinition());
-        var upload = Ui.Button("Upload Reference and Open Web Logo Creator", OnOpen, true);
-        upload.Margin = new Thickness(0, 0, 5, 0);
-        _reopenButton = Ui.Button("Reopen Web Logo Creator", (_, _) => ReopenWebEditor(), true);
-        _reopenButton.Margin = new Thickness(5, 0, 0, 0);
+        commandBar.ColumnDefinitions.Add(new ColumnDefinition());
+        var upload = Ui.Button("Select Logos from Reference", OnOpen, true);
+        upload.Margin = new Thickness(0, 0, 4, 0);
+        var import = Ui.Button("Import Finished Logos", OnImport, true);
+        import.Margin = new Thickness(4, 0, 4, 0);
+        _reopenButton = Ui.Button("Reopen Logo Creator", (_, _) => ReopenWebEditor(), true);
+        _reopenButton.Margin = new Thickness(4, 0, 0, 0);
         _reopenButton.IsEnabled = false;
         commandBar.Children.Add(upload);
-        Grid.SetColumn(_reopenButton, 1);
+        Grid.SetColumn(import, 1);
+        commandBar.Children.Add(import);
+        Grid.SetColumn(_reopenButton, 2);
         commandBar.Children.Add(_reopenButton);
         body.Children.Add(commandBar);
 
@@ -187,6 +192,48 @@ public sealed class LogoCreatorPage : ToolPageBase
             Error("Logo Creator", ex);
             _sourceLabel.Text = $"Could not open {Path.GetFileName(originalPath)}.";
         }
+    }
+
+    private async void OnImport(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Import finished logos for staging",
+            Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif|All files|*.*",
+            Multiselect = true,
+        };
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            var projectFile = await EnsureProjectFileAsync();
+            if (projectFile is null) return;
+            var firstSource = "";
+            foreach (var sourcePath in dialog.FileNames)
+            {
+                var stored = ProjectWorkspace.StoreReference(
+                    projectFile,
+                    sourcePath,
+                    $"logo_{Path.GetFileNameWithoutExtension(sourcePath)}");
+                firstSource = string.IsNullOrEmpty(firstSource) ? stored : firstSource;
+                await _webSession.ImportAsync(stored, "front_center_chest_logo");
+            }
+            _source ??= firstSource;
+            _sourceLabel.Text = $"Imported {dialog.FileNames.Length} logo{(dialog.FileNames.Length == 1 ? "" : "s")} for staging.";
+            var thumbnail = (await Context.Bridge.CallAsync("image_thumbnail", new
+            {
+                path = firstSource,
+                maximumWidth = 1200,
+                maximumHeight = 900,
+            }))!.AsObject();
+            _reference.Load(thumbnail["path"]?.GetValue<string>());
+            _lastStateWrite = 0;
+            _returnHandled = false;
+            _reopenButton.IsEnabled = true;
+            await RefreshStateAsync(true);
+            _webSession.OpenEditor();
+            Status($"Imported {dialog.FileNames.Length} logo(s) into staging. Set each logo type in the web editor.");
+        }
+        catch (Exception ex) { Error("Import Logos", ex); }
     }
 
     private void ReopenWebEditor()
@@ -379,6 +426,7 @@ public sealed class LogoCreatorPage : ToolPageBase
                 logos.Add(new JsonObject
                 {
                     { "path", storedPath }, { "targetName", item.Target },
+                    { "typeLabel", item.TypeLabel },
                     { "offsetX", 0 }, { "offsetY", 0 }, { "scalePercent", 100 },
                     { "scaleWidthPercent", 100 }, { "scaleHeightPercent", 100 },
                     { "rotationDegrees", 0 },
@@ -433,13 +481,17 @@ public sealed class TrimCreatorPage : ToolPageBase
         var commandBar = new Grid { Margin = new Thickness(0, 0, 0, 12) };
         commandBar.ColumnDefinitions.Add(new ColumnDefinition());
         commandBar.ColumnDefinitions.Add(new ColumnDefinition());
-        var upload = Ui.Button("Upload Mockup and Open Web Trim Selector", OnOpen, true);
-        upload.Margin = new Thickness(0, 0, 5, 0);
-        _reopen = Ui.Button("Reopen Web Trim Selector", (_, _) => OpenSelector(), true);
-        _reopen.Margin = new Thickness(5, 0, 0, 0);
+        commandBar.ColumnDefinitions.Add(new ColumnDefinition());
+        var upload = Ui.Button("Select Trims from Mockup", OnOpen, true);
+        upload.Margin = new Thickness(0, 0, 4, 0);
+        var import = Ui.Button("Import Finished Trims", OnImport, true);
+        import.Margin = new Thickness(4, 0, 4, 0);
+        _reopen = Ui.Button("Reopen Trim Creator", (_, _) => OpenSelector(), true);
+        _reopen.Margin = new Thickness(4, 0, 0, 0);
         _reopen.IsEnabled = false;
         commandBar.Children.Add(upload);
-        Grid.SetColumn(_reopen, 1); commandBar.Children.Add(_reopen);
+        Grid.SetColumn(import, 1); commandBar.Children.Add(import);
+        Grid.SetColumn(_reopen, 2); commandBar.Children.Add(_reopen);
         body.Children.Add(commandBar);
 
         var left = new StackPanel();
@@ -506,6 +558,47 @@ public sealed class TrimCreatorPage : ToolPageBase
             await RefreshStateAsync(true); Status("Web Trim Selector opened. Stage as many trims as you need from this mockup.");
         }
         catch (Exception ex) { Error("Trim Creator", ex); }
+    }
+
+    private async void OnImport(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Import finished trims for staging",
+            Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif|All files|*.*",
+            Multiselect = true,
+        };
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            var projectFile = await EnsureProjectFileAsync();
+            if (projectFile is null) return;
+            var firstSource = "";
+            foreach (var sourcePath in dialog.FileNames)
+            {
+                var stored = ProjectWorkspace.StoreReference(
+                    projectFile,
+                    sourcePath,
+                    $"trim_{Path.GetFileNameWithoutExtension(sourcePath)}");
+                firstSource = string.IsNullOrEmpty(firstSource) ? stored : firstSource;
+                await _web.ImportAsync(stored, "collar_trim_image");
+            }
+            _sourceLabel.Text = $"Imported {dialog.FileNames.Length} trim{(dialog.FileNames.Length == 1 ? "" : "s")} for staging.";
+            var thumbnail = (await Context.Bridge.CallAsync("image_thumbnail", new
+            {
+                path = firstSource,
+                maximumWidth = 1200,
+                maximumHeight = 900,
+            }))!.AsObject();
+            _reference.Load(thumbnail["path"]?.GetValue<string>());
+            _lastWrite = 0;
+            _returnHandled = false;
+            _reopen.IsEnabled = true;
+            await RefreshStateAsync(true);
+            _web.OpenEditor();
+            Status($"Imported {dialog.FileNames.Length} trim(s) into staging. Set each trim type in the web editor.");
+        }
+        catch (Exception ex) { Error("Import Trims", ex); }
     }
 
     private void OpenSelector() { try { _web.OpenSelector(); } catch (Exception ex) { Error("Trim Selector", ex); } }

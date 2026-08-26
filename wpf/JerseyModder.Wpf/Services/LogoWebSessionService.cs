@@ -1,11 +1,14 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 
 namespace JerseyModder.Wpf.Services;
 
 public sealed class LogoWebSessionService : IDisposable
 {
+    private static readonly HttpClient Http = new();
     private readonly string _projectRoot;
     private Process? _process;
 
@@ -14,7 +17,7 @@ public sealed class LogoWebSessionService : IDisposable
 
     public LogoWebSessionService(string projectRoot) => _projectRoot = projectRoot;
 
-    public async Task<string> StartAsync(string referencePath, CancellationToken cancellationToken = default)
+    public async Task<string> StartAsync(string referencePath, bool openBrowser = true, CancellationToken cancellationToken = default)
     {
         Stop();
         var sessionFolder = Path.Combine(
@@ -52,8 +55,22 @@ public sealed class LogoWebSessionService : IDisposable
             ?? throw new InvalidDataException("The logo web editor returned invalid startup information.");
         Url = startup["url"]?.GetValue<string>()
             ?? throw new InvalidDataException("The logo web editor did not provide an address.");
-        OpenBrowser();
+        if (openBrowser) OpenBrowser();
         return Url;
+    }
+
+    public async Task ImportAsync(string sourcePath, string target, CancellationToken cancellationToken = default)
+    {
+        if (Url is null) await StartAsync(sourcePath, false, cancellationToken);
+        using var response = await Http.PostAsJsonAsync(
+            new Uri(new Uri(Url!), "api/import"),
+            new { path = sourcePath, target },
+            cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException($"The logo could not be staged. {error}");
+        }
     }
 
     public void OpenBrowser() => OpenPath(string.Empty);

@@ -66,7 +66,7 @@ def handler_class(session: TrimWebSession):
         def do_POST(self):  # noqa: N802
             try:
                 length=int(self.headers.get("Content-Length","0"));payload=json.loads(self.rfile.read(length) or b"{}")
-                action={"/api/stage":lambda:session.stage(payload),"/api/update":lambda:session.update(payload),"/api/select":lambda:session.select(payload),"/api/remove":lambda:session.remove(payload),"/api/clear":session.clear,"/api/return":session.request_return}.get(urlparse(self.path).path)
+                action={"/api/stage":lambda:session.stage(payload),"/api/import":lambda:session.import_image(payload),"/api/update":lambda:session.update(payload),"/api/select":lambda:session.select(payload),"/api/remove":lambda:session.remove(payload),"/api/clear":session.clear,"/api/return":session.request_return}.get(urlparse(self.path).path)
                 if action is None:self.send_error(404);return
                 self._json(action())
             except Exception as exc:self._json({"error":str(exc)},400)

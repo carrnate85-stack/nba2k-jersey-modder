@@ -1,11 +1,14 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 
 namespace JerseyModder.Wpf.Services;
 
 public sealed class TrimWebSessionService : IDisposable
 {
+    private static readonly HttpClient Http = new();
     private readonly string _projectRoot;
     private Process? _process;
     public string? Url { get; private set; }
@@ -13,7 +16,7 @@ public sealed class TrimWebSessionService : IDisposable
 
     public TrimWebSessionService(string projectRoot) => _projectRoot = projectRoot;
 
-    public async Task<string> StartAsync(string referencePath, CancellationToken cancellationToken = default)
+    public async Task<string> StartAsync(string referencePath, bool openBrowser = true, CancellationToken cancellationToken = default)
     {
         Stop();
         var folder = Path.Combine(Path.GetTempPath(), "nba2k_jersey_modder", "wpf_trim_web", Guid.NewGuid().ToString("N"));
@@ -34,7 +37,22 @@ public sealed class TrimWebSessionService : IDisposable
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
         var line = await process.StandardOutput.ReadLineAsync(timeout.Token) ?? throw new InvalidOperationException("The trim web selector did not start.");
         Url = JsonNode.Parse(line)?["url"]?.GetValue<string>() ?? throw new InvalidDataException("The trim web selector returned an invalid address.");
-        OpenSelector(); return Url;
+        if (openBrowser) OpenSelector();
+        return Url;
+    }
+
+    public async Task ImportAsync(string sourcePath, string target, CancellationToken cancellationToken = default)
+    {
+        if (Url is null) await StartAsync(sourcePath, false, cancellationToken);
+        using var response = await Http.PostAsJsonAsync(
+            new Uri(new Uri(Url!), "api/import"),
+            new { path = sourcePath, target },
+            cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException($"The trim could not be staged. {error}");
+        }
     }
 
     public void OpenSelector() => OpenPath(string.Empty);

@@ -35,6 +35,7 @@ class StagedLogo:
     path: str
     thumbnailPath: str
     points: list[dict[str, int]]
+    sourcePath: str | None = None
     auto: bool = False
     removeWhite: bool = False
     removeBlack: bool = False
@@ -113,6 +114,36 @@ class LogoWebSession:
         self._write_state()
         return self.project()
 
+    def import_image(self, payload: dict) -> dict:
+        source = Path(str(payload.get("path") or "")).resolve()
+        if not source.is_file():
+            raise ValueError("Choose a logo image that still exists.")
+        with Image.open(source) as opened:
+            width, height = ImageOps.exif_transpose(opened).size
+        if width < 1 or height < 1:
+            raise ValueError("The imported logo image is empty.")
+        target, type_label = self._type(payload)
+        item = StagedLogo(
+            id=uuid.uuid4().hex,
+            typeLabel=type_label,
+            target=target,
+            path="",
+            thumbnailPath="",
+            points=[
+                {"x": 0, "y": 0}, {"x": width - 1, "y": 0},
+                {"x": width - 1, "y": height - 1}, {"x": 0, "y": height - 1},
+            ],
+            sourcePath=str(source),
+        )
+        self._apply_options(item, payload)
+        item.path = str(self.folder / f"{item.id}.png")
+        item.thumbnailPath = str(self.folder / f"{item.id}.thumb.png")
+        self._render(item)
+        self.items.append(item)
+        self.selected_id = item.id
+        self._write_state()
+        return self.project()
+
     def update(self, payload: dict) -> dict:
         item = self._find(str(payload.get("id") or self.selected_id or ""))
         item.target, item.typeLabel = self._type(payload, item.target, item.typeLabel)
@@ -152,7 +183,8 @@ class LogoWebSession:
         return {"ok": True, "items": len(self.items)}
 
     def _render(self, item: StagedLogo) -> None:
-        with Image.open(self.reference) as opened:
+        source_path = Path(item.sourcePath) if item.sourcePath else self.reference
+        with Image.open(source_path) as opened:
             source = ImageOps.exif_transpose(opened).convert("RGBA")
         xs = [point["x"] for point in item.points]
         ys = [point["y"] for point in item.points]

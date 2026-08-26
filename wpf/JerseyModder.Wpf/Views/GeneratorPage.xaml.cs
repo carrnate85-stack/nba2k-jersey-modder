@@ -19,6 +19,8 @@ public partial class GeneratorPage : ToolPageBase
     private readonly DispatcherTimer _layerStateTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private DateTime _lastLayerStateWrite;
     private bool _returnHandled;
+    private bool _applyingLayerState;
+    private bool _projectRefreshPending;
     private ProjectStore? _subscribedProject;
     private static readonly (string Key, string Label, bool Jersey, bool Shorts)[] Colors =
     {
@@ -38,6 +40,7 @@ public partial class GeneratorPage : ToolPageBase
     };
     private readonly Dictionary<string, FrameworkElement> _colorRows = new();
     private readonly Dictionary<string, FrameworkElement> _imageRows = new();
+    private readonly StackPanel _importedLogoList = new();
 
     public GeneratorPage(WorkspaceContext context) : base(context)
     {
@@ -79,6 +82,15 @@ public partial class GeneratorPage : ToolPageBase
         var tile = new CheckBox { Name = "TileBackground", Content = "Tile background jersey image", Margin = new Thickness(145,4,0,4), IsChecked = Context.Project.Generator["jerseyBackground"]?["tile"]?.GetValue<bool>() ?? false };
         tile.Click += (_, _) => { Context.Project.Generator["jerseyBackground"]!["tile"] = tile.IsChecked == true; Context.Project.MarkChanged(); };
         ImagePanel.Children.Add(tile);
+        ImagePanel.Children.Add(new Border
+        {
+            BorderBrush = (System.Windows.Media.Brush)Application.Current.Resources["BorderBrush"],
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Margin = new Thickness(0, 9, 0, 9),
+        });
+        ImagePanel.Children.Add(new TextBlock { Text = "Imported logos", FontWeight = FontWeights.SemiBold });
+        _importedLogoList.Margin = new Thickness(0, 6, 0, 0);
+        ImagePanel.Children.Add(_importedLogoList);
     }
 
     protected override void OnProjectReplaced() { _layerWeb.Stop(); _lastLayerStateWrite = default; SubscribeToProject(); LoadProject(); }
@@ -89,7 +101,24 @@ public partial class GeneratorPage : ToolPageBase
         _subscribedProject = Context.Project;
         _subscribedProject.Changed += OnProjectChanged;
     }
-    private void OnProjectChanged(object? sender, EventArgs e) { if (!_loading) Schedule(); }
+    private void OnProjectChanged(object? sender, EventArgs e)
+    {
+        if (_loading) return;
+        if (_applyingLayerState)
+        {
+            Schedule();
+            return;
+        }
+
+        _layerWeb.Stop();
+        if (_projectRefreshPending) return;
+        _projectRefreshPending = true;
+        Dispatcher.BeginInvoke(() =>
+        {
+            _projectRefreshPending = false;
+            LoadProject();
+        });
+    }
     private void LoadProject()
     {
         _loading = true;
@@ -119,6 +148,32 @@ public partial class GeneratorPage : ToolPageBase
     private void RefreshLists()
     {
         TrimPathSummary.Text = $"{(Context.Project.Generator["trimPathLayers"] as JsonArray)?.Count ?? 0} path layer(s) for this project";
+        _importedLogoList.Children.Clear();
+        var logos = Context.Project.Generator["logos"] as JsonArray;
+        if (logos is null || logos.Count == 0)
+        {
+            _importedLogoList.Children.Add(new TextBlock
+            {
+                Text = "No imported logos.",
+                Foreground = (System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"],
+            });
+            return;
+        }
+        foreach (var node in logos)
+        {
+            if (node is not JsonObject logo) continue;
+            var label = logo["typeLabel"]?.GetValue<string>()
+                ?? logo["targetName"]?.GetValue<string>()?.Replace('_', ' ')
+                ?? "Logo";
+            var fileName = Path.GetFileName(logo["path"]?.GetValue<string>()) ?? "Missing image";
+            _importedLogoList.Children.Add(new TextBlock
+            {
+                Text = $"{label}  |  {fileName}",
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = logo["path"]?.GetValue<string>(),
+                Margin = new Thickness(0, 0, 0, 4),
+            });
+        }
     }
 
     private void OnColorTextChanged(object sender, TextChangedEventArgs e)
@@ -177,7 +232,11 @@ public partial class GeneratorPage : ToolPageBase
             if (project is null) return;
             _lastLayerStateWrite = write;
             if (project.ToJsonString() != Context.Project.Snapshot().ToJsonString())
-                Context.Project.ApplyExternal((JsonObject)project.DeepClone());
+            {
+                _applyingLayerState = true;
+                try { Context.Project.ApplyExternal((JsonObject)project.DeepClone()); }
+                finally { _applyingLayerState = false; }
+            }
             if (root?["returnRequested"]?.GetValue<bool>() == true && !_returnHandled)
             {
                 _returnHandled = true;

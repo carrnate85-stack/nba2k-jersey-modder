@@ -29,6 +29,8 @@ class StagedTrim:
     thumbnailPath: str
     start: dict[str, int]
     end: dict[str, int]
+    sourcePath: str | None = None
+    imported: bool = False
     cropTop: int = 0
     cropBottom: int = 0
     correct: bool = True
@@ -96,6 +98,36 @@ class TrimWebSession:
         self._write_state()
         return self.project()
 
+    def import_image(self, payload: dict) -> dict:
+        source = Path(str(payload.get("path") or "")).resolve()
+        if not source.is_file():
+            raise ValueError("Choose a trim image that still exists.")
+        with Image.open(source) as opened:
+            width, height = ImageOps.exif_transpose(opened).size
+        if width < 1 or height < 1:
+            raise ValueError("The imported trim image is empty.")
+        target, label = self._type(payload)
+        item_id = uuid.uuid4().hex
+        middle = height // 2
+        item = StagedTrim(
+            id=item_id,
+            typeLabel=label,
+            target=target,
+            path=str(self.folder / f"{item_id}.png"),
+            thumbnailPath=str(self.folder / f"{item_id}.thumb.png"),
+            start={"x": 0, "y": middle},
+            end={"x": width - 1, "y": middle},
+            sourcePath=str(source),
+            imported=True,
+            correct=False,
+        )
+        self._apply_options(item, payload)
+        self._render(item)
+        self.items.append(item)
+        self.selected_id = item.id
+        self._write_state()
+        return self.project()
+
     def update(self, payload: dict) -> dict:
         item = self._find(str(payload.get("id") or self.selected_id or ""))
         item.target, item.typeLabel = self._type(payload, item.target, item.typeLabel)
@@ -137,14 +169,29 @@ class TrimWebSession:
     def _render(self, item: StagedTrim) -> None:
         output = Path(item.path)
         working = output.with_suffix(".working.png")
-        create_trim_strip_from_line(
-            self.reference,
-            working,
-            (item.start["x"], item.start["y"]),
-            (item.end["x"], item.end["y"]),
-            crop_top=item.cropTop,
-            crop_bottom=item.cropBottom,
-        )
+        if item.imported and item.sourcePath:
+            with Image.open(item.sourcePath) as opened:
+                imported = ImageOps.exif_transpose(opened).convert("RGBA")
+            top_crop = max(0, item.cropTop)
+            bottom_crop = max(0, item.cropBottom)
+            bottom = max(top_crop + 1, imported.height - bottom_crop)
+            imported = imported.crop((0, top_crop, imported.width, bottom))
+            if item.cropTop < 0 or item.cropBottom < 0:
+                imported = ImageOps.expand(
+                    imported,
+                    border=(0, max(0, -item.cropTop), 0, max(0, -item.cropBottom)),
+                    fill=(0, 0, 0, 0),
+                )
+            imported.save(working, "PNG", compress_level=1)
+        else:
+            create_trim_strip_from_line(
+                self.reference,
+                working,
+                (item.start["x"], item.start["y"]),
+                (item.end["x"], item.end["y"]),
+                crop_top=item.cropTop,
+                crop_bottom=item.cropBottom,
+            )
         if item.correct:
             correct_trim_strip(working, working, max_gap=3)
         with Image.open(working) as opened:
