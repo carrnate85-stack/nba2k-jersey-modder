@@ -84,5 +84,5 @@ if errorlevel 1 (
     exit /b 1
 )
 
-start "" "%~dp0wpf\JerseyModder.Wpf\bin\Release\net8.0-windows\NBA2KJerseyModder.exe"
+powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -FilePath '%~dp0wpf\JerseyModder.Wpf\bin\Release\net8.0-windows\NBA2KJerseyModder.exe' -WorkingDirectory '%~dp0'"
 exit /b 0
