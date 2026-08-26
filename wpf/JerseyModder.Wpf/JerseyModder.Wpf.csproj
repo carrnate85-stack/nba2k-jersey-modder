@@ -8,6 +8,7 @@
     <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
     <AssemblyName>NBA2KJerseyModder</AssemblyName>
     <RootNamespace>JerseyModder.Wpf</RootNamespace>
+    <Version>1.0.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets\app-icon.png" />

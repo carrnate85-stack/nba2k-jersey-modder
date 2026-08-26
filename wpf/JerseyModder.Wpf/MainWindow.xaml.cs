@@ -16,14 +16,14 @@ public partial class MainWindow : Window
     private readonly WorkspaceContext _context;
     private readonly Dictionary<string, ToolPageBase> _pages;
     private bool _syncingScope;
-    private bool _startupShown;
     private ProjectStore? _subscribedProject;
 
-    public MainWindow()
+    public MainWindow(ProjectStore? initialProject = null)
     {
         InitializeComponent();
         var root = FindProjectRoot(AppContext.BaseDirectory);
         _context = new WorkspaceContext(root);
+        if (initialProject is not null) _context.ReplaceProject(initialProject);
         _context.StatusChanged += (_, message) => Dispatcher.Invoke(() => StatusText.Text = message);
         _context.ProjectReplaced += (_, _) => Dispatcher.Invoke(SyncProject);
         _context.ProjectPathChanged += (_, _) => Dispatcher.Invoke(SyncProject);
@@ -42,14 +42,6 @@ public partial class MainWindow : Window
         {
             try { await _context.Bridge.CallAsync("ping"); StatusText.Text = "Python engine ready."; }
             catch (Exception ex) { Error("Python Engine", ex); }
-            if (!_startupShown)
-            {
-                _startupShown = true;
-                var welcome = new StartupDialog { Owner = this };
-                welcome.ShowDialog();
-                if (welcome.Choice == StartupChoice.New) await CreateNewProjectAsync(false);
-                else if (welcome.Choice == StartupChoice.Open) await OpenProjectAsync(false);
-            }
         };
     }
 

@@ -74,7 +74,7 @@
       </Border>
       <ContentControl x:Name="PageHost" Grid.Row="1" />
       <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="10,5">
-        <Grid><TextBlock x:Name="StatusText" Text="Starting workspace..." Foreground="{StaticResource MutedBrush}" FontSize="11"/><TextBlock Text="v1 WPF" HorizontalAlignment="Right" Foreground="{StaticResource MutedBrush}" FontSize="11"/></Grid>
+        <Grid><TextBlock x:Name="StatusText" Text="Starting workspace..." Foreground="{StaticResource MutedBrush}" FontSize="11"/><TextBlock Text="v1.0.0 WPF" HorizontalAlignment="Right" Foreground="{StaticResource MutedBrush}" FontSize="11"/></Grid>
       </Border>
     </Grid>
   </Grid>
