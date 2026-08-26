@@ -128,7 +128,12 @@ public partial class MainWindow : Window
     private async Task<bool> OpenProjectAsync(bool confirmDiscard)
     {
         if (confirmDiscard && !ConfirmDiscard()) return false;
-        var dialog = new OpenFileDialog { Title = "Open jersey project", Filter = "NBA 2K projects (*.nba2kproject.json;*.json)|*.nba2kproject.json;*.json|All files|*.*" };
+        var dialog = new OpenFileDialog
+        {
+            Title = "Open jersey project",
+            Filter = "NBA 2K projects (*.nba2kproject.json;*.json)|*.nba2kproject.json;*.json|All files|*.*",
+            InitialDirectory = ProjectWorkspace.DefaultProjectsFolder,
+        };
         if (dialog.ShowDialog(this) != true) return false;
         try
         {

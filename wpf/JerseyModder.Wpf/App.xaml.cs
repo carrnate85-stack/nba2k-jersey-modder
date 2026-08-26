@@ -55,6 +55,7 @@ public partial class App : Application
             {
                 Title = "Open jersey project",
                 Filter = "NBA 2K projects (*.nba2kproject.json;*.json)|*.nba2kproject.json;*.json|All files|*.*",
+                InitialDirectory = ProjectWorkspace.DefaultProjectsFolder,
             };
             if (open.ShowDialog() != true) continue;
             try
