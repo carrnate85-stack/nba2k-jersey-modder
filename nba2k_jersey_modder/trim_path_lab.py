@@ -17,6 +17,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     button { background: #f0b429; color: #171a20; border: 0; padding: 8px 12px; border-radius: 5px; font-weight: 600; cursor: pointer; }
     button.secondary { background: #303746; color: #edf1f7; border: 1px solid #475064; }
     button.danger { background: #6a2f35; color: #fff; }
+    button.done { background: #2f7655; color: #fff; }
     button:disabled { opacity: .45; cursor: default; }
     #wrap { height: calc(100vh - 53px); display: grid; grid-template-columns: minmax(0, 1fr) 330px; }
     #stage { min-width: 0; min-height: 0; position: relative; overflow: hidden; background: #11141a; }
@@ -56,6 +57,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     <button id="zoomOut" class="secondary optional">Zoom -</button>
     <button id="zoomIn" class="secondary optional">Zoom +</button>
     <span id="status" class="status">Loading staged trim...</span>
+    <button id="returnToApp" class="done">Done - Return to App</button>
   </header>
   <div id="wrap">
     <main id="stage"><canvas id="canvas"></canvas></main>
@@ -1394,6 +1396,21 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         setStatus(`Could not send trim layers: ${error.message}`);
       }
     }
+    async function returnToApp() {
+      const button = document.getElementById("returnToApp");
+      button.disabled = true;
+      try {
+        const response = await fetch("/api/trim-path/return", {method: "POST"});
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.message || `Request failed (${response.status}).`);
+        setStatus("Changes saved. Returning to the app...");
+        button.textContent = "App Ready - Close This Tab";
+        setTimeout(() => window.close(), 350);
+      } catch (error) {
+        button.disabled = false;
+        setStatus(`Could not return to the app: ${error.message}`);
+      }
+    }
     function saveJson() {
       const payload = {version: 1, garment: project.garment, templateName: project.templateName, width: project.width, height: project.height, patternName: project.patternName, paths};
       const garmentName = safeFileName(project?.garment || "uniform");
@@ -1522,6 +1539,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     document.getElementById("zoomIn").onclick = () => { viewScale = Math.min(12, viewScale * 1.25); queueDraw(); };
     document.getElementById("reload").onclick = loadProject;
     document.getElementById("sendToGenerator").onclick = sendToGenerator;
+    document.getElementById("returnToApp").onclick = returnToApp;
     document.getElementById("savePng").onclick = savePng;
     document.getElementById("saveSelectedPng").onclick = saveSelectedPng;
     document.getElementById("saveJson").onclick = saveJson;

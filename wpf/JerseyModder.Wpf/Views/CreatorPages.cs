@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Markup;
 using System.Windows.Threading;
 using JerseyModder.Wpf.Controls;
+using JerseyModder.Wpf.Models;
 using JerseyModder.Wpf.Services;
 using Microsoft.Win32;
 
@@ -690,15 +691,348 @@ public sealed class TrimCreatorPage : ToolPageBase
 
 public sealed class TrimPathPage : ToolPageBase
 {
-    private readonly ImageViewport _view=new();private readonly TextBlock _readout=new(){Foreground=(System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"]};private readonly ComboBox _shape=new();private readonly TextBox _width=new(){Text="64"};private readonly CheckBox _mirrorPanel=new(){Content="Create opposite-panel copy"},_mirrorX=new(){Content="Create X-axis mirror"};private readonly ListBox _layers=new();private readonly List<Point> _points=new();private string? _pattern;
-    public TrimPathPage(WorkspaceContext context):base(context){_view.ImagePointClicked+=(_,p)=>Point(p);_view.ImageRightClicked+=(_,_)=>_=FinishAsync();var left=new Grid();left.RowDefinitions.Add(new RowDefinition());left.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});left.Children.Add(_view);Grid.SetRow(_readout,1);_readout.Margin=new Thickness(0,7,0,0);left.Children.Add(_readout);var right=new StackPanel();right.Children.Add(Ui.Button("Choose Trim Pattern",OnPattern,true));foreach(var item in new[]{"Straight segments","Smooth curve","T shape"})_shape.Items.Add(item);_shape.SelectedIndex=0;right.Children.Add(Ui.Row("Path shape",_shape));right.Children.Add(Ui.Row("Trim width",_width));right.Children.Add(_mirrorPanel);right.Children.Add(_mirrorX);right.Children.Add(Ui.Buttons(Ui.Button("Finish Path",async(_,_)=>await FinishAsync(),true),Ui.Button("Undo Point",(_,_)=>Undo())));right.Children.Add(Ui.Button("Clear Points",(_,_)=>{_points.Clear();Readout();}));_layers.Height=220;right.Children.Add(new GroupBox{Header="Generator Trim Paths",Content=_layers});right.Children.Add(Ui.Button("Remove Selected Layer",OnRemove));Content=Ui.Page("Trim Path Lab","Draw multi-point trim paths over the active generator texture. Right-click finishes a path; mirrors become separate movable layers.",Ui.Split(left,new ScrollViewer{Content=right,VerticalScrollBarVisibility=ScrollBarVisibility.Auto},360));Loaded+=async(_,_)=>await BackgroundAsync();RefreshLayers();}
-    protected override async void OnProjectReplaced(){RefreshLayers();await BackgroundAsync();}
-    private async Task BackgroundAsync(){try{var result=(await Context.Bridge.CallAsync("render",new{project=Context.Project.Snapshot(),kind="preview"}))!.AsObject();_view.Load(result["path"]?.GetValue<string>());}catch(Exception ex){Status(ex.Message);}}
-    private void OnPattern(object s,RoutedEventArgs e){var d=new OpenFileDialog{Filter="Trim PNG|*.png|Images|*.png;*.jpg;*.jpeg"};if(d.ShowDialog()==true){_pattern=d.FileName;Status($"Loaded trim pattern {Path.GetFileName(_pattern)}.");}}
-    private void Point(Point p){if(_shape.SelectedItem?.ToString()=="T shape"&&_points.Count>=3)_points.Clear();_points.Add(p);Readout();}
-    private void Readout(){var angle="--";if(_points.Count>1){var a=_points[^2];var b=_points[^1];angle=$"{Math.Atan2(b.Y-a.Y,b.X-a.X)*180/Math.PI:0.0} degrees";}_readout.Text=$"Points: {_points.Count} | Current angle: {angle} | Right-click to finish";}
-    private void Undo(){if(_points.Count>0)_points.RemoveAt(_points.Count-1);Readout();}
-    private async Task FinishAsync(){var needed=_shape.SelectedItem?.ToString()=="T shape"?3:2;if(_pattern is null||_points.Count<needed){Status($"Choose a trim and select at least {needed} points.");return;}try{var result=(await Context.Bridge.CallAsync("trim_path_render",new{pattern=_pattern,points=_points.Select(p=>new[]{p.X,p.Y}).ToArray(),shape=_shape.SelectedItem?.ToString(),trimWidth=int.TryParse(_width.Text,out var w)?w:64,mirrorPanel=_mirrorPanel.IsChecked==true,mirrorX=_mirrorX.IsChecked==true}))!.AsObject();var paths=result["paths"]!.AsArray();foreach(var path in paths){var array=(JsonArray)Context.Project.Generator["trimPathLayers"]!;var index=array.Count+1;array.Add(new JsonObject{{"name",$"Trim Path {index}"},{"path",path!.GetValue<string>()},{"garment",Context.Project.Garment},{"templateName",Context.Project.TemplateName},{"x",0},{"y",0},{"width",2048},{"height",2048},{"rotationDegrees",0},{"defaultX",0},{"defaultY",0},{"defaultWidth",2048},{"defaultHeight",2048}});}Context.Project.MarkChanged();_points.Clear();Readout();RefreshLayers();await BackgroundAsync();}catch(Exception ex){Error("Trim Path Lab",ex);}}
-    private void RefreshLayers(){_layers.ItemsSource=null;_layers.ItemsSource=(Context.Project.Generator["trimPathLayers"] as JsonArray)?.Select(n=>$"{n?["name"]} | {n?["garment"]}").ToList();}
-    private void OnRemove(object s,RoutedEventArgs e){if(_layers.SelectedIndex<0)return;((JsonArray)Context.Project.Generator["trimPathLayers"]!).RemoveAt(_layers.SelectedIndex);Context.Project.MarkChanged();RefreshLayers();}
+    private sealed record TrimSource(string Path)
+    {
+        public string Name => System.IO.Path.GetFileName(Path);
+        public override string ToString() => Name;
+    }
+
+    private sealed record PathLayer(int StoredIndex, string Name, string FileName)
+    {
+        public override string ToString() => $"{Name}  |  {FileName}";
+    }
+
+    private readonly ImageViewport _patternPreview = new();
+    private readonly ComboBox _sources = new();
+    private readonly ListBox _layers = new();
+    private readonly TextBlock _sourceStatus = new()
+    {
+        Foreground = (System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"],
+        Text = "Choose a transparent trim strip to begin.",
+        TextWrapping = TextWrapping.Wrap,
+    };
+    private readonly TextBlock _layerStatus = new()
+    {
+        Foreground = (System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"],
+        TextWrapping = TextWrapping.Wrap,
+        Margin = new Thickness(0, 8, 0, 0),
+    };
+    private readonly Button _openButton;
+    private readonly Button _reopenButton;
+    private readonly TrimPathLabWebSessionService _web;
+    private readonly DispatcherTimer _stateTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    private DateTime _lastStateWrite;
+    private bool _returnHandled;
+    private bool _applyingWebState;
+    private bool _refreshingSources;
+    private string? _patternPath;
+
+    public TrimPathPage(WorkspaceContext context) : base(context)
+    {
+        _web = new TrimPathLabWebSessionService(context.ProjectRoot);
+        _stateTimer.Tick += async (_, _) => await RefreshWebStateAsync();
+        _stateTimer.Start();
+        Application.Current.Exit += (_, _) => _web.Dispose();
+
+        var root = new Grid();
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition());
+
+        var commandBar = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        commandBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+        commandBar.ColumnDefinitions.Add(new ColumnDefinition());
+        _openButton = Ui.Button("Open Web Trim Path Lab", async (_, _) => await OpenLabAsync(), true);
+        _openButton.MinHeight = 44;
+        _openButton.Margin = new Thickness(0, 0, 5, 0);
+        _reopenButton = Ui.Button("Reopen Lab", (_, _) => ReopenLab(), true);
+        _reopenButton.MinHeight = 44;
+        _reopenButton.Margin = new Thickness(5, 0, 0, 0);
+        _reopenButton.IsEnabled = false;
+        commandBar.Children.Add(_openButton);
+        Grid.SetColumn(_reopenButton, 1);
+        commandBar.Children.Add(_reopenButton);
+        root.Children.Add(commandBar);
+
+        var left = new StackPanel();
+        _sources.SelectionChanged += (_, _) => SelectSource();
+        left.Children.Add(Ui.Row("Trim source", _sources));
+        left.Children.Add(Ui.Button("Import Trim Source", OnImportSource));
+        _patternPreview.Height = 250;
+        left.Children.Add(new GroupBox
+        {
+            Header = "Selected Trim Pattern",
+            Content = _patternPreview,
+            Margin = new Thickness(0, 12, 0, 0),
+        });
+        _sourceStatus.Margin = new Thickness(2, 8, 2, 0);
+        left.Children.Add(_sourceStatus);
+
+        var right = new Grid();
+        right.RowDefinitions.Add(new RowDefinition());
+        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _layers.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        right.Children.Add(new GroupBox { Header = "Current Generator Trim Paths", Content = _layers });
+        Grid.SetRow(_layerStatus, 1);
+        right.Children.Add(_layerStatus);
+        var actions = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+        actions.ColumnDefinitions.Add(new ColumnDefinition());
+        actions.ColumnDefinitions.Add(new ColumnDefinition());
+        var remove = Ui.Button("Remove Selected Layer", OnRemoveLayer);
+        remove.Margin = new Thickness(0, 0, 5, 0);
+        var clear = Ui.Button("Clear Current Template", OnClearScope);
+        clear.Margin = new Thickness(5, 0, 0, 0);
+        actions.Children.Add(remove);
+        Grid.SetColumn(clear, 1);
+        actions.Children.Add(clear);
+        Grid.SetRow(actions, 2);
+        right.Children.Add(actions);
+
+        var split = new Grid();
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(340) });
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+        split.ColumnDefinitions.Add(new ColumnDefinition());
+        split.Children.Add(new ScrollViewer { Content = left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        Grid.SetColumn(right, 2);
+        split.Children.Add(right);
+        Grid.SetRow(split, 1);
+        root.Children.Add(split);
+
+        Content = Ui.Page(
+            "Trim Path Lab",
+            "Choose a trim strip, then draw straight, curved, mirrored, or T-shaped paths over the actual Generator preview in the browser.",
+            root);
+        Loaded += (_, _) =>
+        {
+            SubscribeToCurrentProject();
+            RefreshSources();
+            RefreshLayers();
+        };
+    }
+
+    protected override void OnProjectReplaced()
+    {
+        _web.Stop();
+        _reopenButton.IsEnabled = false;
+        SubscribeToCurrentProject();
+        RefreshSources();
+        RefreshLayers();
+    }
+
+    private ProjectStore? _subscribedProject;
+    private void SubscribeToCurrentProject()
+    {
+        if (ReferenceEquals(_subscribedProject, Context.Project)) return;
+        if (_subscribedProject is not null) _subscribedProject.Changed -= OnProjectChanged;
+        _subscribedProject = Context.Project;
+        _subscribedProject.Changed += OnProjectChanged;
+    }
+
+    private void OnProjectChanged(object? sender, EventArgs e) => Dispatcher.Invoke(() =>
+    {
+        if (!_applyingWebState && _web.Url is not null)
+        {
+            _web.Stop();
+            _reopenButton.IsEnabled = false;
+        }
+        RefreshSources();
+        RefreshLayers();
+    });
+
+    private void RefreshSources(string? selectPath = null)
+    {
+        _refreshingSources = true;
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(string? path) { if (!string.IsNullOrWhiteSpace(path) && File.Exists(path)) candidates.Add(Path.GetFullPath(path)); }
+
+        foreach (var key in new[] { "collar_trim_image", "left_arm_hole_trim_image", "right_arm_hole_trim_image", "waistband_image" })
+            Add(Context.Project.GetImage(key));
+        if (Context.Project.FilePath is { } projectFile)
+        {
+            var folder = Path.Combine(Path.GetDirectoryName(projectFile)!, "assets", "trims");
+            if (Directory.Exists(folder))
+            {
+                var pathOutputFolder = Path.Combine(folder, "paths") + Path.DirectorySeparatorChar;
+                foreach (var path in Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories)
+                    .Where(path => !Path.GetFullPath(path).StartsWith(pathOutputFolder, StringComparison.OrdinalIgnoreCase))
+                    .Where(path => new[] { ".png", ".jpg", ".jpeg" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
+                    Add(path);
+            }
+        }
+        Add(_patternPath);
+        var sources = candidates.OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase).Select(path => new TrimSource(path)).ToList();
+        var wanted = selectPath ?? _patternPath;
+        _sources.ItemsSource = sources;
+        _sources.SelectedItem = sources.FirstOrDefault(item => string.Equals(item.Path, wanted, StringComparison.OrdinalIgnoreCase));
+        if (_sources.SelectedItem is null && sources.Count > 0) _sources.SelectedIndex = 0;
+        _refreshingSources = false;
+        if (_sources.SelectedItem is TrimSource selected)
+        {
+            _patternPath = selected.Path;
+            _patternPreview.Load(selected.Path);
+            _sourceStatus.Text = $"Using {selected.Name}. The browser keeps its original pixels while wrapping it along each path.";
+        }
+        if (sources.Count == 0)
+        {
+            _patternPath = null;
+            _sourceStatus.Text = "Import or send a transparent trim PNG from Trim Creator first.";
+        }
+    }
+
+    private void SelectSource()
+    {
+        if (_refreshingSources) return;
+        if (_sources.SelectedItem is not TrimSource source) return;
+        _patternPath = source.Path;
+        _patternPreview.Load(source.Path);
+        _sourceStatus.Text = $"Using {source.Name}. The browser keeps its original pixels while wrapping it along each path.";
+        if (_web.Url is not null)
+        {
+            _web.Stop();
+            _reopenButton.IsEnabled = false;
+        }
+    }
+
+    private async void OnImportSource(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Import a transparent trim strip",
+            Filter = "Trim images|*.png;*.jpg;*.jpeg|All files|*.*",
+            Multiselect = false,
+            InitialDirectory = Context.Project.FilePath is { } file
+                ? Path.Combine(Path.GetDirectoryName(file)!, "assets", "trims")
+                : ProjectWorkspace.DefaultProjectsFolder,
+        };
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            var stored = await StoreProjectAssetAsync("trims", dialog.FileName, "trim_path_source");
+            if (stored is null) return;
+            _patternPath = stored;
+            RefreshSources(stored);
+            Status($"Imported trim source {Path.GetFileName(stored)}.");
+        }
+        catch (Exception ex) { Error("Import Trim Source", ex); }
+    }
+
+    private async Task OpenLabAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_patternPath) || !File.Exists(_patternPath))
+        {
+            MessageBox.Show("Choose or import a trim source first.", "Trim Path Lab");
+            return;
+        }
+        try
+        {
+            var projectFile = await EnsureProjectFileAsync();
+            if (projectFile is null) return;
+            Status("Opening web Trim Path Lab...");
+            await _web.StartAsync(
+                Context.Project.Snapshot(),
+                _patternPath,
+                Path.GetDirectoryName(projectFile)!);
+            _lastStateWrite = _web.StatePath is not null && File.Exists(_web.StatePath)
+                ? File.GetLastWriteTimeUtc(_web.StatePath) : default;
+            _returnHandled = false;
+            _reopenButton.IsEnabled = true;
+            Status("Web Trim Path Lab opened. Send layers to the Generator when the path set is ready.");
+        }
+        catch (Exception ex) { Error("Web Trim Path Lab", ex); }
+    }
+
+    private void ReopenLab()
+    {
+        try { _web.OpenBrowser(); }
+        catch (Exception ex) { Error("Web Trim Path Lab", ex); }
+    }
+
+    private async Task RefreshWebStateAsync()
+    {
+        var path = _web.StatePath;
+        if (path is null || !File.Exists(path)) return;
+        var write = File.GetLastWriteTimeUtc(path);
+        if (write <= _lastStateWrite) return;
+        try
+        {
+            var root = JsonNode.Parse(await File.ReadAllTextAsync(path))?.AsObject();
+            var project = root?["project"]?.AsObject();
+            if (project is null) return;
+            _lastStateWrite = write;
+            if (project.ToJsonString() != Context.Project.Snapshot().ToJsonString())
+            {
+                _applyingWebState = true;
+                try
+                {
+                    Context.Project.ApplyExternal((JsonObject)project.DeepClone());
+                    if (Context.Project.FilePath is not null) await Context.Project.SaveAsync();
+                }
+                finally { _applyingWebState = false; }
+                RefreshLayers();
+            }
+            if (root?["returnRequested"]?.GetValue<bool>() == true && !_returnHandled)
+            {
+                _returnHandled = true;
+                var window = Window.GetWindow(this) ?? Application.Current.MainWindow;
+                if (window is not null)
+                {
+                    if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+                    window.Show();
+                    window.Activate();
+                    window.Topmost = true;
+                    window.Topmost = false;
+                    window.Focus();
+                }
+                Status("Returned from the web Trim Path Lab.");
+            }
+        }
+        catch (IOException) { }
+        catch (JsonException) { }
+    }
+
+    private void RefreshLayers()
+    {
+        var array = Context.Project.Generator["trimPathLayers"] as JsonArray;
+        var active = new List<PathLayer>();
+        if (array is not null)
+        {
+            for (var index = 0; index < array.Count; index++)
+            {
+                if (array[index] is not JsonObject item) continue;
+                var garment = item["garment"]?.GetValue<string>() ?? "Shorts";
+                var template = item["templateName"]?.GetValue<string>() ?? Context.Project.TemplateName;
+                if (garment != Context.Project.Garment || template != Context.Project.TemplateName) continue;
+                var name = item["name"]?.GetValue<string>() ?? $"Trim Path {active.Count + 1}";
+                var fileName = Path.GetFileName(item["path"]?.GetValue<string>() ?? "");
+                active.Add(new PathLayer(index, name, fileName));
+            }
+        }
+        _layers.ItemsSource = active;
+        _layerStatus.Text = active.Count == 0
+            ? $"No paths are assigned to {Context.Project.Garment} - {Context.Project.TemplateName}."
+            : $"{active.Count} independent path layer{(active.Count == 1 ? "" : "s")} assigned to {Context.Project.Garment} - {Context.Project.TemplateName}. Reposition them in the Generator web editor.";
+    }
+
+    private void OnRemoveLayer(object sender, RoutedEventArgs e)
+    {
+        if (_layers.SelectedItem is not PathLayer selected) return;
+        (Context.Project.Generator["trimPathLayers"] as JsonArray)?.RemoveAt(selected.StoredIndex);
+        Context.Project.MarkChanged();
+        RefreshLayers();
+    }
+
+    private void OnClearScope(object sender, RoutedEventArgs e)
+    {
+        var array = Context.Project.Generator["trimPathLayers"] as JsonArray;
+        if (array is null) return;
+        for (var index = array.Count - 1; index >= 0; index--)
+        {
+            if (array[index] is not JsonObject item) continue;
+            var garment = item["garment"]?.GetValue<string>() ?? "Shorts";
+            var template = item["templateName"]?.GetValue<string>() ?? Context.Project.TemplateName;
+            if (garment == Context.Project.Garment && template == Context.Project.TemplateName) array.RemoveAt(index);
+        }
+        Context.Project.MarkChanged();
+        RefreshLayers();
+    }
 }

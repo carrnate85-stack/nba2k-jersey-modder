@@ -1784,6 +1784,11 @@ class WebEditorServer:
                 self.send_error(404)
 
             def _handle_post(self) -> None:
+                if self.path.startswith("/api/trim-path/return"):
+                    callback = getattr(app, "_trim_path_lab_return", None)
+                    result = app._run_on_ui_thread(callback) if callback is not None else {"ok": True}
+                    self._send_json(result)
+                    return
                 if self.path.startswith("/api/trim-path/send"):
                     length = int(self.headers.get("Content-Length", "0"))
                     payload = json.loads(self.rfile.read(length).decode("utf-8"))
