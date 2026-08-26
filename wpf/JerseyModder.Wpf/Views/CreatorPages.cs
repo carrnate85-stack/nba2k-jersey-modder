@@ -41,6 +41,7 @@ public sealed class LogoCreatorPage : ToolPageBase
     private string? _source;
     private long _lastStateWrite;
     private bool _readingState;
+    private bool _returnHandled;
 
     public LogoCreatorPage(WorkspaceContext context) : base(context)
     {
@@ -55,10 +56,11 @@ public sealed class LogoCreatorPage : ToolPageBase
         body.RowDefinitions.Add(new RowDefinition());
         var commandBar = new Grid { Margin = new Thickness(0, 0, 0, 12) };
         commandBar.ColumnDefinitions.Add(new ColumnDefinition());
-        commandBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        commandBar.ColumnDefinitions.Add(new ColumnDefinition());
         var upload = Ui.Button("Upload Reference and Open Web Logo Creator", OnOpen, true);
-        _reopenButton = Ui.Button("Reopen Web Logo Creator", (_, _) => ReopenWebEditor());
-        _reopenButton.Margin = new Thickness(8, 0, 0, 0);
+        upload.Margin = new Thickness(0, 0, 5, 0);
+        _reopenButton = Ui.Button("Reopen Web Logo Creator", (_, _) => ReopenWebEditor(), true);
+        _reopenButton.Margin = new Thickness(5, 0, 0, 0);
         _reopenButton.IsEnabled = false;
         commandBar.Children.Add(upload);
         Grid.SetColumn(_reopenButton, 1);
@@ -92,12 +94,17 @@ public sealed class LogoCreatorPage : ToolPageBase
         var stageButtons = new Grid { Margin = new Thickness(0, 8, 0, 0) };
         stageButtons.ColumnDefinitions.Add(new ColumnDefinition());
         stageButtons.ColumnDefinitions.Add(new ColumnDefinition());
-        var edit = Ui.Button("Edit Staged Logos", (_, _) => ReopenWebEditor());
+        stageButtons.ColumnDefinitions.Add(new ColumnDefinition());
+        var edit = Ui.Button("Edit Staged Logos", (_, _) => OpenLogoEditor());
+        var exportAi = Ui.Button("Export ChatGPT Logo Pack", ExportAiLogoPack);
         var send = Ui.Button("Send All to Generator", OnSend, true);
         edit.Margin = new Thickness(0, 0, 4, 0);
+        exportAi.Margin = new Thickness(4, 0, 4, 0);
         send.Margin = new Thickness(4, 0, 0, 0);
         stageButtons.Children.Add(edit);
-        Grid.SetColumn(send, 1);
+        Grid.SetColumn(exportAi, 1);
+        stageButtons.Children.Add(exportAi);
+        Grid.SetColumn(send, 2);
         stageButtons.Children.Add(send);
         Grid.SetRow(stageButtons, 2);
         right.Children.Add(stageButtons);
@@ -166,6 +173,7 @@ public sealed class LogoCreatorPage : ToolPageBase
             Status("Starting web Logo Creator...");
             await _webSession.StartAsync(_source);
             _lastStateWrite = 0;
+            _returnHandled = false;
             _reopenButton.IsEnabled = true;
             await RefreshStateAsync(true);
             Status("Web Logo Creator opened. Stage as many logos as you need from this reference.");
@@ -183,6 +191,85 @@ public sealed class LogoCreatorPage : ToolPageBase
         catch (Exception ex) { Error("Logo Creator", ex); }
     }
 
+    private void OpenLogoEditor()
+    {
+        try { _webSession.OpenEditor(); }
+        catch (Exception ex) { Error("Logo Editor", ex); }
+    }
+
+    private void ExportAiLogoPack(object sender, RoutedEventArgs e)
+    {
+        if (_staged.Count == 0)
+        {
+            MessageBox.Show("Stage one or more logos before exporting a ChatGPT pack.", "Logo Creator");
+            return;
+        }
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Choose where to create the ChatGPT logo pack",
+            Multiselect = false,
+        };
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            var folder = NextPackFolder(dialog.FolderName);
+            Directory.CreateDirectory(folder);
+            var references = new List<string>();
+            for (var index = 0; index < _staged.Count; index++)
+            {
+                var item = _staged[index];
+                var name = $"{index + 1:00}_{SafeFileName(item.TypeLabel)}_reference.png";
+                File.Copy(item.Path, Path.Combine(folder, name), true);
+                references.Add($"{name}: {item.TypeLabel}");
+            }
+            File.WriteAllText(
+                Path.Combine(folder, "chatgpt_logo_prompt.txt"),
+                BuildAiLogoPrompt(references));
+            Status($"Exported {_staged.Count} staged logo(s) to {folder}.");
+            MessageBox.Show(
+                $"Created a ChatGPT logo pack with {_staged.Count} reference image(s).\n\n{folder}",
+                "Logo Pack Exported",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex) { Error("Export ChatGPT Logo Pack", ex); }
+    }
+
+    private static string NextPackFolder(string parent)
+    {
+        var basePath = Path.Combine(parent, "chatgpt_logo_pack");
+        if (!Directory.Exists(basePath)) return basePath;
+        for (var index = 2; ; index++)
+        {
+            var candidate = $"{basePath}_{index}";
+            if (!Directory.Exists(candidate)) return candidate;
+        }
+    }
+
+    private static string SafeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        return new string(value.ToLowerInvariant().Select(character =>
+            invalid.Contains(character) ? '_' : character == ' ' ? '_' : character).ToArray());
+    }
+
+    private static string BuildAiLogoPrompt(IEnumerable<string> references) => $"""
+        Recreate every attached basketball uniform logo as a separate, polished, high-resolution PNG.
+
+        Requirements:
+        - Preserve the exact wording, design, colors, proportions, outline thickness, and intentional style of each reference.
+        - Straighten photographed perspective, fabric curvature, accidental skew, uneven baselines, and wavy edges.
+        - Preserve intentional arches, italics, curves, and asymmetry that belong to the original design.
+        - Remove the jersey, background, wrinkles, compression artifacts, blur, and jagged edges.
+        - Use a true transparent background with an alpha channel. Do not add white, black, gray, or checkerboard backgrounds.
+        - Center each finished logo on a 2048 x 2048 transparent canvas with approximately 6 percent transparent padding.
+        - Return one finished PNG for each reference, in the same numbered order.
+        - Do not redesign the logos, change the text, add effects, or place them on a mockup.
+
+        Reference order and intended logo types:
+        {string.Join(Environment.NewLine, references)}
+        """;
+
     private async Task RefreshStateAsync(bool force = false)
     {
         if (_readingState || string.IsNullOrWhiteSpace(_webSession.StatePath) ||
@@ -195,6 +282,7 @@ public sealed class LogoCreatorPage : ToolPageBase
             var root = JsonNode.Parse(await File.ReadAllTextAsync(_webSession.StatePath))?.AsObject();
             if (root is null) return;
             var selectedId = root["selectedId"]?.GetValue<string>();
+            var returnRequested = root["returnRequested"]?.GetValue<bool>() == true;
             _staged = (root["items"] as JsonArray)?.Select(node =>
             {
                 var item = node!.AsObject();
@@ -207,10 +295,28 @@ public sealed class LogoCreatorPage : ToolPageBase
             }).ToList() ?? [];
             _lastStateWrite = write;
             RefreshStagedList(selectedId);
+            if (returnRequested && !_returnHandled)
+            {
+                _returnHandled = true;
+                ReturnToApp();
+            }
         }
         catch (IOException) { }
         catch (JsonException) { }
         finally { _readingState = false; }
+    }
+
+    private void ReturnToApp()
+    {
+        var window = Window.GetWindow(this) ?? Application.Current.MainWindow;
+        if (window is null) return;
+        if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+        window.Show();
+        window.Activate();
+        window.Topmost = true;
+        window.Topmost = false;
+        window.Focus();
+        Status($"Returned from web Logo Creator with {_staged.Count} staged logo(s).");
     }
 
     private void RefreshStagedList(string? selectedId = null)

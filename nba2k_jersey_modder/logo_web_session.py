@@ -51,6 +51,7 @@ class LogoWebSession:
         self.folder.mkdir(parents=True, exist_ok=True)
         self.items: list[StagedLogo] = []
         self.selected_id: str | None = None
+        self.return_requested = False
         self._reference_size = self._read_reference_size()
         self._write_state()
 
@@ -66,6 +67,7 @@ class LogoWebSession:
             "imageUrl": "/api/reference",
             "sourceVersion": int(self.reference.stat().st_mtime_ns),
             "selectedId": self.selected_id,
+            "returnRequested": self.return_requested,
             "logoTypes": [
                 {"label": label, "target": target}
                 for label, target in LOGO_TYPES
@@ -143,6 +145,11 @@ class LogoWebSession:
         self.selected_id = None
         self._write_state()
         return self.project()
+
+    def request_return(self) -> dict:
+        self.return_requested = True
+        self._write_state()
+        return {"ok": True, "items": len(self.items)}
 
     def _render(self, item: StagedLogo) -> None:
         with Image.open(self.reference) as opened:
@@ -226,6 +233,7 @@ class LogoWebSession:
         payload = {
             "reference": str(self.reference),
             "selectedId": self.selected_id,
+            "returnRequested": self.return_requested,
             "items": [asdict(item) for item in self.items],
         }
         self.state_path.parent.mkdir(parents=True, exist_ok=True)

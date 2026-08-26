@@ -30,6 +30,8 @@ HTML = r"""<!doctype html>
     button { border:1px solid transparent; border-radius:5px; padding:8px 12px; background:#303947; color:#eef2f7; cursor:pointer; font-weight:600; }
     button:hover { background:#3a4555; }
     button.primary { background:var(--accent); color:#171a20; }
+    button.done { background:#2f7655; border-color:#4b9875; color:#fff; }
+    button.done:hover { background:#398864; }
     button.danger { color:#ffbdc5; border-color:#633742; }
     .spacer { flex:1; }
     .hint { color:var(--muted); font-size:12px; }
@@ -66,6 +68,7 @@ HTML = r"""<!doctype html>
     <button id="zoomOut">Zoom -</button><button id="fit">Fit</button><button id="zoomIn">Zoom +</button>
     <button id="clearSelection">Clear Selection</button>
     <span class="spacer"></span><span class="hint">Wheel zooms. Middle-drag or Shift-drag pans.</span>
+    <button id="returnToApp" class="done">Done - Return to App</button>
   </header>
   <div id="layout">
     <main id="stage"><canvas id="canvas"></canvas></main>
@@ -79,6 +82,7 @@ HTML = r"""<!doctype html>
       <section class="section">
         <div class="row"><h2>Staged Logos</h2><button id="clearStaged" class="danger">Clear All</button></div>
         <div id="staged"><div class="empty">No logos staged yet.</div></div>
+        <div class="row"><button id="openEditor">Open Staged Logo Editor</button></div>
       </section>
       <section id="editor" hidden>
         <h2>Edit Selected Logo</h2>
@@ -118,9 +122,7 @@ HTML = r"""<!doctype html>
       const host=$('staged');host.innerHTML='';if(!project.items.length){host.innerHTML='<div class="empty">No logos staged yet.</div>';return;}
       project.items.forEach((item,index)=>{const button=document.createElement('button');button.className='stage-item'+(item.id===project.selectedId?' active':'');button.innerHTML=`<img src="${item.previewUrl}?v=${Date.now()}" alt=""><div><b>${index+1}. ${item.typeLabel}</b><span>${item.fileName}</span></div>`;button.onclick=async()=>{project=await api('/api/select',{id:item.id});selected=project.items.find(x=>x.id===project.selectedId);renderList();renderEditor();};host.append(button);});
     }
-    function renderEditor(){
-      $('editor').hidden=!selected;if(!selected)return;$('preview').src=`${selected.previewUrl}?v=${Date.now()}`;$('editType').value=selected.target;$('auto').checked=selected.auto;$('white').checked=selected.removeWhite;$('black').checked=selected.removeBlack;$('outside').checked=selected.outsideOnly;$('tolerance').value=selected.tolerance;$('toleranceValue').textContent=selected.tolerance;$('scale').value=selected.scale;
-    }
+    function renderEditor(){$('editor').hidden=true;}
     function resize(){const ratio=devicePixelRatio||1;canvas.width=Math.max(1,stage.clientWidth*ratio);canvas.height=Math.max(1,stage.clientHeight*ratio);ctx.setTransform(ratio,0,0,ratio,0,0);draw();}
     function fitImage(){if(!project)return;minScale=Math.max(.03,Math.min(1,(stage.clientWidth-36)/project.width,(stage.clientHeight-36)/project.height));scale=minScale;panX=(stage.clientWidth-project.width*scale)/2;panY=(stage.clientHeight-project.height*scale)/2;draw();}
     function schedule(){if(dirty)return;dirty=true;requestAnimationFrame(()=>{dirty=false;draw();});}
@@ -136,8 +138,102 @@ HTML = r"""<!doctype html>
     async function apply(){if(!selected)return;const button=$('apply');button.disabled=true;setStatus('Updating selected logo...');try{project=await api('/api/update',{id:selected.id,target:$('editType').value,auto:$('auto').checked,removeWhite:$('white').checked,removeBlack:$('black').checked,outsideOnly:$('outside').checked,tolerance:+$('tolerance').value,scale:+$('scale').value});selected=project.items.find(x=>x.id===project.selectedId);renderList();renderEditor();setStatus('Selected logo updated from the original reference.');}catch(e){setStatus(e.message);}finally{button.disabled=false;}}
     $('stageSelection').onclick=stageSelection;$('apply').onclick=apply;$('remove').onclick=async()=>{if(!selected)return;project=await api('/api/remove',{id:selected.id});selected=project.items.find(x=>x.id===project.selectedId)||null;renderList();renderEditor();setStatus('Removed staged logo.');};$('clearStaged').onclick=async()=>{if(!project.items.length||!confirm('Remove every staged logo?'))return;project=await api('/api/clear',{});selected=null;renderList();renderEditor();setStatus('Cleared staged logos.');};
     $('clearSelection').onclick=()=>{points=[];draw();setStatus('Selection cleared.');};$('fit').onclick=fitImage;$('zoomIn').onclick=()=>zoom(1.25,{x:stage.clientWidth/2,y:stage.clientHeight/2});$('zoomOut').onclick=()=>zoom(1/1.25,{x:stage.clientWidth/2,y:stage.clientHeight/2});
+    $('openEditor').onclick=()=>location.href='/edit';
+    $('returnToApp').onclick=async()=>{const button=$('returnToApp');button.disabled=true;try{const result=await api('/api/return',{});setStatus(`${result.items} staged logo${result.items===1?'':'s'} saved. Returning to the app...`);button.textContent='App Ready - Close This Tab';setTimeout(()=>window.close(),350);}catch(e){button.disabled=false;setStatus(e.message);}};
     $('lasso').onclick=()=>{mode='lasso';$('lasso').classList.add('active');$('box').classList.remove('active');points=[];draw();};$('box').onclick=()=>{mode='box';$('box').classList.add('active');$('lasso').classList.remove('active');points=[];draw();};$('tolerance').oninput=()=>$('toleranceValue').textContent=$('tolerance').value;
     window.onresize=resize;resize();loadProject(true).catch(e=>setStatus(e.message));
+  </script>
+</body></html>"""
+
+
+EDITOR_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NBA 2K Staged Logo Editor</title>
+  <style>
+    :root { color-scheme:dark; font-family:"Segoe UI",Arial,sans-serif; --bg:#11151b; --panel:#1b212a; --line:#343d4b; --muted:#9da9ba; --accent:#f0b429; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:#eef2f7; overflow:hidden; }
+    header { height:58px; display:flex; align-items:center; gap:9px; padding:0 16px; background:#202731; border-bottom:1px solid var(--line); }
+    header strong { font-size:17px; }
+    .spacer { flex:1; }
+    button,select,input { font:inherit; }
+    button { border:1px solid transparent; border-radius:5px; padding:8px 12px; background:#303947; color:#eef2f7; cursor:pointer; font-weight:600; }
+    button:hover { background:#3a4555; }
+    button.primary { background:var(--accent); color:#171a20; }
+    button.done { background:#2f7655; border-color:#4b9875; color:#fff; }
+    button.danger { color:#ffbdc5; border-color:#633742; }
+    #layout { height:calc(100vh - 58px); display:grid; grid-template-columns:minmax(0,1fr) 390px; }
+    #previewStage { min-width:0; min-height:0; padding:28px; display:grid; place-items:center; background:repeating-conic-gradient(#d5d8dc 0 25%,#f5f6f7 0 50%) 0/28px 28px; }
+    #preview { max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 10px 22px rgba(0,0,0,.22)); }
+    #emptyPreview { color:#4c5664; font-size:16px; font-weight:600; }
+    aside { background:var(--panel); border-left:1px solid var(--line); overflow:auto; padding:14px; }
+    h2 { font-size:14px; margin:0 0 9px; }
+    .section { border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:14px; }
+    .row { display:flex; gap:8px; align-items:center; margin:8px 0; }
+    .row > * { flex:1; }
+    label { display:block; color:#cbd3df; font-size:12px; margin-bottom:4px; }
+    select { width:100%; background:#11161d; color:#eef2f7; border:1px solid #465163; border-radius:5px; padding:7px; }
+    input[type=range] { width:100%; accent-color:var(--accent); }
+    .checks { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:11px 0; }
+    .checks label { display:flex; gap:7px; align-items:center; }
+    #staged { display:flex; flex-direction:column; gap:7px; max-height:260px; overflow:auto; }
+    .stage-item { width:100%; display:grid; grid-template-columns:52px minmax(0,1fr); gap:9px; text-align:left; align-items:center; padding:6px; border:1px solid var(--line); background:#252d38; }
+    .stage-item.active { border-color:var(--accent); background:#30394a; }
+    .stage-item img { width:52px; height:52px; object-fit:contain; background:repeating-conic-gradient(#d8d8d8 0 25%,#fff 0 50%) 0/14px 14px; }
+    .stage-item b,.stage-item span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .stage-item span { color:var(--muted); font-size:11px; margin-top:3px; }
+    .status { min-height:34px; color:#dce3ee; font-size:12px; line-height:1.4; }
+    .empty { color:var(--muted); font-size:12px; padding:12px 2px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Staged Logo Editor</strong>
+    <button id="selector">Back to Logo Selector</button>
+    <span class="spacer"></span>
+    <button id="returnToApp" class="done">Done - Return to App</button>
+  </header>
+  <div id="layout">
+    <main id="previewStage"><div id="emptyPreview">Select a staged logo to edit.</div><img id="preview" alt="Selected staged logo" hidden></main>
+    <aside>
+      <section class="section">
+        <div class="row"><h2>Staged Logos</h2><button id="clear" class="danger">Clear All</button></div>
+        <div id="staged"><div class="empty">No logos have been staged.</div></div>
+      </section>
+      <section id="controls" hidden>
+        <h2>Selected Logo</h2>
+        <label>Logo type</label><select id="type"></select>
+        <div class="checks">
+          <label><input id="auto" type="checkbox"> Auto background</label>
+          <label><input id="outside" type="checkbox" checked> Outside only</label>
+          <label><input id="white" type="checkbox"> Remove white</label>
+          <label><input id="black" type="checkbox"> Remove black</label>
+        </div>
+        <label>Tolerance: <span id="toleranceValue">32</span></label>
+        <input id="tolerance" type="range" min="0" max="255" value="32">
+        <div style="margin-top:10px"><label>Upscale</label><select id="scale"><option value="1">1x (original pixels)</option><option value="2">2x</option><option value="4">4x</option></select></div>
+        <div class="row"><button id="apply" class="primary">Apply Changes</button><button id="remove" class="danger">Remove Logo</button></div>
+      </section>
+      <div id="status" class="status">Loading staged logos...</div>
+    </aside>
+  </div>
+  <script>
+    const $=id=>document.getElementById(id);let project=null,selected=null;
+    async function api(path,payload){const options=payload===undefined?{cache:'no-store'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)};const response=await fetch(path,options);const data=await response.json();if(!response.ok)throw new Error(data.error||`Request failed: ${response.status}`);return data;}
+    function status(text){$('status').textContent=text;}
+    function fillTypes(){const current=$('type').value;$('type').innerHTML='';project.logoTypes.forEach(item=>{const option=document.createElement('option');option.value=item.target;option.textContent=item.label;$('type').append(option);});if(current)$('type').value=current;}
+    async function load(){project=await api('/api/project');selected=project.items.find(item=>item.id===project.selectedId)||project.items[0]||null;if(selected&&selected.id!==project.selectedId)project=await api('/api/select',{id:selected.id});fillTypes();render();status(project.items.length?`${project.items.length} staged logo${project.items.length===1?'':'s'} ready to edit.`:'Return to the selector to stage a logo.');}
+    function render(){renderList();const has=!!selected;$('controls').hidden=!has;$('preview').hidden=!has;$('emptyPreview').hidden=has;if(!has)return;$('preview').src=`${selected.previewUrl}?v=${Date.now()}`;$('type').value=selected.target;$('auto').checked=selected.auto;$('white').checked=selected.removeWhite;$('black').checked=selected.removeBlack;$('outside').checked=selected.outsideOnly;$('tolerance').value=selected.tolerance;$('toleranceValue').textContent=selected.tolerance;$('scale').value=selected.scale;}
+    function renderList(){const host=$('staged');host.innerHTML='';if(!project.items.length){host.innerHTML='<div class="empty">No logos have been staged.</div>';return;}project.items.forEach((item,index)=>{const button=document.createElement('button');button.className='stage-item'+(selected?.id===item.id?' active':'');button.innerHTML=`<img src="${item.previewUrl}?v=${Date.now()}" alt=""><div><b>${index+1}. ${item.typeLabel}</b><span>${item.fileName}</span></div>`;button.onclick=async()=>{project=await api('/api/select',{id:item.id});selected=project.items.find(value=>value.id===item.id);render();status(`Editing ${selected.typeLabel}.`);};host.append(button);});}
+    $('apply').onclick=async()=>{if(!selected)return;const button=$('apply');button.disabled=true;status('Regenerating from the original reference...');try{project=await api('/api/update',{id:selected.id,target:$('type').value,auto:$('auto').checked,removeWhite:$('white').checked,removeBlack:$('black').checked,outsideOnly:$('outside').checked,tolerance:+$('tolerance').value,scale:+$('scale').value});selected=project.items.find(item=>item.id===project.selectedId);render();status('Logo changes applied from the original pixels.');}catch(e){status(e.message);}finally{button.disabled=false;}};
+    $('remove').onclick=async()=>{if(!selected)return;project=await api('/api/remove',{id:selected.id});selected=project.items.find(item=>item.id===project.selectedId)||null;render();status('Removed staged logo.');};
+    $('clear').onclick=async()=>{if(!project.items.length||!confirm('Remove every staged logo?'))return;project=await api('/api/clear',{});selected=null;render();status('Cleared staged logos.');};
+    $('selector').onclick=()=>location.href='/';$('tolerance').oninput=()=>$('toleranceValue').textContent=$('tolerance').value;
+    $('returnToApp').onclick=async()=>{const button=$('returnToApp');button.disabled=true;try{const result=await api('/api/return',{});status(`${result.items} staged logo${result.items===1?'':'s'} saved. Returning to the app...`);button.textContent='App Ready - Close This Tab';setTimeout(()=>window.close(),350);}catch(e){button.disabled=false;status(e.message);}};
+    load().catch(e=>status(e.message));
   </script>
 </body></html>"""
 
@@ -152,6 +248,8 @@ def handler_class(session: LogoWebSession):
                 path = urlparse(self.path).path
                 if path in ("/", "/logo"):
                     self._send(HTML.encode("utf-8"), "text/html; charset=utf-8")
+                elif path == "/edit":
+                    self._send(EDITOR_HTML.encode("utf-8"), "text/html; charset=utf-8")
                 elif path == "/api/project":
                     self._json(session.project())
                 elif path == "/api/reference":
@@ -174,6 +272,7 @@ def handler_class(session: LogoWebSession):
                     "/api/select": lambda: session.select(payload),
                     "/api/remove": lambda: session.remove(payload),
                     "/api/clear": session.clear,
+                    "/api/return": session.request_return,
                 }.get(path)
                 if action is None:
                     self.send_error(404)

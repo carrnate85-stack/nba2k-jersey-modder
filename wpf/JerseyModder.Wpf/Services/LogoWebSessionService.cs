@@ -56,11 +56,16 @@ public sealed class LogoWebSessionService : IDisposable
         return Url;
     }
 
-    public void OpenBrowser()
+    public void OpenBrowser() => OpenPath(string.Empty);
+
+    public void OpenEditor() => OpenPath("edit");
+
+    private void OpenPath(string relativePath)
     {
         if (string.IsNullOrWhiteSpace(Url))
             throw new InvalidOperationException("Upload a reference image first.");
-        Process.Start(new ProcessStartInfo(Url) { UseShellExecute = true });
+        var destination = new Uri(new Uri(Url), relativePath).ToString();
+        Process.Start(new ProcessStartInfo(destination) { UseShellExecute = true });
     }
 
     public void Stop()

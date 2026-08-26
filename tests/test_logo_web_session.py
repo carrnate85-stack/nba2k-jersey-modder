@@ -46,6 +46,7 @@ class LogoWebSessionTests(unittest.TestCase):
             selected = next(item for item in updated["items"] if item["id"] == selected_id)
             self.assertEqual("Center Chest Logo", selected["typeLabel"])
             self.assertTrue(selected["removeWhite"])
+            self.assertTrue(Path(selected["thumbnailPath"]).exists())
             with Image.open(selected["path"]) as output:
                 self.assertGreater(output.width, 80)
                 self.assertEqual(0, output.convert("RGBA").getpixel((0, 0))[3])
@@ -53,6 +54,9 @@ class LogoWebSessionTests(unittest.TestCase):
             saved = json.loads(state.read_text(encoding="utf-8"))
             self.assertEqual(2, len(saved["items"]))
             self.assertEqual(selected_id, saved["selectedId"])
+            returned = session.request_return()
+            self.assertEqual(2, returned["items"])
+            self.assertTrue(json.loads(state.read_text(encoding="utf-8"))["returnRequested"])
 
     @staticmethod
     def _box(left: int, top: int, right: int, bottom: int):
