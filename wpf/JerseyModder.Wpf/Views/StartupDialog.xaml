@@ -1,7 +1,7 @@
 <Window x:Class="JerseyModder.Wpf.Views.StartupDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="NBA 2K Jersey Modder" Icon="/JerseyModder.Wpf;component/Assets/app-icon.ico" Width="620" Height="390" ResizeMode="NoResize"
+        Title="NBA 2K Jersey Modder" Width="620" Height="390" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
   <Grid Margin="30">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>

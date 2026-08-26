@@ -8,7 +8,7 @@ namespace JerseyModder.Wpf;
 
 public partial class App : Application
 {
-    protected override async void OnStartup(StartupEventArgs e)
+    protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         DispatcherUnhandledException += (_, args) =>
@@ -18,14 +18,14 @@ public partial class App : Application
         };
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-        var initialProject = await ChooseStartupProjectAsync();
+        var initialProject = ChooseStartupProject();
         var mainWindow = new MainWindow(initialProject);
         MainWindow = mainWindow;
         ShutdownMode = ShutdownMode.OnMainWindowClose;
         mainWindow.Show();
     }
 
-    private static async Task<ProjectStore?> ChooseStartupProjectAsync()
+    private static ProjectStore? ChooseStartupProject()
     {
         while (true)
         {
@@ -41,7 +41,7 @@ public partial class App : Application
                 {
                     var path = ProjectWorkspace.Create(dialog.ParentFolder, dialog.ProjectName);
                     var project = new ProjectStore();
-                    await project.SaveAsync(path);
+                    project.SaveAsync(path).GetAwaiter().GetResult();
                     return project;
                 }
                 catch (Exception ex)
@@ -60,7 +60,7 @@ public partial class App : Application
             try
             {
                 ProjectWorkspace.EnsureStructure(open.FileName);
-                return await ProjectStore.LoadAsync(open.FileName);
+                return ProjectStore.LoadAsync(open.FileName).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
