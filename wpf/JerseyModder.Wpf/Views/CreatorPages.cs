@@ -382,18 +382,187 @@ public sealed class LogoCreatorPage : ToolPageBase
 
 public sealed class TrimCreatorPage : ToolPageBase
 {
-    private readonly ImageViewport _reference=new(),_preview=new();private readonly TextBlock _readout=new(){Foreground=(System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"]};private readonly ComboBox _type=new();private readonly CheckBox _correct=new(){Content="Correct uneven lines and small gaps",IsChecked=true},_sharpen=new(){Content="Sharpen"},_color=new(){Content="Color correction"};private readonly ListBox _list=new();private readonly List<Point> _points=new();private readonly List<(string Path,string Type)> _staged=new();private string? _source,_current;
-    public TrimCreatorPage(WorkspaceContext context):base(context){_reference.ImagePointClicked+=(_,p)=>Point(p);var left=new Grid();left.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});left.RowDefinitions.Add(new RowDefinition());left.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});left.Children.Add(Ui.Button("Upload Jersey Mockup",OnOpen,true));Grid.SetRow(_reference,1);left.Children.Add(_reference);Grid.SetRow(_readout,2);_readout.Margin=new Thickness(0,7,0,0);left.Children.Add(_readout);
-        var right=new StackPanel();_preview.Height=220;right.Children.Add(_preview);foreach(var item in new[]{"Collar Trim","Left Arm Hole Trim","Right Arm Hole Trim","Waistband"})_type.Items.Add(item);_type.SelectedIndex=0;right.Children.Add(Ui.Row("Trim type",_type));var cleanup=new StackPanel();cleanup.Children.Add(_correct);cleanup.Children.Add(_sharpen);cleanup.Children.Add(_color);right.Children.Add(new GroupBox{Header="Cleanup",Content=cleanup});right.Children.Add(Ui.Buttons(Ui.Button("Stage Current Trim",OnStage,true),Ui.Button("Send Staged to Generator",OnSend)));right.Children.Add(Ui.Buttons(Ui.Button("Edit Selected Trim",(_,_)=>LoadSelected()),Ui.Button("Save Trim PNG As",OnSave)));_list.Height=120;right.Children.Add(new GroupBox{Header="Staged Trims",Content=_list});right.Children.Add(Ui.Buttons(Ui.Button("Remove Selected",OnRemove),Ui.Button("Clear",(_,_)=>{_staged.Clear();Refresh();})));Content=Ui.Page("Trim Creator","Upload a uniform photo, click two precise points across a trim, and create a new straight transparent trim strip.",Ui.Split(left,new ScrollViewer{Content=right,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}));}
-    private void OnOpen(object s,RoutedEventArgs e){var d=new OpenFileDialog{Filter="Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp|All files|*.*"};if(d.ShowDialog()!=true)return;_source=d.FileName;_points.Clear();_reference.Load(_source);_readout.Text="Click the first point, then the second point across the trim.";}
-    private void Point(Point p){_points.Add(p);while(_points.Count>2)_points.RemoveAt(0);_readout.Text=_points.Count==1?$"First point: {p.X:0}, {p.Y:0}":$"Selected line: {_points[0].X:0}, {_points[0].Y:0} to {_points[1].X:0}, {_points[1].Y:0}";if(_points.Count==2)_=ProcessAsync();}
-    private async Task ProcessAsync(){if(_source is null||_points.Count<2)return;try{var result=(await Context.Bridge.CallAsync("trim_process",new{path=_source,start=new[]{(int)_points[0].X,(int)_points[0].Y},end=new[]{(int)_points[1].X,(int)_points[1].Y},cropTop=0,cropBottom=0,correct=_correct.IsChecked==true}))!.AsObject();_current=result["path"]?.GetValue<string>();_preview.Load(_current);Status("Trim preview updated.");}catch(Exception ex){Error("Trim Creator",ex);}}
-    private void OnStage(object s,RoutedEventArgs e){if(_current is null)return;_staged.Add((_current,_type.SelectedItem?.ToString()??"Collar Trim"));Refresh();}
-    private void Refresh(){_list.ItemsSource=null;_list.ItemsSource=_staged.Select(x=>$"{x.Type} | {Path.GetFileName(x.Path)}").ToList();}
-    private void OnSend(object s,RoutedEventArgs e){var keys=new Dictionary<string,string>{{"Collar Trim","collar_trim_image"},{"Left Arm Hole Trim","left_arm_hole_trim_image"},{"Right Arm Hole Trim","right_arm_hole_trim_image"},{"Waistband","waistband_image"}};foreach(var item in _staged)Context.Project.SetImage(keys[item.Type],item.Path);Status($"Sent {_staged.Count} staged trim(s) to Generator.");}
-    private void LoadSelected(){if(_list.SelectedIndex<0)return;_current=_staged[_list.SelectedIndex].Path;_preview.Load(_current);}
-    private void OnSave(object s,RoutedEventArgs e){if(_current is null)return;var d=new SaveFileDialog{Filter="PNG image|*.png",FileName="trim.png"};if(d.ShowDialog()==true)File.Copy(_current,d.FileName,true);}
-    private void OnRemove(object s,RoutedEventArgs e){if(_list.SelectedIndex<0)return;_staged.RemoveAt(_list.SelectedIndex);Refresh();}
+    public sealed record StagedTrim(string Id, string Path, string ThumbnailPath, string Target, string TypeLabel)
+    {
+        public string FileName => System.IO.Path.GetFileName(Path);
+    }
+
+    private readonly ImageViewport _reference = new(), _preview = new();
+    private readonly TextBlock _sourceLabel = new()
+    {
+        Foreground = (System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"],
+        Text = "No mockup loaded.", TextWrapping = TextWrapping.Wrap,
+    };
+    private readonly TextBlock _summary = new()
+    {
+        Foreground = (System.Windows.Media.Brush)Application.Current.Resources["MutedBrush"],
+        Text = "Selections made in the browser will appear here.", Margin = new Thickness(0, 7, 0, 0),
+    };
+    private readonly ListBox _list = new();
+    private readonly Button _reopen;
+    private readonly TrimWebSessionService _web;
+    private readonly DispatcherTimer _timer;
+    private List<StagedTrim> _staged = [];
+    private long _lastWrite;
+    private bool _reading, _returnHandled;
+
+    public TrimCreatorPage(WorkspaceContext context) : base(context)
+    {
+        _web = new TrimWebSessionService(context.ProjectRoot);
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _timer.Tick += async (_, _) => await RefreshStateAsync();
+        _timer.Start();
+        Application.Current.Exit += (_, _) => _web.Dispose();
+
+        var body = new Grid();
+        body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        body.RowDefinitions.Add(new RowDefinition());
+        var commandBar = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        commandBar.ColumnDefinitions.Add(new ColumnDefinition());
+        commandBar.ColumnDefinitions.Add(new ColumnDefinition());
+        var upload = Ui.Button("Upload Mockup and Open Web Trim Selector", OnOpen, true);
+        upload.Margin = new Thickness(0, 0, 5, 0);
+        _reopen = Ui.Button("Reopen Web Trim Selector", (_, _) => OpenSelector(), true);
+        _reopen.Margin = new Thickness(5, 0, 0, 0);
+        _reopen.IsEnabled = false;
+        commandBar.Children.Add(upload);
+        Grid.SetColumn(_reopen, 1); commandBar.Children.Add(_reopen);
+        body.Children.Add(commandBar);
+
+        var left = new StackPanel();
+        _reference.Height = 175;
+        left.Children.Add(new GroupBox { Header = "Mockup", Content = _reference });
+        _sourceLabel.Margin = new Thickness(2, 7, 2, 12); left.Children.Add(_sourceLabel);
+        _preview.Height = 225;
+        left.Children.Add(new GroupBox { Header = "Selected Trim", Content = _preview });
+        left.Children.Add(Ui.Button("Open Web Trim Selector", (_, _) => OpenSelector(), true));
+
+        var right = new Grid();
+        right.RowDefinitions.Add(new RowDefinition());
+        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _list.ItemTemplate = BuildTrimTemplate();
+        _list.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        _list.SelectionChanged += async (_, _) => await ShowSelectedAsync();
+        right.Children.Add(new GroupBox { Header = "Staged Trims", Content = _list });
+        Grid.SetRow(_summary, 1); right.Children.Add(_summary);
+        var actions = new Grid { Margin = new Thickness(0, 8, 0, 0) };
+        for (var index = 0; index < 3; index++) actions.ColumnDefinitions.Add(new ColumnDefinition());
+        var edit = Ui.Button("Edit Staged Trims", (_, _) => OpenEditor());
+        var export = Ui.Button("Export ChatGPT Trim Pack", ExportAiPack);
+        var send = Ui.Button("Send All to Generator", OnSend, true);
+        edit.Margin = new Thickness(0, 0, 4, 0); export.Margin = new Thickness(4); send.Margin = new Thickness(4, 0, 0, 0);
+        actions.Children.Add(edit); Grid.SetColumn(export, 1); actions.Children.Add(export); Grid.SetColumn(send, 2); actions.Children.Add(send);
+        Grid.SetRow(actions, 2); right.Children.Add(actions);
+
+        var split = new Grid();
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        split.ColumnDefinitions.Add(new ColumnDefinition());
+        split.Children.Add(new ScrollViewer { Content = left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        Grid.SetColumn(right, 2); split.Children.Add(right); Grid.SetRow(split, 1); body.Children.Add(split);
+        Content = Ui.Page("Trim Creator", "Load one mockup, select several trim lines in the browser, then review and send the staged set to the Generator.", body);
+    }
+
+    private static DataTemplate BuildTrimTemplate() => (DataTemplate)XamlReader.Parse("""
+        <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+          <Grid Margin="4" Height="64"><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Border Background="#EEF1F4" BorderBrush="#CBD2DB" BorderThickness="1" CornerRadius="3" Padding="3"><Image Source="{Binding ThumbnailPath}" Stretch="Uniform"/></Border>
+            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"><TextBlock Text="{Binding TypeLabel}" FontWeight="SemiBold" FontSize="14"/><TextBlock Text="{Binding FileName}" Foreground="#667180" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/></StackPanel>
+          </Grid>
+        </DataTemplate>
+        """);
+
+    private async void OnOpen(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Title = "Choose a uniform mockup", Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif|All files|*.*" };
+        if (dialog.ShowDialog() != true) return;
+        _staged = []; RefreshList(); _sourceLabel.Text = $"Loading {Path.GetFileName(dialog.FileName)}...";
+        try
+        {
+            var thumbnail = (await Context.Bridge.CallAsync("image_thumbnail", new { path = dialog.FileName, maximumWidth = 1200, maximumHeight = 900 }))!.AsObject();
+            _reference.Load(thumbnail["path"]?.GetValue<string>());
+            _sourceLabel.Text = $"Mockup: {Path.GetFileName(dialog.FileName)}  |  {thumbnail["sourceWidth"]} x {thumbnail["sourceHeight"]}";
+            Status("Starting web Trim Selector..."); await _web.StartAsync(dialog.FileName);
+            _lastWrite = 0; _returnHandled = false; _reopen.IsEnabled = true;
+            await RefreshStateAsync(true); Status("Web Trim Selector opened. Stage as many trims as you need from this mockup.");
+        }
+        catch (Exception ex) { Error("Trim Creator", ex); }
+    }
+
+    private void OpenSelector() { try { _web.OpenSelector(); } catch (Exception ex) { Error("Trim Selector", ex); } }
+    private void OpenEditor() { try { _web.OpenEditor(); } catch (Exception ex) { Error("Trim Editor", ex); } }
+
+    private async Task RefreshStateAsync(bool force = false)
+    {
+        if (_reading || string.IsNullOrWhiteSpace(_web.StatePath) || !File.Exists(_web.StatePath)) return;
+        var write = File.GetLastWriteTimeUtc(_web.StatePath).Ticks;
+        if (!force && write == _lastWrite) return;
+        _reading = true;
+        try
+        {
+            var root = JsonNode.Parse(await File.ReadAllTextAsync(_web.StatePath))?.AsObject(); if (root is null) return;
+            var selectedId = root["selectedId"]?.GetValue<string>();
+            _staged = (root["items"] as JsonArray)?.Select(node => { var item = node!.AsObject(); return new StagedTrim(item["id"]!.GetValue<string>(), item["path"]!.GetValue<string>(), item["thumbnailPath"]!.GetValue<string>(), item["target"]!.GetValue<string>(), item["typeLabel"]!.GetValue<string>()); }).ToList() ?? [];
+            _lastWrite = write; RefreshList(selectedId);
+            if (root["returnRequested"]?.GetValue<bool>() == true && !_returnHandled) { _returnHandled = true; ReturnToApp(); }
+        }
+        catch (IOException) { } catch (JsonException) { } finally { _reading = false; }
+    }
+
+    private void RefreshList(string? selectedId = null)
+    {
+        var selected = selectedId is null ? _list.SelectedItem as StagedTrim : _staged.FirstOrDefault(item => item.Id == selectedId);
+        _list.ItemsSource = null; _list.ItemsSource = _staged;
+        if (selected is not null) _list.SelectedItem = _staged.FirstOrDefault(item => item.Id == selected.Id); else if (_staged.Count > 0) _list.SelectedIndex = _staged.Count - 1;
+        _summary.Text = _staged.Count == 0 ? "Selections made in the browser will appear here." : $"{_staged.Count} trim{(_staged.Count == 1 ? "" : "s")} staged and ready for the Generator.";
+    }
+
+    private async Task ShowSelectedAsync()
+    {
+        if (_list.SelectedItem is not StagedTrim item || !File.Exists(item.Path)) return;
+        try { var result = (await Context.Bridge.CallAsync("image_thumbnail", new { path = item.Path, maximumWidth = 1100, maximumHeight = 500 }))!.AsObject(); if (_list.SelectedItem is StagedTrim current && current.Id == item.Id) _preview.Load(result["path"]?.GetValue<string>()); }
+        catch (Exception ex) { Status(ex.Message); }
+    }
+
+    private void ReturnToApp()
+    {
+        var window = Window.GetWindow(this) ?? Application.Current.MainWindow; if (window is null) return;
+        if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+        window.Show(); window.Activate(); window.Topmost = true; window.Topmost = false; window.Focus();
+        Status($"Returned from web Trim Creator with {_staged.Count} staged trim(s).");
+    }
+
+    private void OnSend(object sender, RoutedEventArgs e)
+    {
+        if (_staged.Count == 0) { MessageBox.Show("Stage one or more trims in the web Trim Selector first.", "Trim Creator"); return; }
+        foreach (var item in _staged) Context.Project.SetImage(item.Target, item.Path);
+        Status($"Sent {_staged.Count} staged trim(s) to Generator.");
+    }
+
+    private void ExportAiPack(object sender, RoutedEventArgs e)
+    {
+        if (_staged.Count == 0) { MessageBox.Show("Stage one or more trims before exporting a ChatGPT pack.", "Trim Creator"); return; }
+        var dialog = new OpenFolderDialog { Title = "Choose where to create the ChatGPT trim pack", Multiselect = false }; if (dialog.ShowDialog() != true) return;
+        try
+        {
+            var folder = NextFolder(dialog.FolderName); Directory.CreateDirectory(folder); var references = new List<string>();
+            for (var index = 0; index < _staged.Count; index++) { var item = _staged[index]; var name = $"{index + 1:00}_{SafeName(item.TypeLabel)}_reference.png"; File.Copy(item.Path, Path.Combine(folder, name), true); references.Add($"{name}: {item.TypeLabel}"); }
+            File.WriteAllText(Path.Combine(folder, "chatgpt_trim_prompt.txt"), BuildPrompt(references));
+            Status($"Exported {_staged.Count} staged trim(s) to {folder}."); MessageBox.Show($"Created a ChatGPT trim pack with {_staged.Count} reference image(s).\n\n{folder}", "Trim Pack Exported");
+        }
+        catch (Exception ex) { Error("Export ChatGPT Trim Pack", ex); }
+    }
+
+    private static string NextFolder(string parent) { var root = Path.Combine(parent, "chatgpt_trim_pack"); if (!Directory.Exists(root)) return root; for (var index = 2; ; index++) { var candidate = $"{root}_{index}"; if (!Directory.Exists(candidate)) return candidate; } }
+    private static string SafeName(string value) { var invalid = Path.GetInvalidFileNameChars(); return new string(value.ToLowerInvariant().Select(character => invalid.Contains(character) ? '_' : character == ' ' ? '_' : character).ToArray()); }
+    private static string BuildPrompt(IEnumerable<string> references) => $"""
+        Recreate every attached basketball uniform trim as a separate, polished, high-resolution transparent PNG.
+        Keep each design as a perfectly straight horizontal strip. Preserve the exact stripe order, relative stripe thickness, colors, outlines, and intentional texture. Even out gaps, wavy edges, blur, and compression artifacts without changing the design. Make the strip tileable left-to-right. Use a true transparent alpha background and do not place the trim on a uniform mockup. Return one PNG per reference in the same numbered order.
+
+        Reference order and trim types:
+        {string.Join(Environment.NewLine, references)}
+        """;
 }
 
 public sealed class TrimPathPage : ToolPageBase
