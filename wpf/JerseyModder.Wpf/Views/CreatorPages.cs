@@ -155,12 +155,16 @@ public sealed class LogoCreatorPage : ToolPageBase
             Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif|All files|*.*",
         };
         if (dialog.ShowDialog() != true) return;
-        _source = dialog.FileName;
-        _sourceLabel.Text = $"Loading {Path.GetFileName(_source)}...";
+        var originalPath = dialog.FileName;
+        _sourceLabel.Text = $"Loading {Path.GetFileName(originalPath)}...";
         _staged = [];
         RefreshStagedList();
         try
         {
+            _source = await StoreProjectReferenceAsync(
+                originalPath,
+                $"logo_{Path.GetFileNameWithoutExtension(originalPath)}");
+            if (_source is null) return;
             var thumbnail = (await Context.Bridge.CallAsync("image_thumbnail", new
             {
                 path = _source,
@@ -168,7 +172,7 @@ public sealed class LogoCreatorPage : ToolPageBase
                 maximumHeight = 900,
             }))!.AsObject();
             _reference.Load(thumbnail["path"]?.GetValue<string>());
-            _sourceLabel.Text = $"Reference: {Path.GetFileName(_source)}  |  " +
+            _sourceLabel.Text = $"Reference: {Path.GetFileName(originalPath)}  |  " +
                 $"{thumbnail["sourceWidth"]} x {thumbnail["sourceHeight"]}";
             Status("Starting web Logo Creator...");
             await _webSession.StartAsync(_source);
@@ -181,7 +185,7 @@ public sealed class LogoCreatorPage : ToolPageBase
         catch (Exception ex)
         {
             Error("Logo Creator", ex);
-            _sourceLabel.Text = $"Could not open {Path.GetFileName(_source)}.";
+            _sourceLabel.Text = $"Could not open {Path.GetFileName(originalPath)}.";
         }
     }
 
@@ -486,13 +490,18 @@ public sealed class TrimCreatorPage : ToolPageBase
     {
         var dialog = new OpenFileDialog { Title = "Choose a uniform mockup", Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif|All files|*.*" };
         if (dialog.ShowDialog() != true) return;
-        _staged = []; RefreshList(); _sourceLabel.Text = $"Loading {Path.GetFileName(dialog.FileName)}...";
+        var originalPath = dialog.FileName;
+        _staged = []; RefreshList(); _sourceLabel.Text = $"Loading {Path.GetFileName(originalPath)}...";
         try
         {
-            var thumbnail = (await Context.Bridge.CallAsync("image_thumbnail", new { path = dialog.FileName, maximumWidth = 1200, maximumHeight = 900 }))!.AsObject();
+            var source = await StoreProjectReferenceAsync(
+                originalPath,
+                $"trim_{Path.GetFileNameWithoutExtension(originalPath)}");
+            if (source is null) return;
+            var thumbnail = (await Context.Bridge.CallAsync("image_thumbnail", new { path = source, maximumWidth = 1200, maximumHeight = 900 }))!.AsObject();
             _reference.Load(thumbnail["path"]?.GetValue<string>());
-            _sourceLabel.Text = $"Mockup: {Path.GetFileName(dialog.FileName)}  |  {thumbnail["sourceWidth"]} x {thumbnail["sourceHeight"]}";
-            Status("Starting web Trim Selector..."); await _web.StartAsync(dialog.FileName);
+            _sourceLabel.Text = $"Mockup: {Path.GetFileName(originalPath)}  |  {thumbnail["sourceWidth"]} x {thumbnail["sourceHeight"]}";
+            Status("Starting web Trim Selector..."); await _web.StartAsync(source);
             _lastWrite = 0; _returnHandled = false; _reopen.IsEnabled = true;
             await RefreshStateAsync(true); Status("Web Trim Selector opened. Stage as many trims as you need from this mockup.");
         }

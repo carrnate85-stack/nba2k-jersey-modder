@@ -6,7 +6,7 @@
   <Grid Margin="24">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-      <Image Source="/JerseyModder.Wpf;component/Assets/app-icon.png" Width="62" Height="62" Stretch="Uniform" Margin="0,0,16,0"/>
+      <Image Source="pack://application:,,,/Assets/app-icon.png" Width="62" Height="62" Stretch="Uniform" Margin="0,0,16,0" RenderOptions.BitmapScalingMode="HighQuality"/>
       <StackPanel VerticalAlignment="Center">
         <TextBlock Text="Create a jersey project" FontSize="22" FontWeight="SemiBold"/>
         <TextBlock Text="A dedicated folder keeps logos, trims, textures, and exports together." Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0"/>

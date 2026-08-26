@@ -37,6 +37,12 @@ public abstract class ToolPageBase : UserControl
         return projectFile is null ? null : ProjectWorkspace.StoreAsset(projectFile, category, sourcePath, label);
     }
 
+    protected async Task<string?> StoreProjectReferenceAsync(string sourcePath, string label)
+    {
+        var projectFile = await EnsureProjectFileAsync();
+        return projectFile is null ? null : ProjectWorkspace.StoreReference(projectFile, sourcePath, label);
+    }
+
     protected static Grid Header(string title, string description)
     {
         var grid = new Grid { Margin = new Thickness(0, 0, 0, 14) };

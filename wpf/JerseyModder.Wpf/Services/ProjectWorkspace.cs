@@ -7,6 +7,34 @@ public static class ProjectWorkspace
 {
     private static readonly string[] AssetFolders = ["logos", "trims", "numbers", "textures"];
 
+    public static string ApplicationRoot
+    {
+        get
+        {
+            var folder = new DirectoryInfo(AppContext.BaseDirectory);
+            while (folder is not null)
+            {
+                if (File.Exists(Path.Combine(folder.FullName, "main.py"))) return folder.FullName;
+                folder = folder.Parent;
+            }
+
+            var workingDirectory = Directory.GetCurrentDirectory();
+            return File.Exists(Path.Combine(workingDirectory, "main.py"))
+                ? workingDirectory
+                : AppContext.BaseDirectory;
+        }
+    }
+
+    public static string DefaultProjectsFolder
+    {
+        get
+        {
+            var folder = Path.Combine(ApplicationRoot, "projects");
+            Directory.CreateDirectory(folder);
+            return folder;
+        }
+    }
+
     public static string Create(string parentFolder, string projectName)
     {
         var safeName = SafeName(projectName);
@@ -29,7 +57,27 @@ public static class ProjectWorkspace
         Directory.CreateDirectory(root);
         foreach (var folder in AssetFolders)
             Directory.CreateDirectory(Path.Combine(root, "assets", folder));
+        Directory.CreateDirectory(Path.Combine(root, "references"));
         Directory.CreateDirectory(Path.Combine(root, "exports"));
+    }
+
+    public static string StoreReference(string projectFile, string sourcePath, string label)
+    {
+        if (!File.Exists(sourcePath)) throw new FileNotFoundException("The selected reference image no longer exists.", sourcePath);
+        EnsureStructure(projectFile);
+        var projectRoot = Path.GetDirectoryName(Path.GetFullPath(projectFile))!;
+        var destinationFolder = Path.Combine(projectRoot, "references");
+
+        var sourceFullPath = Path.GetFullPath(sourcePath);
+        if (string.Equals(Path.GetDirectoryName(sourceFullPath), destinationFolder, StringComparison.OrdinalIgnoreCase))
+            return sourceFullPath;
+
+        using var stream = File.OpenRead(sourceFullPath);
+        var hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant()[..10];
+        var extension = Path.GetExtension(sourceFullPath).ToLowerInvariant();
+        var destination = Path.Combine(destinationFolder, $"{SafeName(label).ToLowerInvariant()}_{hash}{extension}");
+        if (!File.Exists(destination)) File.Copy(sourceFullPath, destination);
+        return destination;
     }
 
     public static string StoreAsset(string projectFile, string category, string sourcePath, string label)

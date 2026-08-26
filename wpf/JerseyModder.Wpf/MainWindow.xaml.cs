@@ -21,7 +21,7 @@ public partial class MainWindow : Window
     public MainWindow(ProjectStore? initialProject = null)
     {
         InitializeComponent();
-        var root = FindProjectRoot(AppContext.BaseDirectory);
+        var root = ProjectWorkspace.ApplicationRoot;
         _context = new WorkspaceContext(root);
         if (initialProject is not null) _context.ReplaceProject(initialProject);
         _context.StatusChanged += (_, message) => Dispatcher.Invoke(() => StatusText.Text = message);
@@ -43,17 +43,6 @@ public partial class MainWindow : Window
             try { await _context.Bridge.CallAsync("ping"); StatusText.Text = "Python engine ready."; }
             catch (Exception ex) { Error("Python Engine", ex); }
         };
-    }
-
-    private static string FindProjectRoot(string start)
-    {
-        var folder = new DirectoryInfo(start);
-        while (folder is not null)
-        {
-            if (File.Exists(Path.Combine(folder.FullName, "main.py"))) return folder.FullName;
-            folder = folder.Parent;
-        }
-        return Directory.GetCurrentDirectory();
     }
 
     private void OnProjectChanged(object? sender, EventArgs e) => Dispatcher.Invoke(() =>

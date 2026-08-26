@@ -8,8 +8,8 @@
     <Border Grid.Column="0" Background="{StaticResource SidebarBrush}">
       <DockPanel>
         <Border DockPanel.Dock="Top" Padding="20,20,16,18" BorderBrush="#34444A" BorderThickness="0,0,0,1">
-          <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="52"/><ColumnDefinition/></Grid.ColumnDefinitions>
-            <Image Source="/JerseyModder.Wpf;component/Assets/app-icon.png" Width="43" Height="43" Stretch="Uniform" VerticalAlignment="Center"/>
+          <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <Image Source="pack://application:,,,/Assets/app-icon.png" Width="50" Height="50" Stretch="Uniform" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
             <StackPanel Grid.Column="1" VerticalAlignment="Center">
               <TextBlock Text="NBA 2K" Foreground="#58C9BA" FontWeight="Bold" FontSize="12" />
               <TextBlock Text="Jersey Modder" Foreground="White" FontWeight="SemiBold" FontSize="20" Margin="0,2,0,0" />

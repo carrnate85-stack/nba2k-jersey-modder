@@ -22,6 +22,7 @@ build/
 
 output/
 exports/
+/projects/
 temp/
 tmp/
 analysis_outputs/

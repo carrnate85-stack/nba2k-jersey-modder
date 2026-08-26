@@ -14,7 +14,7 @@ public partial class NewProjectDialog : Window
     public NewProjectDialog()
     {
         InitializeComponent();
-        ParentFolderBox.Text = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        ParentFolderBox.Text = ProjectWorkspace.DefaultProjectsFolder;
         ProjectNameBox.TextChanged += (_, _) => UpdatePreview();
         ParentFolderBox.TextChanged += (_, _) => UpdatePreview();
         Loaded += (_, _) => { ProjectNameBox.Focus(); ProjectNameBox.SelectAll(); UpdatePreview(); };
@@ -33,9 +33,13 @@ public partial class NewProjectDialog : Window
             MessageBox.Show("Choose a project name and location.", "Create Project", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        if (!Directory.Exists(ParentFolder))
+        try
         {
-            MessageBox.Show("The selected parent folder does not exist.", "Create Project", MessageBoxButton.OK, MessageBoxImage.Information);
+            Directory.CreateDirectory(ParentFolder);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"The selected project folder could not be created.\n\n{ex.Message}", "Create Project", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
         DialogResult = true;
