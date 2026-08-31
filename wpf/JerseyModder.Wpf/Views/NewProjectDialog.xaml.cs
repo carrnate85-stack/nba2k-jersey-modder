@@ -2,7 +2,6 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using JerseyModder.Wpf.Services;
-using Microsoft.Win32;
 
 namespace JerseyModder.Wpf.Views;
 
@@ -20,17 +19,11 @@ public partial class NewProjectDialog : Window
         Loaded += (_, _) => { ProjectNameBox.Focus(); ProjectNameBox.SelectAll(); UpdatePreview(); };
     }
 
-    private void OnBrowse(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFolderDialog { Title = "Choose where the project folder will be created", Multiselect = false, InitialDirectory = ParentFolder };
-        if (dialog.ShowDialog(this) == true) ParentFolderBox.Text = dialog.FolderName;
-    }
-
     private void OnCreate(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(ProjectName) || string.IsNullOrWhiteSpace(ParentFolder))
+        if (string.IsNullOrWhiteSpace(ProjectName))
         {
-            MessageBox.Show("Choose a project name and location.", "Create Project", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Choose a project name.", "Create Project", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         try

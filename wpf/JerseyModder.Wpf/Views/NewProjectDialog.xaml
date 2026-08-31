@@ -17,11 +17,8 @@
       <TextBox x:Name="ProjectNameBox" Text="New Jersey Project" GotFocus="OnSelectAll"/>
     </StackPanel>
     <StackPanel Grid.Row="2">
-      <TextBlock Text="Create inside" FontWeight="SemiBold" Margin="0,0,0,5"/>
-      <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <TextBox x:Name="ParentFolderBox" IsReadOnly="True" VerticalContentAlignment="Center"/>
-        <Button Grid.Column="1" Content="Browse..." Margin="8,0,0,0" Click="OnBrowse"/>
-      </Grid>
+      <TextBlock Text="Jersey Modder projects folder" FontWeight="SemiBold" Margin="0,0,0,5"/>
+      <TextBox x:Name="ParentFolderBox" IsReadOnly="True" VerticalContentAlignment="Center"/>
       <TextBlock x:Name="FolderPreview" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap"/>
     </StackPanel>
     <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
