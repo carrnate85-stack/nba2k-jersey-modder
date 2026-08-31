@@ -29,5 +29,11 @@ analysis_outputs/
 patched_addons/
 cache/
 
+electron/node_modules/
+electron/.vite/
+electron/out/
+electron/src/renderer/.vite/
+electron/*.png
+
 *.iff
 unitweak_sample.bin

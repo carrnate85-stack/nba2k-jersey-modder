@@ -1,0 +1,24 @@
+import { contextBridge, ipcRenderer } from 'electron';
+import type { JerseyApi, JsonObject } from './shared';
+const api: JerseyApi = {
+  appInfo: () => ipcRenderer.invoke('app:info'),
+  listProjects: () => ipcRenderer.invoke('project:list'),
+  createProject: (name) => ipcRenderer.invoke('project:create', name),
+  chooseProject: () => ipcRenderer.invoke('project:choose'),
+  loadProject: (path) => ipcRenderer.invoke('project:load', path),
+  saveProject: (path, project) => ipcRenderer.invoke('project:save', { path, project }),
+  chooseFile: (kind) => ipcRenderer.invoke('file:choose', kind),
+  chooseFolder: () => ipcRenderer.invoke('folder:choose'),
+  saveFile: (kind, suggestedName) => ipcRenderer.invoke('file:save-dialog', { kind, suggestedName }),
+  storeAsset: (projectPath, sourcePath, category, label) => ipcRenderer.invoke('asset:store', { projectPath, sourcePath, category, label }),
+  fileDataUrl: (path) => ipcRenderer.invoke('file:data-url', path),
+  readText: (path) => ipcRenderer.invoke('file:read-text', path),
+  writeText: (path, text) => ipcRenderer.invoke('file:write-text', { path, text }),
+  engine: (method, params = {}) => ipcRenderer.invoke('engine:call', { method, params }),
+  openEditor: (kind, options) => ipcRenderer.invoke('editor:open', { kind, options }),
+  openBlender: (project) => ipcRenderer.invoke('blender:open', project),
+  openExternal: (path) => ipcRenderer.invoke('shell:open', path),
+  onProjectUpdate: (listener) => { const handler = (_event: unknown, project: JsonObject) => listener(project); ipcRenderer.on('project:external-update', handler); return () => ipcRenderer.removeListener('project:external-update', handler); },
+  onStatus: (listener) => { const handler = (_event: unknown, message: string) => listener(message); ipcRenderer.on('app:status', handler); return () => ipcRenderer.removeListener('app:status', handler); },
+};
+contextBridge.exposeInMainWorld('jersey', api);
