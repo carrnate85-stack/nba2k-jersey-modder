@@ -148,6 +148,12 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("await persistPathsToGenerator(true)", remove_body)
         self.assertIn("await loadProject()", remove_body)
 
+    def test_moving_existing_trim_points_shows_angle_and_length_guides(self) -> None:
+        self.assertIn("function pointEditSegments", TRIM_PATH_LAB_HTML)
+        self.assertIn("pointEditSegments(path, selectedPointIndex).forEach", TRIM_PATH_LAB_HTML)
+        self.assertIn("metrics.angle.toFixed(2)", TRIM_PATH_LAB_HTML)
+        self.assertIn("metrics.length.toFixed(1)", TRIM_PATH_LAB_HTML)
+
     def test_logo_ai_prompt_straightens_only_accidental_distortion(self) -> None:
         app = object.__new__(JerseyModderApp)
         app._logo_creator_canvas_size = lambda: 1024

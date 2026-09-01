@@ -383,6 +383,25 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       return runs;
     }
 
+    function pointEditSegments(path, pointIndex) {
+      if (!path || pointIndex < 0 || pointIndex >= path.points.length) return [];
+      if (path.curve === "t") {
+        const segments = [];
+        if (pointIndex <= 1 && path.points.length >= 2) {
+          segments.push([path.points[0], path.points[1]]);
+        }
+        const junction = tJunction(path);
+        if (junction && path.points.length >= 3) {
+          segments.push([junction, path.points[2]]);
+        }
+        return segments;
+      }
+      const segments = [];
+      if (pointIndex > 0) segments.push([path.points[pointIndex - 1], path.points[pointIndex]]);
+      if (pointIndex < path.points.length - 1) segments.push([path.points[pointIndex], path.points[pointIndex + 1]]);
+      return segments;
+    }
+
     function tRenderPointRuns(path) {
       if (path.curve !== "t" || path.points.length < 3) return pathPointRuns(path);
       const crossbarStart = path.points[0];
@@ -910,6 +929,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         if (drawing && !path.finished && livePoint && path.points.length) {
           drawLiveSegment(target, drawingStartPoint(path), livePoint);
         }
+        if (selectedPointIndex >= 0 && (path.finished || draggingPoint)) {
+          pointEditSegments(path, selectedPointIndex).forEach(([start, end]) => {
+            drawLiveSegment(target, start, end);
+          });
+        }
         target.restore();
       }
     }
@@ -989,6 +1013,18 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     }
     function updateSegmentReadout() {
       const path = activePath();
+      const readout = document.getElementById("segmentReadout");
+      if (path && selectedPointIndex >= 0 && (path.finished || draggingPoint)) {
+        const segments = pointEditSegments(path, selectedPointIndex);
+        if (segments.length) {
+          readout.textContent = segments.map(([segmentStart, segmentEnd], index) => {
+            const metrics = segmentMetrics(segmentStart, segmentEnd);
+            const prefix = segments.length > 1 ? `Segment ${index + 1}: ` : "";
+            return `${prefix}${metrics.angle.toFixed(2)} degrees / ${metrics.length.toFixed(1)} px`;
+          }).join(" | ");
+          return;
+        }
+      }
       let start = null;
       let end = null;
       if (drawing && path?.points.length && livePoint) {
@@ -1001,7 +1037,6 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         start = path.points[path.points.length - 2];
         end = path.points[path.points.length - 1];
       }
-      const readout = document.getElementById("segmentReadout");
       if (!start || !end) {
         readout.textContent = "Angle: -- | Length: --";
         return;
