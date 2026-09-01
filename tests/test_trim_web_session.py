@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 from pathlib import Path
 import tempfile
 import unittest
@@ -123,6 +124,28 @@ class TrimWebSessionTests(unittest.TestCase):
                 self.assertEqual(255, alpha.getpixel((output.width // 2, output.height // 2)))
                 self.assertEqual((20, 70, 150), rgba.getpixel((output.width // 2, 6))[:3])
                 self.assertEqual((190, 25, 55), rgba.getpixel((output.width // 2, 18))[:3])
+
+    def test_live_preview_skips_upscale_then_return_finalizes_full_quality(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            reference = folder / "mockup.png"
+            imported = folder / "trim.png"
+            Image.new("RGB", (40, 40), "white").save(reference)
+            Image.new("RGBA", (200, 30), (30, 80, 170, 255)).save(imported)
+            session = TrimWebSession(reference, folder / "state.json")
+            staged = session.import_image({"path": str(imported), "target": "waistband_image"})
+            item_id = staged["selectedId"]
+
+            previewed = session.update({"id": item_id, "scale": 4, "previewOnly": True})
+            final_path = Path(previewed["items"][0]["path"])
+            with Image.open(BytesIO(session.preview_bytes(item_id)[0])) as preview:
+                self.assertEqual((200, 30), preview.size)
+            with Image.open(final_path) as unchanged_final:
+                self.assertEqual((200, 30), unchanged_final.size)
+
+            session.request_return()
+            with Image.open(final_path) as finalized:
+                self.assertEqual((800, 120), finalized.size)
 
 
 if __name__ == "__main__":

@@ -402,6 +402,19 @@ function Creator({ kind, project, projectPath, update, status, setPage }: any) {
     saveCreator({ items: remaining, selectedId: nextSelected });
     status(`Removed ${filename(item.path)} from the staged list.`);
   };
+  const duplicateTrim = (item: any) => {
+    if (isLogo) return;
+    const duplicate = {
+      ...item,
+      id: `duplicate-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    };
+    const index = items.findIndex((candidate) => candidate.id === item.id);
+    const nextItems = [...items];
+    nextItems.splice(index < 0 ? nextItems.length : index + 1, 0, duplicate);
+    saveCreator({ items: nextItems, selectedId: duplicate.id });
+    setAssetTarget(duplicate.target || typeOptions[0][1]);
+    status(`Duplicated ${item.typeLabel || "trim"}. Choose another trim type or edit the copy.`);
+  };
   const current = items.find((item) => item.id === selected);
   return (
     <div className="page creator-page">
@@ -540,7 +553,7 @@ function Creator({ kind, project, projectPath, update, status, setPage }: any) {
               {items.length ? (
                 items.map((item) => (
                   <div
-                    className={`staged-item ${item.id === selected ? "selected" : ""}`}
+                    className={`staged-item ${!isLogo ? "has-duplicate" : ""} ${item.id === selected ? "selected" : ""}`}
                     key={item.id}
                   >
                     <button
@@ -559,6 +572,15 @@ function Creator({ kind, project, projectPath, update, status, setPage }: any) {
                       </span>
                       <ChevronRight />
                     </button>
+                    {!isLogo && (
+                      <button
+                        className="staged-duplicate"
+                        title={`Duplicate ${item.typeLabel || "trim"}`}
+                        onClick={() => duplicateTrim(item)}
+                      >
+                        <Copy />
+                      </button>
+                    )}
                     <button
                       className="staged-edit"
                       title={`Edit ${item.typeLabel || kind}`}

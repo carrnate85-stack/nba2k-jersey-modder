@@ -54,6 +54,8 @@ class TrimWebSession:
         self.items: list[StagedTrim] = []
         self.selected_id: str | None = None
         self.return_requested = False
+        self.preview_paths: dict[str, Path] = {}
+        self.dirty_ids: set[str] = set()
         with Image.open(self.reference) as opened:
             self.reference_size = ImageOps.exif_transpose(opened).size
         self._restore_initial(initial_state or {})
@@ -116,7 +118,10 @@ class TrimWebSession:
         return self.reference.read_bytes(), content_type
 
     def preview_bytes(self, item_id: str) -> tuple[bytes, str]:
-        return Path(self._find(item_id).path).read_bytes(), "image/png"
+        item = self._find(item_id)
+        preview = self.preview_paths.get(item.id)
+        path = preview if preview is not None and preview.is_file() else Path(item.path)
+        return path.read_bytes(), "image/png"
 
     def stage(self, payload: dict) -> dict:
         start = self._point(payload.get("start"))
@@ -175,7 +180,7 @@ class TrimWebSession:
         item = self._find(str(payload.get("id") or self.selected_id or ""))
         item.target, item.typeLabel = self._type(payload, item.target, item.typeLabel)
         self._apply_options(item, payload)
-        self._render(item)
+        self._render(item, preview_only=bool(payload.get("previewOnly", False)))
         self.selected_id = item.id
         self._write_state()
         return self.project()
@@ -191,6 +196,10 @@ class TrimWebSession:
         self.items.remove(item)
         Path(item.path).unlink(missing_ok=True)
         Path(item.thumbnailPath).unlink(missing_ok=True)
+        preview = self.preview_paths.pop(item.id, None)
+        if preview is not None:
+            preview.unlink(missing_ok=True)
+        self.dirty_ids.discard(item.id)
         self.selected_id = self.items[-1].id if self.items else None
         self._write_state()
         return self.project()
@@ -199,18 +208,25 @@ class TrimWebSession:
         for item in self.items:
             Path(item.path).unlink(missing_ok=True)
             Path(item.thumbnailPath).unlink(missing_ok=True)
+            preview = self.preview_paths.pop(item.id, None)
+            if preview is not None:
+                preview.unlink(missing_ok=True)
         self.items.clear()
+        self.dirty_ids.clear()
         self.selected_id = None
         self._write_state()
         return self.project()
 
     def request_return(self) -> dict:
+        for item in self.items:
+            if item.id in self.dirty_ids:
+                self._render(item)
         self.return_requested = True
         self._write_state()
         return {"ok": True, "items": len(self.items)}
 
-    def _render(self, item: StagedTrim) -> None:
-        output = Path(item.path)
+    def _render(self, item: StagedTrim, *, preview_only: bool = False) -> None:
+        output = self.folder / f"{item.id}.preview.png" if preview_only else Path(item.path)
         working = output.with_suffix(".working.png")
         if item.imported and item.sourcePath:
             with Image.open(item.sourcePath) as opened:
@@ -247,7 +263,7 @@ class TrimWebSession:
             image.putalpha(alpha)
         if item.sharpen:
             image = image.filter(ImageFilter.UnsharpMask(radius=1.0, percent=70, threshold=3))
-        if item.scale > 1:
+        if item.scale > 1 and not preview_only:
             image = upscale_logo_image(image, scale_factor=item.scale, sharpen=item.sharpen)
         if item.flipVertical:
             image = ImageOps.flip(image)
@@ -256,6 +272,14 @@ class TrimWebSession:
         image.save(temporary, "PNG", compress_level=1)
         temporary.replace(output)
         working.unlink(missing_ok=True)
+        if preview_only:
+            self.preview_paths[item.id] = output
+            self.dirty_ids.add(item.id)
+            return
+        preview = self.preview_paths.pop(item.id, None)
+        if preview is not None and preview != output:
+            preview.unlink(missing_ok=True)
+        self.dirty_ids.discard(item.id)
         thumbnail = image.copy()
         thumbnail.thumbnail((240, 100), Image.Resampling.LANCZOS)
         thumbnail.save(item.thumbnailPath, "PNG", compress_level=1)
