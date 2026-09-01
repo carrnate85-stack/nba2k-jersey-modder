@@ -111,9 +111,16 @@ footer .working { color: #168579; }
 .reference-color small { color: #65757b; margin-top: 2px; }
 .reference-color input[type="color"] { width: 34px; height: 34px; min-height: 34px; padding: 2px; }
 .reference-color .hex { width: 92px; }
+.creator-import { display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 8px; align-items: end; margin-bottom: 10px; }
+.creator-import .field { margin: 0; }
+.creator-import .command { min-height: 32px; }
 .staged-list { border: 1px solid #d7dfdd; min-height: 200px; max-height: 340px; overflow-y: auto; }
-.staged-list > button, .zone-list button { width: 100%; border: 0; border-bottom: 1px solid #e2e8e6; background: white; display: grid; grid-template-columns: 28px minmax(0,1fr) 18px; align-items: center; text-align: left; padding: 9px; }
-.staged-list > button:hover, .staged-list > button.selected { background: #e4f0ed; }
+.staged-item { display: grid; grid-template-columns: minmax(0, 1fr) 36px; border-bottom: 1px solid #e2e8e6; background: white; }
+.staged-item:hover, .staged-item.selected { background: #e4f0ed; }
+.staged-select { width: 100%; border: 0; background: transparent; display: grid; grid-template-columns: 28px minmax(0,1fr) 18px; align-items: center; text-align: left; padding: 9px; }
+.staged-remove { border: 0; border-left: 1px solid transparent; background: transparent; color: #637278; display: grid; place-items: center; }
+.staged-remove:hover { color: #a22b34; background: #f9e9e9; border-left-color: #e7c9cc; }
+.zone-list button { width: 100%; border: 0; border-bottom: 1px solid #e2e8e6; background: white; display: grid; grid-template-columns: 28px minmax(0,1fr) 18px; align-items: center; text-align: left; padding: 9px; }
 .staged-list svg { width: 18px; }
 .staged-list span { display: flex; flex-direction: column; min-width: 0; }
 .staged-list small { color: #65757b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
