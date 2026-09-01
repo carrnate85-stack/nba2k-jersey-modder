@@ -142,6 +142,12 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("restoreProjectPaths(project.paths)", TRIM_PATH_LAB_HTML)
         self.assertIn("function restoreProjectPaths", TRIM_PATH_LAB_HTML)
 
+    def test_removing_trim_path_rebuilds_generator_and_reload_images(self) -> None:
+        self.assertIn("async function removePath", TRIM_PATH_LAB_HTML)
+        remove_body = TRIM_PATH_LAB_HTML.split("async function removePath", 1)[1].split("function duplicatePath", 1)[0]
+        self.assertIn("await persistPathsToGenerator(true)", remove_body)
+        self.assertIn("await loadProject()", remove_body)
+
     def test_logo_ai_prompt_straightens_only_accidental_distortion(self) -> None:
         app = object.__new__(JerseyModderApp)
         app._logo_creator_canvas_size = lambda: 1024

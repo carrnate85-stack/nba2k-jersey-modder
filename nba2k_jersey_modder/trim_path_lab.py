@@ -183,6 +183,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     let renderQueued = false;
     let patternLengthUniform = false;
     let uvOverlayAvailable = false;
+    let pathMutationPending = false;
 
     function setStatus(message) { statusNode.textContent = message; }
     function activePath() { return paths[activePathIndex] || null; }
@@ -1277,9 +1278,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       updatePathList();
       queueDraw();
     }
-    function removePath() {
-      if (activePathIndex < 0) return;
-      paths.splice(activePathIndex, 1);
+    async function removePath() {
+      if (activePathIndex < 0 || pathMutationPending) return;
+      pathMutationPending = true;
+      const removedIndex = activePathIndex;
+      const [removed] = paths.splice(activePathIndex, 1);
       activePathIndex = Math.min(activePathIndex, paths.length - 1);
       selectedPointIndex = -1;
       drawing = false;
@@ -1289,6 +1292,29 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       syncControls();
       updatePathList();
       queueDraw();
+      setStatus(`Removing ${removed.name} and rebuilding Generator trim layers...`);
+      let persisted = false;
+      try {
+        await persistPathsToGenerator(true);
+        persisted = true;
+        await loadProject();
+        setStatus(`${removed.name} removed. Generator and trim preview reloaded.`);
+      } catch (error) {
+        if (!persisted) {
+          paths.splice(Math.min(removedIndex, paths.length), 0, removed);
+          activePathIndex = Math.min(removedIndex, paths.length - 1);
+          syncControls();
+          updatePathList();
+          saveLocalPaths();
+          queueDraw();
+          setStatus(`Could not remove ${removed.name}: ${error.message}`);
+        } else {
+          setStatus(`${removed.name} was removed, but the preview could not reload: ${error.message}`);
+        }
+      } finally {
+        pathMutationPending = false;
+        syncControls();
+      }
     }
     function duplicatePath() {
       const path = activePath();
@@ -1382,6 +1408,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const path = activePath();
       const disabled = !path;
       ["curveMode", "curveStrength", "curveStrengthNumber", "tJunctionMode", "pathPositionX", "pathPositionY", "trimWidth", "trimWidthNumber", "patternScale", "patternScaleNumber", "patternOffset", "patternOffsetNumber", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
+      if (pathMutationPending) document.getElementById("removePath").disabled = true;
       document.getElementById("linkStatus").textContent = "Layer is not linked.";
       if (!path) {
         updateSegmentReadout();

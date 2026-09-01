@@ -84,17 +84,22 @@ class TrimPathWebSessionTests(unittest.TestCase):
                 "name": "Old path", "path": str(pattern), "garment": "Jersey",
                 "templateName": "Retro U", "x": 0, "y": 0, "width": 320, "height": 48,
             }]
+            document.generator["trimPathDesigns"] = [{
+                "garment": "Jersey", "templateName": "Retro U", "patternPath": str(pattern),
+                "paths": [{"name": "Old path", "points": [{"x": 0, "y": 0}, {"x": 320, "y": 48}]}],
+            }]
             document.save(project_path)
             state_path = folder / "state.json"
             session = TrimPathWebSession(project_path, pattern, state_path, folder)
 
             result = session._trim_path_lab_send_to_generator({
-                "garment": "Jersey", "templateName": "Retro U", "layers": [],
+                "garment": "Jersey", "templateName": "Retro U", "layers": [], "paths": [],
             })
 
             self.assertEqual(result, {"ok": True, "count": 0})
             state = json.loads(state_path.read_text(encoding="utf-8"))
             self.assertEqual(state["project"]["generator"]["trimPathLayers"], [])
+            self.assertEqual(state["project"]["generator"]["trimPathDesigns"], [])
 
 
 if __name__ == "__main__":
