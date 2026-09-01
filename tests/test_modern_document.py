@@ -21,6 +21,7 @@ class ModernProjectDocumentTests(unittest.TestCase):
         self.assertEqual(document.generator["colors"]["shorts_left_panel_color"], "")
         self.assertTrue(document.generator["uvOverlay"]["enabled"])
         self.assertIsNone(document.generator["trimPathPattern"])
+        self.assertEqual(document.generator["trimPathDesigns"], [])
 
     def test_version_one_project_is_normalized_without_losing_design_data(self) -> None:
         document = ProjectDocument({

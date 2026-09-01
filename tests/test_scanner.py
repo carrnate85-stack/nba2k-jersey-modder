@@ -137,6 +137,11 @@ class ScannerTests(unittest.TestCase):
         return_position = TRIM_PATH_LAB_HTML.index('fetch("/api/trim-path/return"')
         self.assertLess(save_position, return_position)
 
+    def test_trim_path_lab_restores_editable_project_paths(self) -> None:
+        self.assertIn("paths,", TRIM_PATH_LAB_HTML)
+        self.assertIn("restoreProjectPaths(project.paths)", TRIM_PATH_LAB_HTML)
+        self.assertIn("function restoreProjectPaths", TRIM_PATH_LAB_HTML)
+
     def test_logo_ai_prompt_straightens_only_accidental_distortion(self) -> None:
         app = object.__new__(JerseyModderApp)
         app._logo_creator_canvas_size = lambda: 1024

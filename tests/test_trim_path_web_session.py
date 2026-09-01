@@ -39,6 +39,11 @@ class TrimPathWebSessionTests(unittest.TestCase):
                 "garment": "Jersey",
                 "templateName": "Retro U",
                 "layers": [{"name": "Waist Curve", "png": encoded}],
+                "paths": [{
+                    "name": "Waist Curve", "points": [{"x": 120, "y": 240}, {"x": 520, "y": 300}],
+                    "width": 60, "patternScale": 100, "patternOffset": 0,
+                    "curve": "smooth", "curveStrength": 85, "visible": True, "finished": True,
+                }],
             })
             self.assertEqual(result, {"ok": True, "count": 1})
 
@@ -48,6 +53,21 @@ class TrimPathWebSessionTests(unittest.TestCase):
             self.assertEqual((saved["width"], saved["height"]), (400, 60))
             self.assertTrue(Path(saved["path"]).is_file())
             self.assertEqual(Path(saved["path"]).parent, folder / "assets" / "trims" / "paths")
+            editable = state["project"]["generator"]["trimPathDesigns"][0]["paths"][0]
+            self.assertEqual(editable["name"], "Waist Curve")
+            self.assertEqual(editable["curve"], "smooth")
+            self.assertEqual(session._trim_path_lab_web_project()["paths"][0]["points"][1], {"x": 520.0, "y": 300.0})
+            updated = ProjectDocument(state["project"])
+            generator_layer = updated.to_generator_inputs().trim_path_layers[0]
+            self.assertEqual(generator_layer.name, "Waist Curve")
+            self.assertEqual((generator_layer.x, generator_layer.y), (120, 240))
+            self.assertEqual((generator_layer.width, generator_layer.height), (400, 60))
+            rendered = session.service.render_color(updated).convert("RGBA")
+            red, green, blue, alpha = rendered.getpixel((200, 250))
+            self.assertGreater(red, 180)
+            self.assertLess(green, 80)
+            self.assertLess(blue, 100)
+            self.assertEqual(alpha, 255)
 
             session._trim_path_lab_return()
             state = json.loads(state_path.read_text(encoding="utf-8"))

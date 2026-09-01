@@ -47,7 +47,7 @@ def new_project_payload() -> dict:
                               "scaleWidthPercent": 100, "scaleHeightPercent": 100,
                               "lockAspect": True},
             "jerseyBackground": {"tile": False, "tileScalePercent": 100},
-            "logos": [], "trimPathLayers": [], "trimPathPattern": None,
+            "logos": [], "trimPathLayers": [], "trimPathDesigns": [], "trimPathPattern": None,
             "trimPlacements": {},
             "backgroundCleanup": {"removeWhite": False, "removeBlack": False,
                                   "outsideOnly": True, "tolerance": 32},

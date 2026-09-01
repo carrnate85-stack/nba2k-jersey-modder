@@ -247,7 +247,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         patternLengthUniform = isLengthUniformPattern();
         document.getElementById("patternPreview").src = patternImage.src;
         document.getElementById("sourceName").textContent = `${project.patternName} | ${project.width} x ${project.height} template`;
-        if (!paths.length) restoreLocalPaths();
+        if (Array.isArray(project.paths)) restoreProjectPaths(project.paths);
+        else if (!paths.length) restoreLocalPaths();
         fitView();
         setStatus(`Click New Path, then click points along the center of the ${project.garment.toLowerCase()} trim.`);
       } catch (error) {
@@ -1517,6 +1518,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           garment: project.garment || "Shorts",
           templateName: project.templateName || "",
           layers,
+          paths,
         }),
       });
       const result = await response.json();
@@ -1639,6 +1641,17 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         if (Array.isArray(stored)) paths = deserializePaths(stored);
       } catch (_) { paths = []; }
       activePathIndex = paths.length ? 0 : -1;
+      syncControls();
+      updatePathList();
+      saveLocalPaths();
+    }
+
+    function restoreProjectPaths(savedPaths) {
+      paths = deserializePaths(savedPaths);
+      activePathIndex = paths.length ? 0 : -1;
+      selectedPointIndex = -1;
+      drawing = false;
+      livePoint = null;
       syncControls();
       updatePathList();
       saveLocalPaths();

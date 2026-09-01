@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 import json
+import math
 from pathlib import Path
 import re
 import threading
@@ -75,6 +76,7 @@ class TrimPathWebSession:
             "patternUrl": "/api/trim-path/pattern",
             "patternName": self.pattern_path.name,
             "templateName": self.document.template_name,
+            "paths": self._editable_paths_for_scope(),
             "panelZones": panel_zones,
             "message": f"Using {self.pattern_path.name} from the project trim assets.",
         }
@@ -98,6 +100,7 @@ class TrimPathWebSession:
 
     def _trim_path_lab_send_to_generator(self, payload: dict) -> dict:
         raw_layers = payload.get("layers") if isinstance(payload, dict) else None
+        raw_paths = payload.get("paths") if isinstance(payload, dict) else None
         if not isinstance(raw_layers, list):
             return {"ok": False, "message": "No trim layers were received."}
 
@@ -158,8 +161,46 @@ class TrimPathWebSession:
         ] + received
         generator["garment"] = garment
         generator["jerseyCut" if garment == "Jersey" else "shortsTemplate"] = template_name
+        if isinstance(raw_paths, list):
+            editable_paths = [
+                cleaned for index, item in enumerate(raw_paths)
+                if (cleaned := _clean_editable_path(item, index)) is not None
+            ]
+            designs = generator.get("trimPathDesigns", [])
+            designs = [
+                item for item in designs
+                if not (
+                    isinstance(item, dict)
+                    and str(item.get("garment") or "Shorts") == garment
+                    and str(item.get("templateName") or template_name) == template_name
+                )
+            ]
+            if editable_paths:
+                designs.append({
+                    "garment": garment,
+                    "templateName": template_name,
+                    "patternPath": str(self.pattern_path),
+                    "paths": editable_paths,
+                })
+            generator["trimPathDesigns"] = designs
         self._write_state()
         return {"ok": True, "count": len(received)}
+
+    def _editable_paths_for_scope(self) -> list[dict]:
+        for item in self.document.generator.get("trimPathDesigns", []):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("garment") or "Shorts") != self.document.garment:
+                continue
+            if str(item.get("templateName") or self.document.template_name) != self.document.template_name:
+                continue
+            paths = item.get("paths")
+            if isinstance(paths, list):
+                return [
+                    cleaned for index, path in enumerate(paths)
+                    if (cleaned := _clean_editable_path(path, index)) is not None
+                ]
+        return []
 
     def _trim_path_lab_return(self) -> dict:
         self._return_requested = True
@@ -182,3 +223,43 @@ class TrimPathWebSession:
 def _safe_name(value: str) -> str:
     result = re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
     return result or "trim_path"
+
+
+def _clean_editable_path(value: object, index: int) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    points = []
+    for point in value.get("points", []):
+        if not isinstance(point, dict):
+            continue
+        x = _finite_number(point.get("x"), 0.0, -8192.0, 8192.0)
+        y = _finite_number(point.get("y"), 0.0, -8192.0, 8192.0)
+        points.append({"x": x, "y": y})
+    curve = str(value.get("curve") or "straight")
+    if curve not in {"straight", "smooth", "straight_curve_straight", "t"}:
+        curve = "straight"
+    link_group = str(value.get("linkGroup") or "").strip() or None
+    return {
+        "name": str(value.get("name") or f"Trim Path {index + 1}")[:160],
+        "points": points,
+        "width": _finite_number(value.get("width"), 64.0, 2.0, 300.0),
+        "patternScale": _finite_number(value.get("patternScale"), 100.0, 25.0, 400.0),
+        "patternOffset": _finite_number(value.get("patternOffset"), 0.0, -1024.0, 1024.0),
+        "curve": curve,
+        "curveStrength": _finite_number(value.get("curveStrength"), 100.0, 0.0, 200.0),
+        "tJunctionMode": "closed" if value.get("tJunctionMode") == "closed" else "open",
+        "visible": value.get("visible") is not False,
+        "linkGroup": link_group,
+        "reverseCrossSection": bool(value.get("reverseCrossSection", False)),
+        "finished": bool(value.get("finished", False)),
+    }
+
+
+def _finite_number(value: object, default: float, minimum: float, maximum: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if not math.isfinite(parsed):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
