@@ -98,7 +98,7 @@ class TrimPathWebSession:
 
     def _trim_path_lab_send_to_generator(self, payload: dict) -> dict:
         raw_layers = payload.get("layers") if isinstance(payload, dict) else None
-        if not isinstance(raw_layers, list) or not raw_layers:
+        if not isinstance(raw_layers, list):
             return {"ok": False, "message": "No trim layers were received."}
 
         garment = "Jersey" if str(payload.get("garment", "")).casefold() == "jersey" else "Shorts"
@@ -143,7 +143,7 @@ class TrimPathWebSession:
                 "defaultHeight": cropped.height,
             })
 
-        if not received:
+        if raw_layers and not received:
             return {"ok": False, "message": "The trim layers did not contain valid PNG images."}
 
         generator = self.document.generator

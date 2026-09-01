@@ -131,6 +131,12 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("function setPathPosition", TRIM_PATH_LAB_HTML)
         self.assertIn("function updatePositionControls", TRIM_PATH_LAB_HTML)
 
+    def test_trim_path_done_button_persists_before_returning(self) -> None:
+        self.assertIn("async function persistPathsToGenerator", TRIM_PATH_LAB_HTML)
+        save_position = TRIM_PATH_LAB_HTML.index("await persistPathsToGenerator(true)")
+        return_position = TRIM_PATH_LAB_HTML.index('fetch("/api/trim-path/return"')
+        self.assertLess(save_position, return_position)
+
     def test_logo_ai_prompt_straightens_only_accidental_distortion(self) -> None:
         app = object.__new__(JerseyModderApp)
         app._logo_creator_canvas_size = lambda: 1024

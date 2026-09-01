@@ -1506,23 +1506,30 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function canvasDataUrl(canvas) {
       return canvas.toDataURL("image/png");
     }
+    async function persistPathsToGenerator(allowEmpty = false) {
+      const renderable = paths.filter(path => path.visible && pathIsRenderable(path));
+      if (!renderable.length && !allowEmpty) throw new Error("Create at least one visible trim layer first.");
+      const layers = renderable.map(path => ({name: path.name, png: canvasDataUrl(renderExport([{...path, visible: true}]))}));
+      const response = await fetch("/api/trim-path/send", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          garment: project.garment || "Shorts",
+          templateName: project.templateName || "",
+          layers,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.message || `Request failed (${response.status}).`);
+      return result;
+    }
+
     async function sendToGenerator() {
       const renderable = paths.filter(path => path.visible && pathIsRenderable(path));
       if (!renderable.length) { setStatus("Create at least one visible trim layer first."); return; }
       setStatus(`Sending ${renderable.length} trim layer${renderable.length === 1 ? "" : "s"} to Generator...`);
       try {
-        const layers = renderable.map(path => ({name: path.name, png: canvasDataUrl(renderExport([{...path, visible: true}]))}));
-        const response = await fetch("/api/trim-path/send", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({
-            garment: project.garment || "Shorts",
-            templateName: project.templateName || "",
-            layers,
-          }),
-        });
-        const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.message || `Request failed (${response.status}).`);
+        const result = await persistPathsToGenerator();
         setStatus(`Sent ${result.count} trim layer${result.count === 1 ? "" : "s"} to Generator.`);
       } catch (error) {
         setStatus(`Could not send trim layers: ${error.message}`);
@@ -1532,6 +1539,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const button = document.getElementById("returnToApp");
       button.disabled = true;
       try {
+        button.textContent = "Saving Paths...";
+        setStatus("Saving trim paths to the Generator...");
+        await persistPathsToGenerator(true);
         const response = await fetch("/api/trim-path/return", {method: "POST"});
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.message || `Request failed (${response.status}).`);
@@ -1540,6 +1550,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         setTimeout(() => window.close(), 350);
       } catch (error) {
         button.disabled = false;
+        button.textContent = "Done - Return to App";
         setStatus(`Could not return to the app: ${error.message}`);
       }
     }
