@@ -280,7 +280,9 @@ def render_jersey_layers(
             fill = fill.resize(size, Image.Resampling.NEAREST)
         paint_layers.append(RenderLayer(f"Paint Fill {index}", fill))
 
-    layers = base_color_layers + ([background_layer] if background_layer else []) + paint_layers + layers
+    # Raster fills sit over generated zone colors, while waistband artwork,
+    # trim paths, and logos remain above them.
+    layers = base_color_layers + ([background_layer] if background_layer else []) + layers + paint_layers
 
     # Waistband color and artwork sit above the shorts side panels.
     layers.extend(waistband_layers)

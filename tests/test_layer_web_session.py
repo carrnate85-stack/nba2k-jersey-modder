@@ -12,6 +12,39 @@ from nba2k_jersey_modder.modern.document import ProjectDocument
 
 
 class LayerWebSessionTests(unittest.TestCase):
+    def test_paint_bucket_fills_an_empty_shorts_panel_above_its_base_color(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            trim = folder / "transparent_trim.png"
+            Image.new("RGBA", (16, 16), (0, 0, 0, 0)).save(trim)
+            project_path = folder / "project.json"
+            document = ProjectDocument()
+            document.generator["garment"] = "Shorts"
+            document.generator["shortsTemplate"] = "Retro shorts"
+            document.generator["colors"]["shorts_left_panel_color"] = ""
+            document.generator["trimPathLayers"] = [{
+                "path": str(trim), "name": "Transparent Path", "garment": "Shorts",
+                "templateName": "Retro shorts", "x": 0, "y": 0,
+                "width": 2048, "height": 2048, "rotationDegrees": 0,
+            }]
+            document.save(project_path)
+            session = LayerWebSession(project_path, folder / "state.json", folder)
+            template = session.service.template(session.document)
+            zone = next(item for item in template.zones if item.name == "shorts_left_panel")
+
+            result = session._web_editor_paint({
+                "key": "base_colors",
+                "x": (zone.x + zone.width / 2) / 2048,
+                "y": (zone.y + zone.height / 2) / 2048,
+                "color": "#e21b3c", "tolerance": 24,
+            })
+            self.assertTrue(result["changed"])
+            rendered = session.service.render_color(session.document).convert("RGBA")
+            self.assertEqual(
+                rendered.getpixel((zone.x + zone.width // 2, zone.y + zone.height // 2)),
+                (226, 27, 60, 255),
+            )
+
     def test_paint_bucket_uses_trim_path_as_a_hard_fill_barrier(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

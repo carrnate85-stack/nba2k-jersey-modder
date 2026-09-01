@@ -21,18 +21,18 @@ INDEX_HTML = """<!doctype html>
     header { height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: #222833; border-bottom: 1px solid #343b49; }
     button { background: #f0b429; color: #171a20; border: 0; padding: 8px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; }
     .hint { color: #aab3c2; font-size: 13px; }
-    #toolBar { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #1d222c; border-bottom: 1px solid #343b49; }
+    #toolBar { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #1d222c; border-bottom: 1px solid #343b49; overflow-x: auto; overflow-y: hidden; white-space: nowrap; }
     #toolBar .divider { width: 1px; height: 26px; background: #3b4556; margin: 0 3px; }
     #toolBar .tool-label { color: #aab3c2; font-size: 12px; }
     #toolBar button.active { background: #168579; color: #fff; }
-    #toolBar button { display: inline-flex; align-items: center; gap: 7px; }
+    #toolBar button { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; }
     #toolBar .tool-icon { width: 18px; height: 18px; flex: 0 0 18px; }
     #toolBar input { width: auto; }
     #toolBar input[type="color"] { width: 38px; height: 32px; padding: 2px; }
     #toolBar input[type="text"] { width: 82px; }
     #toolBar input[type="range"] { width: 120px; }
     #toolBar input[type="number"] { width: 64px; }
-    #bucketControls { display: flex; align-items: center; gap: 8px; }
+    #bucketControls { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
     #wrap { height: calc(100vh - 97px); display: grid; grid-template-columns: 1fr 300px; }
     #stage { min-width: 0; min-height: 0; overflow: auto; background: #11141a; }
     canvas { background: #20242b; display: block; margin: 10px auto; }
@@ -90,6 +90,14 @@ INDEX_HTML = """<!doctype html>
         <path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"></path>
       </svg>
       <span>Paint Bucket</span>
+    </button>
+    <button id="toolSampler" class="secondary" title="Sample a color from the texture">
+      <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12"></path>
+        <path d="m18 9 .4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4 3.4-3.4a1 1 0 1 1 3 3z"></path>
+        <path d="m2 22 .414-.414"></path>
+      </svg>
+      <span>Color Sampler</span>
     </button>
     <span class="divider"></span>
     <div id="bucketControls">
@@ -187,6 +195,7 @@ INDEX_HTML = """<!doctype html>
     const uvOpacityLabel = document.getElementById("uvOpacityLabel");
     const toolSelect = document.getElementById("toolSelect");
     const toolBucket = document.getElementById("toolBucket");
+    const toolSampler = document.getElementById("toolSampler");
     const bucketControls = document.getElementById("bucketControls");
     const paintColor = document.getElementById("paintColor");
     const paintHex = document.getElementById("paintHex");
@@ -220,6 +229,13 @@ INDEX_HTML = """<!doctype html>
         <path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/>
       </svg>
     `)}") 3 17, crosshair`;
+    const PIPETTE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12"/>
+        <path d="m18 9 .4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4 3.4-3.4a1 1 0 1 1 3 3z"/>
+        <path d="m2 22 .414-.414"/>
+      </svg>
+    `)}") 3 29, crosshair`;
     const HANDLE_SIZE = 56;
     const HANDLE_HIT_RADIUS = 58;
     const ALPHA_HIT_THRESHOLD = 12;
@@ -619,20 +635,54 @@ INDEX_HTML = """<!doctype html>
     }
 
     function setTool(tool) {
-      activeTool = tool === "bucket" ? "bucket" : "select";
+      activeTool = ["bucket", "sampler"].includes(tool) ? tool : "select";
       drag = null;
       toolSelect.classList.toggle("active", activeTool === "select");
       toolSelect.classList.toggle("secondary", activeTool !== "select");
       toolBucket.classList.toggle("active", activeTool === "bucket");
       toolBucket.classList.toggle("secondary", activeTool !== "bucket");
+      toolSampler.classList.toggle("active", activeTool === "sampler");
+      toolSampler.classList.toggle("secondary", activeTool !== "sampler");
       const bucketEnabled = activeTool === "bucket";
-      bucketControls.style.opacity = bucketEnabled ? "1" : ".55";
-      for (const input of [paintColor, paintHex, paintTolerance, paintToleranceNumber]) {
-        input.disabled = !bucketEnabled || paintBusy;
-      }
-      canvas.style.cursor = bucketEnabled ? PAINT_BUCKET_CURSOR : "default";
+      const colorEnabled = bucketEnabled || activeTool === "sampler";
+      bucketControls.style.opacity = colorEnabled ? "1" : ".55";
+      paintColor.disabled = !colorEnabled || paintBusy;
+      paintHex.disabled = !colorEnabled || paintBusy;
+      paintTolerance.disabled = !bucketEnabled || paintBusy;
+      paintToleranceNumber.disabled = !bucketEnabled || paintBusy;
+      canvas.style.cursor = activeCanvasCursor();
       renderInspector();
       draw();
+    }
+
+    function activeCanvasCursor() {
+      if (activeTool === "bucket") return PAINT_BUCKET_CURSOR;
+      if (activeTool === "sampler") return PIPETTE_CURSOR;
+      return "default";
+    }
+
+    function sampleAt(point) {
+      const previousUvState = uvOverlayEnabled;
+      uvOverlayEnabled = false;
+      draw();
+      const pixel = ctx.getImageData(
+        Math.max(0, Math.min(2047, Math.floor(point.x))),
+        Math.max(0, Math.min(2047, Math.floor(point.y))),
+        1,
+        1,
+      ).data;
+      uvOverlayEnabled = previousUvState;
+      draw();
+      if (pixel[3] < 8) {
+        loadStatus.textContent = "That point is transparent. Sample inside the texture.";
+        return;
+      }
+      const value = `#${[pixel[0], pixel[1], pixel[2]]
+        .map(channel => channel.toString(16).padStart(2, "0"))
+        .join("")}`;
+      paintColor.value = value;
+      paintHex.value = value;
+      loadStatus.textContent = `Sampled ${value}`;
     }
 
     async function paintAt(point) {
@@ -692,6 +742,11 @@ INDEX_HTML = """<!doctype html>
       if (activeTool === "bucket") {
         event.preventDefault();
         paintAt(point);
+        return;
+      }
+      if (activeTool === "sampler") {
+        event.preventDefault();
+        sampleAt(point);
         return;
       }
       const hit = hitTest(point);
@@ -840,7 +895,7 @@ INDEX_HTML = """<!doctype html>
     canvas.addEventListener("pointerup", async event => {
       if (pan && pan.pointerId === event.pointerId) {
         pan = null;
-        canvas.style.cursor = activeTool === "bucket" ? PAINT_BUCKET_CURSOR : "default";
+        canvas.style.cursor = activeCanvasCursor();
         return;
       }
       if (viewMode === "region" || activeTool !== "select") return;
@@ -855,7 +910,7 @@ INDEX_HTML = """<!doctype html>
     canvas.addEventListener("pointercancel", event => {
       if (pan && pan.pointerId === event.pointerId) {
         pan = null;
-        canvas.style.cursor = activeTool === "bucket" ? PAINT_BUCKET_CURSOR : "default";
+        canvas.style.cursor = activeCanvasCursor();
       }
     });
 
@@ -956,6 +1011,7 @@ INDEX_HTML = """<!doctype html>
     resetTransparency.onclick = () => sendTransparency(true);
     toolSelect.onclick = () => setTool("select");
     toolBucket.onclick = () => setTool("bucket");
+    toolSampler.onclick = () => setTool("sampler");
     paintColor.oninput = () => {
       paintHex.value = paintColor.value;
     };

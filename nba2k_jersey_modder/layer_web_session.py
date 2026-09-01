@@ -461,9 +461,6 @@ class LayerWebSession:
             min(composite.width - 1, max(0, round(normalized_x * (composite.width - 1)))),
             min(composite.height - 1, max(0, round(normalized_y * (composite.height - 1)))),
         )
-        if composite.getpixel(seed)[3] < 8:
-            return {"changed": False, "message": "Click inside the jersey or shorts texture."}
-
         template = self.service.template(self.document)
         design_width = max(2048, max((zone.x + zone.width for zone in template.zones), default=2048))
         design_height = max(2048, max((zone.y + zone.height for zone in template.zones), default=2048))
