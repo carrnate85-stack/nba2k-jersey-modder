@@ -113,6 +113,14 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("getImageData(0, 0, 1, 1).data[3]", INDEX_HTML)
         self.assertIn("visiblePixelHit(point, item, local)", INDEX_HTML)
 
+    def test_web_editor_has_dedicated_select_and_paint_tool_bar(self) -> None:
+        self.assertIn('id="toolBar"', INDEX_HTML)
+        self.assertIn('id="toolSelect"', INDEX_HTML)
+        self.assertIn('id="toolBucket"', INDEX_HTML)
+        self.assertIn('id="paintColor"', INDEX_HTML)
+        self.assertIn("function paintHitTest", INDEX_HTML)
+        self.assertIn('fetch("/api/paint"', INDEX_HTML)
+
     def test_trim_path_lab_has_saved_smooth_curve_bend_control(self) -> None:
         self.assertIn('id="curveStrength"', TRIM_PATH_LAB_HTML)
         self.assertIn('id="curveStrengthNumber"', TRIM_PATH_LAB_HTML)

@@ -12,6 +12,45 @@ from nba2k_jersey_modder.modern.document import ProjectDocument
 
 
 class LayerWebSessionTests(unittest.TestCase):
+    def test_paint_bucket_recolors_and_undoes_a_logo_layer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            logo = folder / "logo.png"
+            Image.new("RGBA", (12, 8), (10, 180, 170, 255)).save(logo)
+            project_path = folder / "project.json"
+            document = ProjectDocument()
+            document.generator["logos"] = [{
+                "path": str(logo), "targetName": "front_center_chest_logo",
+                "offsetX": 0, "offsetY": 0, "scalePercent": 100,
+                "scaleWidthPercent": 100, "scaleHeightPercent": 100,
+            }]
+            document.save(project_path)
+
+            session = LayerWebSession(project_path, folder / "state.json")
+            before = next(
+                item for item in session._web_editor_project()["overlays"] if item["key"] == "logo:0"
+            )
+            self.assertTrue(before["canPaint"])
+            self.assertFalse(before["canUndoPaint"])
+
+            result = session._web_editor_paint({
+                "key": "logo:0", "x": 0.5, "y": 0.5,
+                "color": "#ff00aa", "tolerance": 0,
+            })
+            self.assertTrue(result["changed"])
+            painted_path = Path(session.document.generator["logos"][0]["path"])
+            self.assertNotEqual(painted_path, logo)
+            with Image.open(painted_path) as painted:
+                self.assertEqual(painted.convert("RGBA").getpixel((6, 4)), (255, 0, 170, 255))
+            after = next(
+                item for item in session._web_editor_project()["overlays"] if item["key"] == "logo:0"
+            )
+            self.assertTrue(after["canUndoPaint"])
+
+            undo = session._web_editor_undo_paint({"key": "logo:0"})
+            self.assertTrue(undo["ok"])
+            self.assertEqual(Path(session.document.generator["logos"][0]["path"]), logo)
+
     def test_updates_logo_and_records_return_request(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

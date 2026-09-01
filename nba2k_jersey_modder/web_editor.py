@@ -21,7 +21,17 @@ INDEX_HTML = """<!doctype html>
     header { height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: #222833; border-bottom: 1px solid #343b49; }
     button { background: #f0b429; color: #171a20; border: 0; padding: 8px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; }
     .hint { color: #aab3c2; font-size: 13px; }
-    #wrap { height: calc(100vh - 49px); display: grid; grid-template-columns: 1fr 300px; }
+    #toolBar { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #1d222c; border-bottom: 1px solid #343b49; }
+    #toolBar .divider { width: 1px; height: 26px; background: #3b4556; margin: 0 3px; }
+    #toolBar .tool-label { color: #aab3c2; font-size: 12px; }
+    #toolBar button.active { background: #168579; color: #fff; }
+    #toolBar input { width: auto; }
+    #toolBar input[type="color"] { width: 38px; height: 32px; padding: 2px; }
+    #toolBar input[type="text"] { width: 82px; }
+    #toolBar input[type="range"] { width: 120px; }
+    #toolBar input[type="number"] { width: 64px; }
+    #bucketControls { display: flex; align-items: center; gap: 8px; }
+    #wrap { height: calc(100vh - 97px); display: grid; grid-template-columns: 1fr 300px; }
     #stage { min-width: 0; min-height: 0; overflow: auto; background: #11141a; }
     canvas { background: #20242b; display: block; margin: 10px auto; }
     aside { border-left: 1px solid #343b49; padding: 12px; overflow: auto; background: #1d222c; }
@@ -68,6 +78,20 @@ INDEX_HTML = """<!doctype html>
     <span class="hint">Scroll to zoom. Hold the scroll wheel and drag to pan.</span>
     <button id="returnToApp">Return to App</button>
   </header>
+  <div id="toolBar">
+    <button id="toolSelect" class="active" title="Select and move layers">Select / Move</button>
+    <button id="toolBucket" class="secondary" title="Fill a connected color area">Paint Bucket</button>
+    <span class="divider"></span>
+    <div id="bucketControls">
+      <span class="tool-label">Fill</span>
+      <input id="paintColor" type="color" value="#ffffff" aria-label="Paint color">
+      <input id="paintHex" type="text" value="#ffffff" maxlength="7" aria-label="Paint color hex code">
+      <span class="tool-label">Tolerance</span>
+      <input id="paintTolerance" type="range" min="0" max="255" value="24" aria-label="Paint tolerance">
+      <input id="paintToleranceNumber" type="number" min="0" max="255" value="24" aria-label="Paint tolerance value">
+      <button id="undoPaint" class="secondary" disabled>Undo Fill</button>
+    </div>
+  </div>
   <div id="wrap">
     <main id="stage"><canvas id="canvas" width="2048" height="2048"></canvas></main>
     <aside>
@@ -151,6 +175,14 @@ INDEX_HTML = """<!doctype html>
     const showUvOverlay = document.getElementById("showUvOverlay");
     const uvOpacity = document.getElementById("uvOpacity");
     const uvOpacityLabel = document.getElementById("uvOpacityLabel");
+    const toolSelect = document.getElementById("toolSelect");
+    const toolBucket = document.getElementById("toolBucket");
+    const bucketControls = document.getElementById("bucketControls");
+    const paintColor = document.getElementById("paintColor");
+    const paintHex = document.getElementById("paintHex");
+    const paintTolerance = document.getElementById("paintTolerance");
+    const paintToleranceNumber = document.getElementById("paintToleranceNumber");
+    const undoPaint = document.getElementById("undoPaint");
     let editorZoom = 1;
     let viewMode = "texture";
     let project = null;
@@ -167,6 +199,8 @@ INDEX_HTML = """<!doctype html>
     let pan = null;
     let nudgeTimer = null;
     let lastSizeField = "width";
+    let activeTool = "select";
+    let paintBusy = false;
     const HANDLE_SIZE = 56;
     const HANDLE_HIT_RADIUS = 58;
     const ALPHA_HIT_THRESHOLD = 12;
@@ -268,6 +302,7 @@ INDEX_HTML = """<!doctype html>
     function renderInspector() {
       const item = activeItem();
       const disabled = !item;
+      undoPaint.disabled = activeTool !== "bucket" || paintBusy || disabled || !item.canPaint || !item.canUndoPaint;
       for (const input of [posX, posY, posW, posH]) input.disabled = disabled || !item.canTransform;
       rotation.disabled = disabled || !item.canRotate;
       applyPosition.disabled = disabled || !item.canTransform;
@@ -356,7 +391,7 @@ INDEX_HTML = """<!doctype html>
       }
       drawUvOverlay();
       const active = project?.overlays.find(item => item.key === activeKey);
-      if (active?.canTransform) drawBox(active);
+      if (activeTool === "select" && active?.canTransform) drawBox(active);
       renderInspector();
     }
 
@@ -380,6 +415,7 @@ INDEX_HTML = """<!doctype html>
 
     function setViewMode(nextMode) {
       viewMode = nextMode;
+      if (viewMode === "region") setTool("select");
       viewTexture.classList.toggle("secondary", viewMode !== "texture");
       viewRegion.classList.toggle("secondary", viewMode !== "region");
       renderLayerList();
@@ -536,6 +572,86 @@ INDEX_HTML = """<!doctype html>
       return null;
     }
 
+    function paintHitTest(point) {
+      const candidates = [...(project?.overlays || [])].reverse();
+      const selected = activeItem();
+      if (selected?.canPaint) {
+        const selectedIndex = candidates.findIndex(item => item.key === selected.key);
+        if (selectedIndex >= 0) {
+          candidates.splice(selectedIndex, 1);
+          candidates.unshift(selected);
+        }
+      }
+      for (const item of candidates) {
+        if (!item.canPaint) continue;
+        const local = localPoint(point, item);
+        const inBody = local.x >= -item.width / 2 && local.x <= item.width / 2 &&
+                       local.y >= -item.height / 2 && local.y <= item.height / 2;
+        if (!inBody || !visiblePixelHit(point, item, local)) continue;
+        return {
+          item,
+          x: Math.max(0, Math.min(1, (local.x + item.width / 2) / Math.max(1, item.width))),
+          y: Math.max(0, Math.min(1, (local.y + item.height / 2) / Math.max(1, item.height))),
+        };
+      }
+      return null;
+    }
+
+    function setTool(tool) {
+      activeTool = tool === "bucket" ? "bucket" : "select";
+      drag = null;
+      toolSelect.classList.toggle("active", activeTool === "select");
+      toolSelect.classList.toggle("secondary", activeTool !== "select");
+      toolBucket.classList.toggle("active", activeTool === "bucket");
+      toolBucket.classList.toggle("secondary", activeTool !== "bucket");
+      const bucketEnabled = activeTool === "bucket";
+      bucketControls.style.opacity = bucketEnabled ? "1" : ".55";
+      for (const input of [paintColor, paintHex, paintTolerance, paintToleranceNumber]) {
+        input.disabled = !bucketEnabled || paintBusy;
+      }
+      canvas.style.cursor = bucketEnabled ? "crosshair" : "default";
+      renderInspector();
+      draw();
+    }
+
+    async function paintAt(point) {
+      if (paintBusy || viewMode !== "texture") return;
+      const hit = paintHitTest(point);
+      if (!hit) {
+        loadStatus.textContent = "Choose a visible logo, trim, or panel image to fill.";
+        return;
+      }
+      activeKey = hit.item.key;
+      paintBusy = true;
+      renderLayerList();
+      setTool("bucket");
+      loadStatus.textContent = `Filling ${hit.item.label}...`;
+      try {
+        const response = await fetch("/api/paint", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            key: hit.item.key,
+            x: hit.x,
+            y: hit.y,
+            color: paintColor.value,
+            tolerance: Number(paintTolerance.value || 0),
+          }),
+        });
+        if (!response.ok) throw new Error(`Paint failed: ${response.status}`);
+        const result = await response.json();
+        await loadProject();
+        loadStatus.textContent = result.changed
+          ? `Filled ${hit.item.label}`
+          : (result.message || "No pixels changed.");
+      } catch (error) {
+        loadStatus.textContent = error.message;
+      } finally {
+        paintBusy = false;
+        setTool("bucket");
+      }
+    }
+
     canvas.addEventListener("pointerdown", event => {
       if (event.button === 1) {
         event.preventDefault();
@@ -553,6 +669,11 @@ INDEX_HTML = """<!doctype html>
       if (event.button !== 0) return;
       if (viewMode === "region") return;
       const point = canvasPoint(event);
+      if (activeTool === "bucket") {
+        event.preventDefault();
+        paintAt(point);
+        return;
+      }
       const hit = hitTest(point);
       if (!hit) {
         activeKey = null;
@@ -610,7 +731,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     document.addEventListener("keydown", event => {
-      if (!event.key.startsWith("Arrow") || viewMode === "region") return;
+      if (!event.key.startsWith("Arrow") || viewMode === "region" || activeTool !== "select") return;
       const activeElement = document.activeElement;
       if (activeElement && ["INPUT", "SELECT", "TEXTAREA"].includes(activeElement.tagName)) {
         return;
@@ -639,7 +760,7 @@ INDEX_HTML = """<!doctype html>
         stage.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
         return;
       }
-      if (viewMode === "region") return;
+      if (viewMode === "region" || activeTool !== "select") return;
       if (!drag) return;
       const point = canvasPoint(event);
       const item = project.overlays.find(candidate => candidate.key === drag.key);
@@ -699,10 +820,10 @@ INDEX_HTML = """<!doctype html>
     canvas.addEventListener("pointerup", async event => {
       if (pan && pan.pointerId === event.pointerId) {
         pan = null;
-        canvas.style.cursor = "";
+        canvas.style.cursor = activeTool === "bucket" ? "crosshair" : "default";
         return;
       }
-      if (viewMode === "region") return;
+      if (viewMode === "region" || activeTool !== "select") return;
       if (!drag) return;
       const item = project.overlays.find(candidate => candidate.key === drag.key);
       drag = null;
@@ -714,7 +835,7 @@ INDEX_HTML = """<!doctype html>
     canvas.addEventListener("pointercancel", event => {
       if (pan && pan.pointerId === event.pointerId) {
         pan = null;
-        canvas.style.cursor = "";
+        canvas.style.cursor = activeTool === "bucket" ? "crosshair" : "default";
       }
     });
 
@@ -813,6 +934,52 @@ INDEX_HTML = """<!doctype html>
     flipX.onclick = flipSelected;
     applyTransparency.onclick = () => sendTransparency(false);
     resetTransparency.onclick = () => sendTransparency(true);
+    toolSelect.onclick = () => setTool("select");
+    toolBucket.onclick = () => setTool("bucket");
+    paintColor.oninput = () => {
+      paintHex.value = paintColor.value;
+    };
+    paintHex.onchange = () => {
+      const value = paintHex.value.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+        paintColor.value = value;
+        paintHex.value = value.toLowerCase();
+      } else {
+        paintHex.value = paintColor.value;
+      }
+    };
+    function setPaintTolerance(value) {
+      const clamped = Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+      paintTolerance.value = String(clamped);
+      paintToleranceNumber.value = String(clamped);
+    }
+    paintTolerance.oninput = () => setPaintTolerance(paintTolerance.value);
+    paintToleranceNumber.oninput = () => setPaintTolerance(paintToleranceNumber.value);
+    undoPaint.onclick = async () => {
+      const item = activeItem();
+      if (!item?.canPaint || !item.canUndoPaint || paintBusy) return;
+      paintBusy = true;
+      setTool("bucket");
+      loadStatus.textContent = `Undoing fill on ${item.label}...`;
+      try {
+        const response = await fetch("/api/paint/undo", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({key: item.key}),
+        });
+        if (!response.ok) throw new Error(`Undo failed: ${response.status}`);
+        const result = await response.json();
+        await loadProject();
+        loadStatus.textContent = result.ok
+          ? `Undid fill on ${item.label}`
+          : (result.message || "No fill is available to undo.");
+      } catch (error) {
+        loadStatus.textContent = error.message;
+      } finally {
+        paintBusy = false;
+        setTool("bucket");
+      }
+    };
     showUvOverlay.onchange = () => {
       uvOverlayTouched = true;
       uvOverlayEnabled = showUvOverlay.checked;
@@ -880,6 +1047,7 @@ INDEX_HTML = """<!doctype html>
     viewTexture.onclick = () => setViewMode("texture");
     viewRegion.onclick = () => setViewMode("region");
     window.addEventListener("resize", draw);
+    setTool("select");
     loadProject();
   </script>
 </body>
@@ -1903,6 +2071,18 @@ class WebEditorServer:
                     payload = json.loads(self.rfile.read(length).decode("utf-8"))
                     app._run_on_ui_thread(lambda: app._web_editor_transparency(payload))
                     self._send_json({"ok": True})
+                    return
+                if self.path.startswith("/api/paint/undo"):
+                    length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                    result = app._run_on_ui_thread(lambda: app._web_editor_undo_paint(payload))
+                    self._send_json(result)
+                    return
+                if self.path.startswith("/api/paint"):
+                    length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                    result = app._run_on_ui_thread(lambda: app._web_editor_paint(payload))
+                    self._send_json({"ok": True, **result})
                     return
                 if self.path.startswith("/api/flip"):
                     length = int(self.headers.get("Content-Length", "0"))

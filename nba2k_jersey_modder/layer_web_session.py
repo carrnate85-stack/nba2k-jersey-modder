@@ -5,8 +5,9 @@ from io import BytesIO
 import json
 from pathlib import Path
 import threading
+import uuid
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from .generator import (
     BackgroundCleanupSettings,
@@ -50,6 +51,7 @@ class LayerWebSession:
         self._lock = threading.RLock()
         self._revision = 0
         self._return_requested = False
+        self._paint_history: list[tuple[str, Path, Path]] = []
         self._write_state()
 
     def _run_on_ui_thread(self, callback):
@@ -117,6 +119,7 @@ class LayerWebSession:
                 _int(item.get("width"), 2048, 1, 8192), _int(item.get("height"), 2048, 1, 8192),
                 rotation=_float(item.get("rotationDegrees"), 0, -360, 360),
                 can_rotate=True, can_cleanup=False, can_reorder=True,
+                can_paint=False,
                 lock_aspect=False, exclude_boxes=waistband_boxes,
                 layer_label=f"Trim path layer {active_index + 1}",
             )
@@ -151,6 +154,7 @@ class LayerWebSession:
                 rotation=placement.rotation_degrees, can_rotate=is_side, can_flip=is_trim,
                 flip_x=bool(self.generator["trimPlacements"].get(key, {}).get("flipX", False)) if is_trim else False,
                 can_reorder=is_logo, lock_aspect=lock_aspect, can_lock_aspect=can_lock_aspect,
+                can_paint=key == "front_wordmark" or is_logo or is_trim or is_side or is_waistband,
                 clip_box=clip, guide_box=guide,
                 layer_label=("Top layer" if key == "front_wordmark" else "Side panel layer" if is_side else "Waistband image layer" if is_waistband else "Trim layer" if is_trim else "Logo layer" if is_logo else "Layer"),
             )
@@ -179,7 +183,8 @@ class LayerWebSession:
                  can_flip: bool = False, flip_x: bool = False, can_cleanup: bool = True,
                  can_reorder: bool = False, lock_aspect: bool = True,
                  can_lock_aspect: bool = False, clip_box=None,
-                 guide_box=None, exclude_boxes=None, layer_label="Layer") -> dict:
+                 guide_box=None, exclude_boxes=None, can_paint: bool = False,
+                 layer_label="Layer") -> dict:
         return {
             "key": key, "label": label, "x": x, "y": y, "width": width, "height": height,
             "imageUrl": f"/api/image/{key}", "blendMode": "normal", "lockX": False,
@@ -188,6 +193,8 @@ class LayerWebSession:
             "canRotate": can_rotate, "rotation": rotation, "canFlip": can_flip, "flipX": flip_x,
             "clipBox": clip_box, "guideBox": guide_box, "excludeBoxes": exclude_boxes or [],
             "canCleanup": can_cleanup, "cleanup": self._cleanup_payload(key),
+            "canPaint": can_paint,
+            "canUndoPaint": any(history_key == key for history_key, _old, _new in self._paint_history),
             "canReorder": can_reorder, "layerLabel": layer_label,
         }
 
@@ -338,6 +345,79 @@ class LayerWebSession:
         else: cleanup[key] = {name: payload.get(name) for name in ("autoBackground", "removeWhite", "removeBlack", "outsideOnly", "tolerance")}
         self._write_state()
 
+    def _web_editor_paint(self, payload: dict) -> dict:
+        key = str(payload.get("key") or "")
+        source = self._source_path(key)
+        if source is None:
+            raise ValueError("The selected layer cannot be painted.")
+        color = _hex_color(payload.get("color"))
+        tolerance = _int(payload.get("tolerance"), 24, 0, 255)
+        normalized_x = _float(payload.get("x"), 0.5, 0.0, 1.0)
+        normalized_y = _float(payload.get("y"), 0.5, 0.0, 1.0)
+        if key in TRIM_KEYS and bool(self.generator["trimPlacements"].get(key, {}).get("flipX", False)):
+            normalized_x = 1.0 - normalized_x
+
+        with Image.open(source) as opened:
+            image = opened.convert("RGBA")
+        seed = (
+            min(image.width - 1, max(0, round(normalized_x * (image.width - 1)))),
+            min(image.height - 1, max(0, round(normalized_y * (image.height - 1)))),
+        )
+        seed_pixel = image.getpixel(seed)
+        if seed_pixel[3] < 8:
+            raise ValueError("Paint Bucket cannot fill a transparent area.")
+        replacement = (*color, seed_pixel[3])
+        if seed_pixel == replacement:
+            return {"changed": False, "message": "That area already uses the selected color."}
+        ImageDraw.floodfill(image, seed, replacement, thresh=tolerance)
+
+        output_dir = source.parent / "painted"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output = output_dir / f"{source.stem}_paint_{uuid.uuid4().hex[:8]}.png"
+        image.save(output, "PNG", compress_level=1)
+        self._set_source_path(key, output)
+        self._paint_history.append((key, source, output))
+        self._write_state()
+        return {"changed": True, "path": str(output)}
+
+    def _web_editor_undo_paint(self, payload: dict) -> dict:
+        key = str(payload.get("key") or "")
+        for index in range(len(self._paint_history) - 1, -1, -1):
+            history_key, previous, _painted = self._paint_history[index]
+            if history_key != key:
+                continue
+            self._paint_history.pop(index)
+            self._set_source_path(key, previous)
+            self._write_state()
+            return {"ok": True}
+        return {"ok": False, "message": "No Paint Bucket change is available to undo for this layer."}
+
+    def _source_path(self, key: str) -> Path | None:
+        if key == "front_wordmark":
+            return _path(self.generator["images"].get("front_wordmark_image"))
+        if key.startswith("logo:"):
+            index = _int(key.split(":", 1)[1], -1, -1, 9999)
+            logos = self.generator.get("logos", [])
+            return _path(logos[index].get("path")) if 0 <= index < len(logos) else None
+        image_key = TRIM_KEYS.get(key) or SIDE_PANEL_KEYS.get(key) or WAISTBAND_KEYS.get(key)
+        return _path(self.generator["images"].get(image_key)) if image_key else None
+
+    def _set_source_path(self, key: str, path: Path) -> None:
+        if key == "front_wordmark":
+            self.generator["images"]["front_wordmark_image"] = str(path)
+            return
+        if key.startswith("logo:"):
+            index = _int(key.split(":", 1)[1], -1, -1, 9999)
+            logos = self.generator.get("logos", [])
+            if not 0 <= index < len(logos):
+                raise ValueError("The selected logo no longer exists.")
+            logos[index]["path"] = str(path)
+            return
+        image_key = TRIM_KEYS.get(key) or SIDE_PANEL_KEYS.get(key) or WAISTBAND_KEYS.get(key)
+        if not image_key:
+            raise ValueError("The selected layer cannot be painted.")
+        self.generator["images"][image_key] = str(path)
+
     def _web_editor_flip(self, payload: dict) -> None:
         key = str(payload.get("key") or "")
         if key not in TRIM_KEYS: return
@@ -391,3 +471,13 @@ def _float(value, default: float, minimum: float, maximum: float) -> float:
 
 def _scaled(current, requested: float, rendered: int) -> int:
     return _int(round(float(current or 100) * requested / max(1, rendered)), 100, 1, 500)
+
+
+def _hex_color(value: object) -> tuple[int, int, int]:
+    text = str(value or "").strip().lstrip("#")
+    if len(text) != 6:
+        raise ValueError("Choose a valid six-digit paint color.")
+    try:
+        return tuple(int(text[index:index + 2], 16) for index in (0, 2, 4))
+    except ValueError as exc:
+        raise ValueError("Choose a valid six-digit paint color.") from exc
