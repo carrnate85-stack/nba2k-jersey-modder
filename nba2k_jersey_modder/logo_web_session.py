@@ -16,11 +16,11 @@ from .generator import (
 
 
 LOGO_TYPES = (
+    ("Front Wordmark", "front_wordmark"),
     ("Center Chest Logo", "front_center_chest_logo"),
     ("Left Chest Logo", "front_left_chest_logo"),
     ("Right Chest Logo", "front_right_chest_logo"),
-    ("Front Wordmark", "front_wordmark"),
-    ("Wrap Logo", "wrap_across_front_back_logo"),
+    ("Wrap Image", "wrap_across_front_back_logo"),
     ("Back Neck Logo", "back_neck_logo"),
     ("Back Center Logo", "back_center_logo"),
     ("Belt Buckle Logo", "shorts_belt_buckle_logo"),

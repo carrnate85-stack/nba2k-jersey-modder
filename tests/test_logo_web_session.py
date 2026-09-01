@@ -20,6 +20,7 @@ class LogoWebSessionTests(unittest.TestCase):
             Image.new("RGBA", (96, 48), (18, 60, 140, 255)).save(imported)
 
             session = LogoWebSession(reference, folder / "state.json")
+            self.assertEqual("front_wordmark", session.project()["logoTypes"][0]["target"])
             project = session.import_image({
                 "path": str(imported),
                 "target": "front_center_chest_logo",
