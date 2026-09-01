@@ -127,6 +127,12 @@ class ScannerTests(unittest.TestCase):
         self.assertIn('class="tool-icon"', INDEX_HTML)
         self.assertIn('"base_colors"', INDEX_HTML)
 
+    def test_web_editors_can_switch_uv_lines_between_black_and_white(self) -> None:
+        self.assertIn('id="uvColor"', INDEX_HTML)
+        self.assertIn('uvOverlayColor === "white" ? "invert(1)"', INDEX_HTML)
+        self.assertIn('id="uvColor"', TRIM_PATH_LAB_HTML)
+        self.assertIn('getElementById("uvColor").value === "white" ? "invert(1)"', TRIM_PATH_LAB_HTML)
+
     def test_trim_path_lab_has_saved_smooth_curve_bend_control(self) -> None:
         self.assertIn('id="curveStrength"', TRIM_PATH_LAB_HTML)
         self.assertIn('id="curveStrengthNumber"', TRIM_PATH_LAB_HTML)

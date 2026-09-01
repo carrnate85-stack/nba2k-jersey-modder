@@ -116,6 +116,8 @@ INDEX_HTML = """<!doctype html>
       <div id="uvPanel" class="uv-panel">
         <h2>UV Overlay</h2>
         <label class="check"><input id="showUvOverlay" type="checkbox"> Show UV overlay</label>
+        <label for="uvColor">Line color</label>
+        <select id="uvColor"><option value="black">Black</option><option value="white">White</option></select>
         <label for="uvOpacity">Opacity <span id="uvOpacityLabel">45%</span></label>
         <input id="uvOpacity" type="range" min="0" max="100" step="1" value="45">
       </div>
@@ -191,6 +193,7 @@ INDEX_HTML = """<!doctype html>
     const returnToApp = document.getElementById("returnToApp");
     const uvPanel = document.getElementById("uvPanel");
     const showUvOverlay = document.getElementById("showUvOverlay");
+    const uvColor = document.getElementById("uvColor");
     const uvOpacity = document.getElementById("uvOpacity");
     const uvOpacityLabel = document.getElementById("uvOpacityLabel");
     const toolSelect = document.getElementById("toolSelect");
@@ -211,6 +214,7 @@ INDEX_HTML = """<!doctype html>
     let uvOverlayAvailable = false;
     let uvOverlayEnabled = false;
     let uvOverlayOpacity = 45;
+    let uvOverlayColor = "black";
     let uvOverlayTouched = false;
     let overlays = new Map();
     let activeKey = null;
@@ -272,6 +276,7 @@ INDEX_HTML = """<!doctype html>
           if (!uvOverlayTouched) {
             uvOverlayEnabled = Boolean(project.uvOverlay?.enabled);
             uvOverlayOpacity = Math.max(0, Math.min(100, Number(project.uvOverlay?.opacity ?? uvOverlayOpacity)));
+            uvOverlayColor = project.uvOverlay?.color === "white" ? "white" : "black";
           }
           uvImage = await loadImage(project.uvOverlay.imageUrl) || new Image();
         }
@@ -437,6 +442,8 @@ INDEX_HTML = """<!doctype html>
       showUvOverlay.checked = uvOverlayEnabled;
       showUvOverlay.disabled = !uvOverlayAvailable;
       uvOpacity.disabled = !uvOverlayAvailable || !uvOverlayEnabled;
+      uvColor.disabled = !uvOverlayAvailable || !uvOverlayEnabled;
+      uvColor.value = uvOverlayColor;
       uvOpacity.value = uvOverlayOpacity;
       uvOpacityLabel.textContent = `${Math.round(uvOverlayOpacity)}%`;
     }
@@ -446,6 +453,7 @@ INDEX_HTML = """<!doctype html>
       if (!uvImage.complete || !uvImage.naturalWidth) return;
       ctx.save();
       ctx.globalAlpha = Math.max(0, Math.min(1, uvOverlayOpacity / 100));
+      ctx.filter = uvOverlayColor === "white" ? "invert(1)" : "none";
       ctx.drawImage(uvImage, 0, 0, 2048, 2048);
       ctx.restore();
     }
@@ -1069,6 +1077,11 @@ INDEX_HTML = """<!doctype html>
       uvOverlayTouched = true;
       uvOverlayOpacity = Number(uvOpacity.value || 0);
       uvOpacityLabel.textContent = `${Math.round(uvOverlayOpacity)}%`;
+      draw();
+    };
+    uvColor.onchange = () => {
+      uvOverlayTouched = true;
+      uvOverlayColor = uvColor.value === "white" ? "white" : "black";
       draw();
     };
     document.getElementById("editorZoomOut").onclick = () => {

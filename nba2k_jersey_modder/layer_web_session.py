@@ -188,7 +188,13 @@ class LayerWebSession:
         return {
             "textureSize": 2048,
             "baseUrl": "/api/base.png",
-            "uvOverlay": {"available": uv_path.exists(), "imageUrl": "/api/uv.png", "enabled": bool(uv.get("enabled", True)), "opacity": _int(uv.get("opacity"), 45, 0, 100)},
+            "uvOverlay": {
+                "available": uv_path.exists(),
+                "imageUrl": "/api/uv.png",
+                "enabled": bool(uv.get("enabled", True)),
+                "opacity": _int(uv.get("opacity"), 45, 0, 100),
+                "color": "white" if str(uv.get("color") or "black").casefold() == "white" else "black",
+            },
             "canUndoBasePaint": bool(self._base_paint_history),
             "overlays": overlays,
         }

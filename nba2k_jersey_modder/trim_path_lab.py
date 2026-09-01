@@ -136,6 +136,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <label for="templateOpacity">Generator preview opacity</label>
         <div class="range-row"><input id="templateOpacity" type="range" min="0" max="100" value="65"><output id="templateOpacityValue">65%</output></div>
         <label class="check"><input id="showUvOverlay" type="checkbox" checked> Show UV overlay</label>
+        <label for="uvColor">UV line color</label>
+        <select id="uvColor"><option value="black">Black</option><option value="white">White</option></select>
         <label for="uvOpacity">UV opacity</label>
         <div class="range-row"><input id="uvOpacity" type="range" min="0" max="100" value="45"><output id="uvOpacityValue">45%</output></div>
         <label class="check"><input id="showPoints" type="checkbox" checked> Show path points</label>
@@ -240,6 +242,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         }
         await Promise.all(imageLoads);
         document.getElementById("showUvOverlay").disabled = !uvOverlayAvailable;
+        document.getElementById("uvColor").disabled = !uvOverlayAvailable;
+        document.getElementById("uvColor").value = project.uvOverlay?.color === "white" ? "white" : "black";
         document.getElementById("uvOpacity").disabled = !uvOverlayAvailable;
         patternSampleCanvas.width = Math.max(1, patternImage.naturalWidth);
         patternSampleCanvas.height = Math.max(1, patternImage.naturalHeight);
@@ -301,7 +305,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       ctx.drawImage(backgroundImage, panX, panY, project.width * viewScale, project.height * viewScale);
       if (uvOverlayAvailable && document.getElementById("showUvOverlay").checked && uvImage.complete) {
         ctx.globalAlpha = Number(document.getElementById("uvOpacity").value) / 100;
+        ctx.filter = document.getElementById("uvColor").value === "white" ? "invert(1)" : "none";
         ctx.drawImage(uvImage, panX, panY, project.width * viewScale, project.height * viewScale);
+        ctx.filter = "none";
       }
       ctx.globalAlpha = 1;
       ctx.translate(panX, panY);
@@ -1803,6 +1809,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     };
     document.getElementById("templateOpacity").oninput = () => { updateControlLabels(); queueDraw(); };
     document.getElementById("showUvOverlay").onchange = queueDraw;
+    document.getElementById("uvColor").onchange = queueDraw;
     document.getElementById("uvOpacity").oninput = () => { updateControlLabels(); queueDraw(); };
     document.getElementById("showPoints").onchange = queueDraw;
     window.addEventListener("resize", resizeCanvas);

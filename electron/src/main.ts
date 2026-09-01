@@ -36,7 +36,7 @@ const defaultProject = (): JsonObject => ({
     jerseyBackground: { tile: false, tileScalePercent: 100 }, logos: [], trimPathLayers: [], paintFillLayers: [], trimPathDesigns: [], trimPathPattern: null, trimPlacements: {},
     backgroundCleanup: { removeWhite: false, removeBlack: false, outsideOnly: true, tolerance: 32 },
     fabricOverlay: { preset: 'None', customPath: null, blendMode: 'multiply', opacity: 0 },
-    uvOverlay: { enabled: true, opacity: 45 },
+    uvOverlay: { enabled: true, opacity: 45, color: 'black' },
     numberPreview: { enabled: true, text: '15', x: 1160, y: 780, scale: 100, scaleWidth: 100, scaleHeight: 100 },
     webEditor: { layerOrder: [], layerCleanup: {} },
   },

@@ -53,7 +53,12 @@ class GeneratorService:
         with Image.open(path) as opened: overlay = opened.convert("RGBA")
         if overlay.size != image.size: overlay = overlay.resize(image.size, Image.Resampling.LANCZOS)
         alpha = overlay.getchannel("A").point(lambda value: round(value * opacity / 100))
-        return Image.composite(Image.new("RGB", image.size, (0, 0, 0)), image, alpha)
+        line_value = 255 if str(uv.get("color") or "black").casefold() == "white" else 0
+        return Image.composite(
+            Image.new("RGB", image.size, (line_value, line_value, line_value)),
+            image,
+            alpha,
+        )
 
     def render_texture(self, document: ProjectDocument, texture_type: str, strength: int = 15):
         if texture_type == "Color Texture": return self.render_color(document)

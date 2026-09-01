@@ -8,6 +8,7 @@ from PIL import Image
 
 from nba2k_jersey_modder.modern.document import ProjectDocument
 from nba2k_jersey_modder.modern.font_catalog import describe_manifest_font
+from nba2k_jersey_modder.modern.services import GeneratorService
 from nba2k_jersey_modder.game_manifest import ManifestEntry
 
 
@@ -20,6 +21,7 @@ class ModernProjectDocumentTests(unittest.TestCase):
         self.assertEqual(document.generator["colors"]["left_panel_color"], "")
         self.assertEqual(document.generator["colors"]["shorts_left_panel_color"], "")
         self.assertTrue(document.generator["uvOverlay"]["enabled"])
+        self.assertEqual(document.generator["uvOverlay"]["color"], "black")
         self.assertIsNone(document.generator["trimPathPattern"])
         self.assertEqual(document.generator["trimPathDesigns"], [])
 
@@ -35,6 +37,7 @@ class ModernProjectDocumentTests(unittest.TestCase):
         self.assertEqual(document.generator["colors"]["front_color"], "#112233")
         self.assertIn("back_color", document.generator["colors"])
         self.assertIn("uvOverlay", document.generator)
+        self.assertEqual(document.generator["uvOverlay"]["color"], "black")
         self.assertEqual(document.payload["projectVersion"], 2)
 
     def test_shorts_inputs_use_dedicated_panel_images(self) -> None:
@@ -67,6 +70,25 @@ class ModernProjectDocumentTests(unittest.TestCase):
         colors["shorts_left_panel_color"] = "#abcdef"
         self.assertEqual(colors["left_panel_color"], "#123456")
         self.assertEqual(document.to_generator_inputs().left_panel_color, "#abcdef")
+
+    def test_preview_can_tint_uv_lines_black_or_white(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            uv_path = Path(folder) / "uv.png"
+            overlay = Image.new("RGBA", (2, 1), (0, 0, 0, 0))
+            overlay.putpixel((0, 0), (0, 0, 0, 255))
+            overlay.save(uv_path)
+            service = GeneratorService()
+            service.render_color = lambda _document: Image.new("RGB", (2, 1), (50, 80, 110))
+            service.uv_path = lambda _document: uv_path
+            document = ProjectDocument()
+            document.generator["uvOverlay"].update(enabled=True, opacity=100, color="white")
+            white = service.render_preview(document)
+            self.assertEqual(white.getpixel((0, 0)), (255, 255, 255))
+            self.assertEqual(white.getpixel((1, 0)), (50, 80, 110))
+
+            document.generator["uvOverlay"]["color"] = "black"
+            black = service.render_preview(document)
+            self.assertEqual(black.getpixel((0, 0)), (0, 0, 0))
 
     def test_manifest_font_description_adds_team_and_uniform_search_terms(self) -> None:
         entry = ManifestEntry(

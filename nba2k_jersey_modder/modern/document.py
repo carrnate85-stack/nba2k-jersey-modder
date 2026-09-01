@@ -54,7 +54,7 @@ def new_project_payload() -> dict:
                                   "outsideOnly": True, "tolerance": 32},
             "fabricOverlay": {"preset": "None", "customPath": None,
                               "blendMode": "multiply", "opacity": 0},
-            "uvOverlay": {"enabled": True, "opacity": 45},
+            "uvOverlay": {"enabled": True, "opacity": 45, "color": "black"},
             "numberPreview": {"enabled": True, "text": "15", "x": 1160,
                               "y": 780, "scale": 100, "scaleWidth": 100,
                               "scaleHeight": 100},

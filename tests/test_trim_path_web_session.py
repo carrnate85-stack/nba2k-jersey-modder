@@ -29,6 +29,7 @@ class TrimPathWebSessionTests(unittest.TestCase):
             self.assertEqual(project["garment"], "Jersey")
             self.assertEqual(project["templateName"], "Retro U")
             self.assertTrue(project["uvOverlay"]["available"])
+            self.assertEqual(project["uvOverlay"]["color"], "black")
 
             layer = Image.new("RGBA", (2048, 2048), (0, 0, 0, 0))
             layer.paste((220, 25, 65, 255), (120, 240, 520, 300))

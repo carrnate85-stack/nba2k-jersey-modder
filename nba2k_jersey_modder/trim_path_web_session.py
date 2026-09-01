@@ -62,6 +62,7 @@ class TrimPathWebSession:
                     "height": zone.height,
                 }
         uv_path = self.service.uv_path(self.document)
+        uv = self.document.generator.get("uvOverlay", {})
         return {
             "hasPattern": self.pattern_path.exists(),
             "garment": self.document.garment,
@@ -72,6 +73,7 @@ class TrimPathWebSession:
             "uvOverlay": {
                 "available": uv_path.exists(),
                 "imageUrl": "/api/trim-path/uv",
+                "color": "white" if str(uv.get("color") or "black").casefold() == "white" else "black",
             },
             "patternUrl": "/api/trim-path/pattern",
             "patternName": self.pattern_path.name,
