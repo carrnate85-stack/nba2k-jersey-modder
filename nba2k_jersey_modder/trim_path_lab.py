@@ -33,6 +33,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     input[type="range"], select { width: 100%; }
     select { background: #11141a; color: #edf1f7; border: 1px solid #475064; border-radius: 5px; padding: 7px; }
     .range-row { display: grid; grid-template-columns: minmax(0, 1fr) 76px; gap: 8px; align-items: center; }
+    .position-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .position-row label { margin-top: 0; }
     output { color: #edf1f7; text-align: right; font-size: 12px; }
     input[type="number"] { width: 100%; min-width: 0; background: #11141a; color: #edf1f7; border: 1px solid #475064; border-radius: 5px; padding: 5px 6px; text-align: right; }
     .check { display: flex; align-items: center; gap: 8px; color: #d7deeb; font-size: 13px; margin-top: 9px; }
@@ -107,6 +109,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         </select>
         <label>Current segment</label>
         <div id="segmentReadout" class="small">Angle: -- | Length: --</div>
+        <label>Path position</label>
+        <div class="position-row">
+          <label for="pathPositionX">X (left edge)<input id="pathPositionX" type="number" min="0" step="1" aria-label="Path X position"></label>
+          <label for="pathPositionY">Y (top edge)<input id="pathPositionY" type="number" min="0" step="1" aria-label="Path Y position"></label>
+        </div>
         <label for="trimWidth">Trim width</label>
         <div class="range-row"><input id="trimWidth" type="range" min="2" max="300" value="64"><input id="trimWidthNumber" type="number" min="2" max="300" value="64" aria-label="Trim width value"></div>
         <label for="patternScale">Pattern length scale</label>
@@ -1054,6 +1061,29 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       };
     }
 
+    function pathBounds(path) {
+      if (!path?.points.length) return null;
+      const xs = path.points.map(point => point.x);
+      const ys = path.points.map(point => point.y);
+      const minX = Math.min(...xs);
+      const minY = Math.min(...ys);
+      const maxX = Math.max(...xs);
+      const maxY = Math.max(...ys);
+      return {x: minX, y: minY, width: maxX - minX, height: maxY - minY};
+    }
+
+    function updatePositionControls() {
+      const bounds = pathBounds(activePath());
+      const xInput = document.getElementById("pathPositionX");
+      const yInput = document.getElementById("pathPositionY");
+      xInput.disabled = !bounds;
+      yInput.disabled = !bounds;
+      xInput.max = Math.max(0, (project?.width || 0) - (bounds?.width || 0));
+      yInput.max = Math.max(0, (project?.height || 0) - (bounds?.height || 0));
+      xInput.value = bounds ? Math.round(bounds.x) : "";
+      yInput.value = bounds ? Math.round(bounds.y) : "";
+    }
+
     function beginPathMove(event) {
       const indexes = movementIndexes();
       dragPathStart = imagePoint(event);
@@ -1070,6 +1100,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         paths[item.index].points = item.points.map(point => ({x: point.x + delta.deltaX, y: point.y + delta.deltaY}));
       });
       updateSegmentReadout();
+      updatePositionControls();
       queueDraw();
     }
 
@@ -1080,8 +1111,35 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         paths[item.index].points = item.points.map(point => ({x: point.x + delta.deltaX, y: point.y + delta.deltaY}));
       });
       updateSegmentReadout();
+      updatePositionControls();
       saveLocalPaths();
       queueDraw();
+    }
+
+    function setPathPosition(axis, rawValue) {
+      const bounds = pathBounds(activePath());
+      if (!bounds) return;
+      const parsed = Number(rawValue);
+      if (!Number.isFinite(parsed)) {
+        updatePositionControls();
+        return;
+      }
+      const current = axis === "x" ? bounds.x : bounds.y;
+      const maximum = axis === "x"
+        ? Math.max(0, project.width - bounds.width)
+        : Math.max(0, project.height - bounds.height);
+      const target = Math.max(0, Math.min(maximum, parsed));
+      moveSelectedLayers(axis === "x" ? target - current : 0, axis === "y" ? target - current : 0);
+      updatePositionControls();
+      setStatus(`${activePath().name} moved to X ${document.getElementById("pathPositionX").value}, Y ${document.getElementById("pathPositionY").value}.`);
+    }
+
+    function bindPositionInput(id, axis) {
+      const input = document.getElementById(id);
+      input.addEventListener("change", event => setPathPosition(axis, event.target.value));
+      input.addEventListener("keydown", event => {
+        if (event.key === "Enter") event.target.blur();
+      });
     }
 
     canvas.addEventListener("pointerdown", event => {
@@ -1115,6 +1173,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           return;
         }
         updateSegmentReadout();
+        updatePositionControls();
         saveLocalPaths();
         updatePathList();
         queueDraw();
@@ -1135,6 +1194,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       } else if (draggingPoint && selectedPointIndex >= 0 && activePath()) {
         activePath().points[selectedPointIndex] = imagePoint(event);
         updateSegmentReadout();
+        updatePositionControls();
         queueDraw();
       } else if (draggingPath) {
         updatePathMove(event);
@@ -1196,6 +1256,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       selectedPointIndex = -1;
       livePoint = null;
       updateSegmentReadout();
+      updatePositionControls();
       saveLocalPaths();
       updatePathList();
       setStatus(`${path.name} finished. Drag any point to refine the shape.`);
@@ -1210,6 +1271,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       selectedPointIndex = path.points.length - 1;
       livePoint = null;
       updateSegmentReadout();
+      updatePositionControls();
       saveLocalPaths();
       updatePathList();
       queueDraw();
@@ -1318,10 +1380,11 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function syncControls() {
       const path = activePath();
       const disabled = !path;
-      ["curveMode", "curveStrength", "curveStrengthNumber", "tJunctionMode", "trimWidth", "trimWidthNumber", "patternScale", "patternScaleNumber", "patternOffset", "patternOffsetNumber", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
+      ["curveMode", "curveStrength", "curveStrengthNumber", "tJunctionMode", "pathPositionX", "pathPositionY", "trimWidth", "trimWidthNumber", "patternScale", "patternScaleNumber", "patternOffset", "patternOffsetNumber", "createOppositeCopy", "createXMirror", "pathVisible", "duplicatePath", "removePath", "layerDown", "layerUp", "unlinkPath", "saveSelectedPng"].forEach(id => document.getElementById(id).disabled = disabled);
       document.getElementById("linkStatus").textContent = "Layer is not linked.";
       if (!path) {
         updateSegmentReadout();
+        updatePositionControls();
         return;
       }
       document.getElementById("curveMode").value = path.curve;
@@ -1341,6 +1404,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const linkedCount = path.linkGroup ? paths.filter(candidate => candidate.linkGroup === path.linkGroup).length : 0;
       document.getElementById("linkStatus").textContent = linkedCount > 1 ? `Linked group: ${linkedCount} layers.` : "Layer is not linked.";
       updateSegmentReadout();
+      updatePositionControls();
       updateControlLabels();
     }
     function updateControlLabels() {
@@ -1588,6 +1652,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         moveSelectedLayers(deltaX, deltaY);
       }
       updateSegmentReadout();
+      updatePositionControls();
       saveLocalPaths();
       queueDraw();
     });
@@ -1619,6 +1684,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     bindNumericRange("trimWidth", "trimWidthNumber", "width", 2, 300);
     bindNumericRange("patternScale", "patternScaleNumber", "patternScale", 25, 400);
     bindNumericRange("patternOffset", "patternOffsetNumber", "patternOffset", -1024, 1024);
+    bindPositionInput("pathPositionX", "x");
+    bindPositionInput("pathPositionY", "y");
     bindPathControl("pathVisible", "visible", Boolean);
     document.getElementById("moveLinked").onchange = syncControls;
     document.getElementById("angleSnap").onchange = () => {

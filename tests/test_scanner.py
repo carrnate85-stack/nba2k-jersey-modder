@@ -125,6 +125,12 @@ class ScannerTests(unittest.TestCase):
         self.assertIn('path?.curve === "straight_curve_straight"', TRIM_PATH_LAB_HTML)
         self.assertIn("return 4;", TRIM_PATH_LAB_HTML)
 
+    def test_trim_path_lab_has_precise_path_position_controls(self) -> None:
+        self.assertIn('id="pathPositionX"', TRIM_PATH_LAB_HTML)
+        self.assertIn('id="pathPositionY"', TRIM_PATH_LAB_HTML)
+        self.assertIn("function setPathPosition", TRIM_PATH_LAB_HTML)
+        self.assertIn("function updatePositionControls", TRIM_PATH_LAB_HTML)
+
     def test_logo_ai_prompt_straightens_only_accidental_distortion(self) -> None:
         app = object.__new__(JerseyModderApp)
         app._logo_creator_canvas_size = lambda: 1024
