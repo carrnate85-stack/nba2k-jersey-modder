@@ -42,7 +42,8 @@ def new_project_payload() -> dict:
             "colors": dict(GENERATOR_DEFAULT_COLORS),
             "images": {key: None for key in GENERATOR_IMAGE_KEYS},
             "frontWordmark": {"offsetX": 0, "offsetY": 0, "scalePercent": 100,
-                              "scaleWidthPercent": 100, "scaleHeightPercent": 100},
+                              "scaleWidthPercent": 100, "scaleHeightPercent": 100,
+                              "lockAspect": True},
             "jerseyBackground": {"tile": False, "tileScalePercent": 100},
             "logos": [], "trimPathLayers": [], "trimPlacements": {},
             "backgroundCleanup": {"removeWhite": False, "removeBlack": False,
@@ -236,4 +237,3 @@ def _trim_placement(item: dict) -> TrimPlacementSettings:
                                  _optional(item.get("overrideHeight"), 1, 8192),
                                  bool(item.get("flipX", False)),
                                  _float(item.get("rotationDegrees"), 0, -360, 360))
-

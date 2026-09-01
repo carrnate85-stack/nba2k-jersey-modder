@@ -75,7 +75,7 @@ class LogoCreatorPage(FeaturePage):
     def _send(self):
         for key,path in self.staged:
             if key=="front_wordmark": self.document.generator["images"]["front_wordmark_image"]=str(path)
-            else:self.document.generator["logos"].append({"path":str(path),"targetName":key,"offsetX":0,"offsetY":0,"scalePercent":100,"scaleWidthPercent":100,"scaleHeightPercent":100,"stretchX":key=="wrap_across_front_back_logo"})
+            else:self.document.generator["logos"].append({"path":str(path),"targetName":key,"offsetX":0,"offsetY":0,"scalePercent":100,"scaleWidthPercent":100,"scaleHeightPercent":100,"lockAspect":True,"stretchX":key=="wrap_across_front_back_logo"})
         if self.staged:self.documentChanged.emit(); self.statusChanged.emit(f"Sent {len(self.staged)} staged logo(s) to Generator.")
     def _clear(self):self.staged=[];self.list.clear()
 

@@ -132,6 +132,15 @@ class LayerWebSession:
             is_side = key in SIDE_PANEL_KEYS
             is_waistband = key in WAISTBAND_KEYS
             is_logo = key.startswith("logo:")
+            can_lock_aspect = key == "front_wordmark" or is_logo
+            if key == "front_wordmark":
+                lock_aspect = self.generator["frontWordmark"].get("lockAspect", True) is not False
+            elif is_logo:
+                logo_index = _int(key.split(":", 1)[1], -1, -1, 9999)
+                logos = self.generator.get("logos", [])
+                lock_aspect = not (0 <= logo_index < len(logos) and logos[logo_index].get("lockAspect", True) is False)
+            else:
+                lock_aspect = not (is_side or is_waistband)
             guide = None
             clip = None
             if placement.clip_x is not None:
@@ -141,7 +150,7 @@ class LayerWebSession:
                 key, placement.label, placement.x, placement.y, placement.width, placement.height,
                 rotation=placement.rotation_degrees, can_rotate=is_side, can_flip=is_trim,
                 flip_x=bool(self.generator["trimPlacements"].get(key, {}).get("flipX", False)) if is_trim else False,
-                can_reorder=is_logo, lock_aspect=not (key == "front_wordmark" or is_side or is_waistband or is_logo),
+                can_reorder=is_logo, lock_aspect=lock_aspect, can_lock_aspect=can_lock_aspect,
                 clip_box=clip, guide_box=guide,
                 layer_label=("Top layer" if key == "front_wordmark" else "Side panel layer" if is_side else "Waistband image layer" if is_waistband else "Trim layer" if is_trim else "Logo layer" if is_logo else "Layer"),
             )
@@ -168,12 +177,14 @@ class LayerWebSession:
     def _overlay(self, key: str, label: str, x: int, y: int, width: int, height: int, *,
                  rotation: float = 0, can_transform: bool = True, can_rotate: bool = False,
                  can_flip: bool = False, flip_x: bool = False, can_cleanup: bool = True,
-                 can_reorder: bool = False, lock_aspect: bool = True, clip_box=None,
+                 can_reorder: bool = False, lock_aspect: bool = True,
+                 can_lock_aspect: bool = False, clip_box=None,
                  guide_box=None, exclude_boxes=None, layer_label="Layer") -> dict:
         return {
             "key": key, "label": label, "x": x, "y": y, "width": width, "height": height,
             "imageUrl": f"/api/image/{key}", "blendMode": "normal", "lockX": False,
-            "lockWidth": False, "lockAspect": lock_aspect, "canTransform": can_transform,
+            "lockWidth": False, "lockAspect": lock_aspect, "canLockAspect": can_lock_aspect,
+            "canTransform": can_transform,
             "canRotate": can_rotate, "rotation": rotation, "canFlip": can_flip, "flipX": flip_x,
             "clipBox": clip_box, "guideBox": guide_box, "excludeBoxes": exclude_boxes or [],
             "canCleanup": can_cleanup, "cleanup": self._cleanup_payload(key),
@@ -265,8 +276,11 @@ class LayerWebSession:
         current = next((item for item in image_placement_rects(self.service.template(self.document), self.document.to_generator_inputs()) if item.key == key), None)
         if current is None: return None
         dx, dy = round(x - current.x), round(y - current.y)
+        saved_lock_aspect = None
         if key == "front_wordmark":
             item = self.generator["frontWordmark"]
+            saved_lock_aspect = payload.get("lockAspect", item.get("lockAspect", True)) is not False
+            item["lockAspect"] = saved_lock_aspect
             item["offsetX"] = _int(item.get("offsetX"), 0, -9999, 9999) + dx
             item["offsetY"] = _int(item.get("offsetY"), 0, -9999, 9999) + dy
             item["scaleWidthPercent"] = _scaled(item.get("scaleWidthPercent", item.get("scalePercent", 100)), width, current.width)
@@ -276,6 +290,8 @@ class LayerWebSession:
             logos = self.generator.get("logos", [])
             if not 0 <= index < len(logos): return None
             item = logos[index]
+            saved_lock_aspect = payload.get("lockAspect", item.get("lockAspect", True)) is not False
+            item["lockAspect"] = saved_lock_aspect
             item["offsetX"] = _int(item.get("offsetX"), 0, -9999, 9999) + dx
             item["offsetY"] = _int(item.get("offsetY"), 0, -9999, 9999) + dy
             item["scaleWidthPercent"] = _scaled(item.get("scaleWidthPercent", item.get("scalePercent", 100)), width, current.width)
@@ -294,7 +310,13 @@ class LayerWebSession:
                 item["scalePercent"] = _scaled(item.get("scalePercent", 100), width, current.width)
         self._write_state()
         updated = next((item for item in image_placement_rects(self.service.template(self.document), self.document.to_generator_inputs()) if item.key == key), None)
-        return None if updated is None else {"x": updated.x, "y": updated.y, "width": updated.width, "height": updated.height, "rotation": updated.rotation_degrees}
+        if updated is None:
+            return None
+        result = {"x": updated.x, "y": updated.y, "width": updated.width,
+                  "height": updated.height, "rotation": updated.rotation_degrees}
+        if saved_lock_aspect is not None:
+            result["lockAspect"] = saved_lock_aspect
+        return result
 
     def _web_editor_reorder(self, payload: dict) -> None:
         key, direction = str(payload.get("key") or ""), str(payload.get("direction") or "")
@@ -324,9 +346,9 @@ class LayerWebSession:
         self._write_state()
 
     def _web_editor_reset(self) -> None:
-        self.generator["frontWordmark"].update({"offsetX": 0, "offsetY": 0, "scalePercent": 100, "scaleWidthPercent": 100, "scaleHeightPercent": 100})
+        self.generator["frontWordmark"].update({"offsetX": 0, "offsetY": 0, "scalePercent": 100, "scaleWidthPercent": 100, "scaleHeightPercent": 100, "lockAspect": True})
         for logo in self.generator.get("logos", []):
-            logo.update({"offsetX": 0, "offsetY": 0, "scalePercent": 100, "scaleWidthPercent": 100, "scaleHeightPercent": 100})
+            logo.update({"offsetX": 0, "offsetY": 0, "scalePercent": 100, "scaleWidthPercent": 100, "scaleHeightPercent": 100, "lockAspect": True})
         self.generator["trimPlacements"] = {}
         for item in self.generator.get("trimPathLayers", []):
             item.update({"x": item.get("defaultX", 0), "y": item.get("defaultY", 0), "width": item.get("defaultWidth", 2048), "height": item.get("defaultHeight", 2048), "rotationDegrees": 0})

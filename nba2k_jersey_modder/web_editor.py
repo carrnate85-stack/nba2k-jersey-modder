@@ -47,6 +47,10 @@ INDEX_HTML = """<!doctype html>
     .uv-panel h2 { margin-bottom: 6px; }
     .range-row { display: flex; align-items: center; gap: 8px; }
     input[type="range"] { padding: 0; }
+    .aspect-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 8px 10px; border: 1px solid #3b4556; border-radius: 6px; background: #202632; }
+    .aspect-row.hidden { display: none; }
+    .aspect-row .check { margin: 0; }
+    .lock-state { color: #f0b429; font-size: 12px; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -85,6 +89,10 @@ INDEX_HTML = """<!doctype html>
           <div><label for="posH">Height</label><input id="posH" type="number" step="1" min="1"></div>
           <div><label for="rotation">Rotation</label><input id="rotation" type="number" step="1"></div>
         </div>
+        <div id="aspectLockRow" class="aspect-row hidden">
+          <label class="check"><input id="lockAspect" type="checkbox" checked> Lock proportions</label>
+          <span id="lockAspectState" class="lock-state">Locked</span>
+        </div>
         <div class="buttons"><button id="applyPosition">Apply</button></div>
         <div class="buttons">
           <button id="layerUp" class="secondary">Layer Up</button>
@@ -119,6 +127,9 @@ INDEX_HTML = """<!doctype html>
     const posW = document.getElementById("posW");
     const posH = document.getElementById("posH");
     const rotation = document.getElementById("rotation");
+    const aspectLockRow = document.getElementById("aspectLockRow");
+    const lockAspect = document.getElementById("lockAspect");
+    const lockAspectState = document.getElementById("lockAspectState");
     const applyPosition = document.getElementById("applyPosition");
     const layerUp = document.getElementById("layerUp");
     const layerDown = document.getElementById("layerDown");
@@ -155,6 +166,7 @@ INDEX_HTML = """<!doctype html>
     let drag = null;
     let pan = null;
     let nudgeTimer = null;
+    let lastSizeField = "width";
     const HANDLE_SIZE = 56;
     const HANDLE_HIT_RADIUS = 58;
     const ALPHA_HIT_THRESHOLD = 12;
@@ -234,7 +246,10 @@ INDEX_HTML = """<!doctype html>
       for (const item of [...project.overlays].reverse()) {
         const node = document.createElement("div");
         node.className = "layer" + (item.key === activeKey ? " active" : "");
-        node.innerHTML = `<strong>${item.label}</strong><span>${item.layerLabel}</span>`;
+        const lockLabel = item.canLockAspect
+          ? ` - proportions ${item.lockAspect === false ? "unlocked" : "locked"}`
+          : "";
+        node.innerHTML = `<strong>${item.label}</strong><span>${item.layerLabel}${lockLabel}</span>`;
         node.onclick = () => {
           activeKey = item.key;
           renderLayerList();
@@ -264,6 +279,7 @@ INDEX_HTML = """<!doctype html>
       }
       applyTransparency.disabled = disabled || !item.canCleanup;
       resetTransparency.disabled = disabled || !item.canCleanup || !item.cleanup?.isOverride;
+      aspectLockRow.classList.toggle("hidden", disabled || !item.canLockAspect);
       if (!item) {
         selectedName.textContent = viewMode === "region"
           ? "Region preview only."
@@ -275,6 +291,8 @@ INDEX_HTML = """<!doctype html>
         removeBlack.checked = false;
         outsideOnly.checked = true;
         cleanupTolerance.value = "";
+        lockAspect.checked = true;
+        lockAspectState.textContent = "Locked";
         return;
       }
       selectedName.textContent = `${item.label} - ${item.layerLabel}${item.flipX ? " - flipped" : ""}`;
@@ -285,6 +303,8 @@ INDEX_HTML = """<!doctype html>
       rotation.value = Math.round(item.rotation || 0);
       posX.disabled = !item.canTransform || item.lockX;
       posW.disabled = !item.canTransform || item.lockWidth;
+      lockAspect.checked = item.lockAspect !== false;
+      lockAspectState.textContent = lockAspect.checked ? "Locked" : "Unlocked";
       autoBackground.checked = Boolean(item.cleanup?.autoBackground);
       removeWhite.checked = Boolean(item.cleanup?.removeWhite);
       removeBlack.checked = Boolean(item.cleanup?.removeBlack);
@@ -566,6 +586,7 @@ INDEX_HTML = """<!doctype html>
           width: item.width,
           height: item.height,
           rotation: item.rotation || 0,
+          lockAspect: item.lockAspect !== false,
         }),
       });
       if (!response.ok) throw new Error(`Save failed: ${response.status}`);
@@ -650,9 +671,13 @@ INDEX_HTML = """<!doctype html>
             item.width = widthFromX;
             item.height = heightFromY;
           } else {
-            const ratio = drag.original.height / Math.max(1, drag.original.width);
-            item.width = Math.max(widthFromX, heightFromY / ratio);
-            item.height = Math.max(1, item.width * ratio);
+            const widthScale = widthFromX / Math.max(1, drag.original.width);
+            const heightScale = heightFromY / Math.max(1, drag.original.height);
+            const scale = Math.abs(widthScale - 1) >= Math.abs(heightScale - 1)
+              ? widthScale
+              : heightScale;
+            item.width = Math.max(1, drag.original.width * scale);
+            item.height = Math.max(1, drag.original.height * scale);
           }
           const active = {
             x: opposite.x + handle.sx * item.width,
@@ -701,12 +726,44 @@ INDEX_HTML = """<!doctype html>
       const item = activeItem();
       if (!item) return;
       if (!item.lockX) item.x = Number(posX.value || 0);
-      if (!item.lockWidth) item.width = Math.max(1, Number(posW.value || 1));
+      let requestedWidth = Math.max(1, Number(posW.value || 1));
+      let requestedHeight = Math.max(1, Number(posH.value || 1));
+      if (item.canLockAspect && item.lockAspect !== false) {
+        const ratio = item.height / Math.max(1, item.width);
+        if (lastSizeField === "height") requestedWidth = Math.max(1, requestedHeight / ratio);
+        else requestedHeight = Math.max(1, requestedWidth * ratio);
+      }
+      if (!item.lockWidth) item.width = requestedWidth;
       item.y = Number(posY.value || 0);
-      item.height = Math.max(1, Number(posH.value || 1));
+      item.height = requestedHeight;
       item.rotation = Number(rotation.value || 0);
       await sendUpdate(item);
       renderInspector();
+      draw();
+    };
+
+    function syncLockedSize(source) {
+      const item = activeItem();
+      lastSizeField = source;
+      if (!item?.canLockAspect || item.lockAspect === false) return;
+      const ratio = item.height / Math.max(1, item.width);
+      if (source === "width") {
+        posH.value = String(Math.max(1, Math.round(Number(posW.value || 1) * ratio)));
+      } else {
+        posW.value = String(Math.max(1, Math.round(Number(posH.value || 1) / ratio)));
+      }
+    }
+
+    posW.addEventListener("input", () => syncLockedSize("width"));
+    posH.addEventListener("input", () => syncLockedSize("height"));
+
+    lockAspect.onchange = async () => {
+      const item = activeItem();
+      if (!item?.canLockAspect) return;
+      item.lockAspect = lockAspect.checked;
+      lockAspectState.textContent = lockAspect.checked ? "Locked" : "Unlocked";
+      renderLayerList();
+      await sendUpdate(item);
       draw();
     };
 

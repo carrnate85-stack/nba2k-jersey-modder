@@ -40,16 +40,27 @@ class LayerWebSessionTests(unittest.TestCase):
             self.assertIn("collar_trim", overlay_keys)
             self.assertIn("logo:0", overlay_keys)
             overlay = next(item for item in project["overlays"] if item["key"] == "logo:0")
+            self.assertTrue(overlay["canLockAspect"])
+            self.assertTrue(overlay["lockAspect"])
             session._web_editor_update({
                 "key": "logo:0", "x": overlay["x"] + 12, "y": overlay["y"] + 7,
                 "width": overlay["width"], "height": overlay["height"], "rotation": 0,
+                "lockAspect": False,
             })
             session._web_editor_return()
 
             state = json.loads(state_path.read_text(encoding="utf-8"))
             self.assertEqual(state["project"]["generator"]["logos"][0]["offsetX"], 12)
             self.assertEqual(state["project"]["generator"]["logos"][0]["offsetY"], 7)
+            self.assertFalse(state["project"]["generator"]["logos"][0]["lockAspect"])
             self.assertTrue(state["returnRequested"])
+
+            ProjectDocument(state["project"]).save(project_path)
+            reopened = LayerWebSession(project_path, folder / "reopened-state.json")
+            reopened_overlay = next(
+                item for item in reopened._web_editor_project()["overlays"] if item["key"] == "logo:0"
+            )
+            self.assertFalse(reopened_overlay["lockAspect"])
 
 
 if __name__ == "__main__":

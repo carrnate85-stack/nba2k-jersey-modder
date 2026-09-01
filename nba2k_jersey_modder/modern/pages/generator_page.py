@@ -149,7 +149,7 @@ class GeneratorPage(FeaturePage):
         labels = list(LOGO_LABELS.values()); label, ok = QInputDialog.getItem(self, "Logo type", "Type", labels, 0, False)
         if not ok: return
         target = next(key for key, value in LOGO_LABELS.items() if value == label)
-        self.document.generator["logos"].append({"path": path, "targetName": target, "offsetX": 0, "offsetY": 0, "scalePercent": 100, "scaleWidthPercent": 100, "scaleHeightPercent": 100, "stretchX": target == "wrap_across_front_back_logo"})
+        self.document.generator["logos"].append({"path": path, "targetName": target, "offsetX": 0, "offsetY": 0, "scalePercent": 100, "scaleWidthPercent": 100, "scaleHeightPercent": 100, "lockAspect": True, "stretchX": target == "wrap_across_front_back_logo"})
         self._refresh_logo_list(); self._changed()
 
     def _remove_logo(self) -> None:
