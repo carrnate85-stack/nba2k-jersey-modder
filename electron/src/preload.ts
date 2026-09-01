@@ -17,6 +17,8 @@ const api: JerseyApi = {
   engine: (method, params = {}) => ipcRenderer.invoke('engine:call', { method, params }),
   openEditor: (kind, options) => ipcRenderer.invoke('editor:open', { kind, options }),
   openBlender: (project) => ipcRenderer.invoke('blender:open', project),
+  exportAiLogoPack: (items, folder) => ipcRenderer.invoke('logo:export-ai-pack', { items, folder }),
+  copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
   openExternal: (path) => ipcRenderer.invoke('shell:open', path),
   onProjectUpdate: (listener) => { const handler = (_event: unknown, project: JsonObject) => listener(project); ipcRenderer.on('project:external-update', handler); return () => ipcRenderer.removeListener('project:external-update', handler); },
   onStatus: (listener) => { const handler = (_event: unknown, message: string) => listener(message); ipcRenderer.on('app:status', handler); return () => ipcRenderer.removeListener('app:status', handler); },

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, copyFileSync } from 'node:fs';
@@ -305,6 +305,38 @@ ipcMain.handle('blender:open', async (_event, project: JsonObject) => {
   const result = await engine.call('blender_prepare', { project }); if (!result.blender) throw new Error('Blender was not found.');
   spawn(result.blender, [result.model, '--python', result.script, '--', result.color, result.normal, '0.35', result.settings], { cwd: root, detached: true, windowsHide: false }).unref();
 });
+ipcMain.handle('logo:export-ai-pack', (_event, payload: JsonObject) => {
+  const folder = resolve(String(payload.folder || ''));
+  if (!folder) throw new Error('Choose a folder for the AI logo pack.');
+  mkdirSync(folder, { recursive: true });
+  const items = Array.isArray(payload.items) ? payload.items.filter((item) => item?.path && existsSync(item.path)) : [];
+  if (!items.length) throw new Error('Stage at least one logo before exporting an AI pack.');
+  const logoTypes: string[] = [];
+  items.forEach((item, index) => {
+    const label = String(item.typeLabel || 'Logo');
+    logoTypes.push(label);
+    const stem = safeName(label).replaceAll(' ', '_').toLowerCase() || 'logo';
+    copyFileSync(item.path, join(folder, `${String(index + 1).padStart(2, '0')}_${stem}_logo_reference.png`));
+  });
+  const prompt = [
+    'Clean up and redraw these basketball jersey logos as transparent PNGs.',
+    `Logo type(s): ${logoTypes.join(', ')}.`,
+    'Keep the same design, colors, proportions, outline thickness, and visual style.',
+    'If a reference is photographed on curved fabric or at an angle, correct the perspective and warping so the finished logo is flat, level, and viewed straight-on.',
+    'Straighten accidental skew, uneven baselines, and wavy edges, but preserve intentional arches, italic lettering, curves, and asymmetry that are part of the original design.',
+    'Remove background noise, jagged edges, compression artifacts, and blur.',
+    'Use a true transparent background with an alpha channel.',
+    'Do not put the logo on white, black, gray, checkerboard, or any solid-color background.',
+    'Do not redesign it, change the wording, add extra effects, or place it on a jersey mockup.',
+    'Output size should be 1024 x 1024 pixels.',
+    'Keep it centered with a small transparent padding area.',
+    'Return one finished PNG per uploaded reference, keeping the same order as the file names.',
+  ].join('\n');
+  const promptPath = join(folder, 'ai_logo_prompt.txt');
+  writeFileSync(promptPath, prompt, 'utf8');
+  return { folder, count: items.length, prompt: promptPath };
+});
+ipcMain.handle('clipboard:write', (_event, text: string) => { clipboard.writeText(String(text || '')); });
 
 app.whenReady().then(() => { mkdirSync(projectsFolder, { recursive: true }); engine.start(); createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

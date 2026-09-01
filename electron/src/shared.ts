@@ -19,6 +19,8 @@ export interface JerseyApi {
   engine(method: string, params?: JsonObject): Promise<any>;
   openEditor(kind: string, options: JsonObject): Promise<EditorResult>;
   openBlender(project: JsonObject): Promise<void>;
+  exportAiLogoPack(items: JsonObject[], folder: string): Promise<{ folder: string; count: number; prompt: string }>;
+  copyText(text: string): Promise<void>;
   openExternal(path: string): Promise<void>;
   onProjectUpdate(listener: (project: JsonObject) => void): () => void;
   onStatus(listener: (message: string) => void): () => void;
