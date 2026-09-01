@@ -300,8 +300,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--reference", required=True)
     parser.add_argument("--state", required=True)
+    parser.add_argument("--initial-state")
     args = parser.parse_args()
-    session = LogoWebSession(Path(args.reference), Path(args.state))
+    initial = json.loads(Path(args.initial_state).read_text(encoding="utf-8")) if args.initial_state else {}
+    session = LogoWebSession(Path(args.reference), Path(args.state), initial)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler_class(session))
     url = f"http://127.0.0.1:{server.server_port}/"
     print(json.dumps({"url": url}), flush=True)

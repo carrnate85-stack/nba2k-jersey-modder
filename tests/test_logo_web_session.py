@@ -88,6 +88,26 @@ class LogoWebSessionTests(unittest.TestCase):
             self.assertEqual(2, returned["items"])
             self.assertTrue(json.loads(state.read_text(encoding="utf-8"))["returnRequested"])
 
+    def test_restores_staged_logo_for_direct_editing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            reference = folder / "reference.png"
+            imported = folder / "logo.png"
+            Image.new("RGBA", (40, 40), (255, 255, 255, 255)).save(reference)
+            Image.new("RGBA", (80, 36), (22, 90, 170, 255)).save(imported)
+            first = LogoWebSession(reference, folder / "first" / "state.json")
+            staged = first.import_image({"path": str(imported), "target": "front_wordmark"})
+
+            restored = LogoWebSession(
+                reference,
+                folder / "second" / "state.json",
+                {"items": staged["items"], "selectedId": staged["selectedId"]},
+            ).project()
+
+            self.assertEqual(1, len(restored["items"]))
+            self.assertEqual(staged["selectedId"], restored["selectedId"])
+            self.assertTrue(Path(restored["items"][0]["path"]).exists())
+
     @staticmethod
     def _box(left: int, top: int, right: int, bottom: int):
         return [

@@ -162,18 +162,435 @@ function AssetRow({ label, path, choose, clear }: any) { return <div className="
 function Range({ label, value, min, max, onChange }: any) { return <label className="range"><span>{label}</span><input type="range" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))}/><input type="number" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))}/></label>; }
 
 function Creator({ kind, project, projectPath, update, status, setPage }: any) {
-  const isLogo = kind === 'logo'; const typeOptions: readonly (readonly [string, string])[] = isLogo ? logoTypes : trimTypes; const [reference, setReference] = useState<string | null>(null); const [referenceUrl, setReferenceUrl] = useState(''); const [items, setItems] = useState<any[]>([]); const [selected, setSelected] = useState<string | null>(null); const [sampleColor, setSampleColor] = useState('#ffffff'); const [assetTarget, setAssetTarget] = useState<string>(typeOptions[0][1]);
-  const chooseReference = async () => { const source = await window.jersey.chooseFile(isLogo ? 'logo' : 'trim'); if (!source) return; const stored = await window.jersey.storeAsset(projectPath, source, 'references', `${kind}_reference`); setReference(stored); setReferenceUrl(await window.jersey.fileDataUrl(stored)); };
-  const open = async () => { if (!reference) { await chooseReference(); return; } try { const result = await window.jersey.openEditor(kind, { reference }); const staged = result.state?.items || []; setItems(staged); setSelected(result.state?.selectedId || staged.at(-1)?.id || null); } catch (error: any) { status(error.message); } };
-  const importImage = async () => { const source = await window.jersey.chooseFile(isLogo ? 'logo' : 'trim'); if (!source) return; try { const option = typeOptions.find((entry) => entry[1] === assetTarget) || typeOptions[0]; const stored = await window.jersey.storeAsset(projectPath, source, isLogo ? 'logos' : 'trims', `imported_${option[0]}`); const item = { id: `imported-${Date.now()}-${Math.random().toString(16).slice(2)}`, typeLabel: option[0], target: option[1], path: stored, thumbnailPath: stored, sourcePath: source, imported: true, scale: 1 }; setItems((current) => [...current, item]); setSelected(item.id); status(`Imported ${filename(stored)} as ${option[0]}.`); } catch (error: any) { status(error.message); } };
-  const send = async () => { if (!items.length) return; try { const storedItems = await Promise.all(items.map(async (item) => ({ item, stored: await window.jersey.storeAsset(projectPath, item.path, isLogo ? 'logos' : 'trims', item.typeLabel || kind) }))); update((next: any) => { for (const { item, stored } of storedItems) { if (!isLogo) { next.generator.images[item.target] = stored; continue; } if (item.target === 'front_wordmark') { next.generator.images.front_wordmark_image = stored; continue; } const placement = { path: stored, targetName: item.target || 'front_center_chest_logo', offsetX: 0, offsetY: 0, scalePercent: 100, scaleWidthPercent: 100, scaleHeightPercent: 100, stretchX: item.target === 'wrap_across_front_back_logo' }; const existing = next.generator.logos.findIndex((logo: any) => logo.path === stored && logo.targetName === placement.targetName); if (existing >= 0) next.generator.logos[existing] = placement; else next.generator.logos.push(placement); } }); const destinations = storedItems.map(({ item }) => item.typeLabel || (isLogo ? 'Logo' : 'Trim')).join(', '); status(`Sent to Generator: ${destinations}. Open Logos or the Web Layer Editor to position them.`); setPage('generator'); } catch (error: any) { status(error.message); } };
-  const exportToAi = async () => { if (!isLogo || !items.length) return; const folder = await window.jersey.chooseFolder(); if (!folder) return; try { const result = await window.jersey.exportAiLogoPack(items, folder); status(`AI logo pack saved with ${result.count} reference(s).`); } catch (error: any) { status(error.message); } };
-  const pickColor = async () => { try { const EyeDropper = (window as any).EyeDropper; if (!EyeDropper) { status('Use the color swatch to choose a color on this system.'); return; } const result = await new EyeDropper().open(); setSampleColor(String(result.sRGBHex || '#ffffff').toLowerCase()); } catch { /* Canceling the eyedropper is not an error. */ } };
-  const copyColor = async () => { await window.jersey.copyText(sampleColor.toUpperCase()); status(`Copied ${sampleColor.toUpperCase()} to the clipboard.`); };
-  const changeAssetType = (target: string) => { setAssetTarget(target); const option = typeOptions.find((entry) => entry[1] === target); if (!selected || !option) return; setItems((current) => current.map((item) => item.id === selected ? { ...item, target: option[1], typeLabel: option[0] } : item)); };
-  const removeItem = (item: any) => { if (!window.confirm(`Remove ${item.typeLabel || kind} from the staged list?\n\nThe saved image will remain in this project's ${isLogo ? 'logos' : 'trims'} folder.`)) return; const remaining = items.filter((candidate) => candidate.id !== item.id); setItems(remaining); if (selected === item.id) { const next = remaining.at(-1); setSelected(next?.id || null); if (next?.target) setAssetTarget(next.target); } status(`Removed ${filename(item.path)} from the staged list.`); };
+  const isLogo = kind === "logo";
+  const typeOptions: readonly (readonly [string, string])[] = isLogo
+    ? logoTypes
+    : trimTypes;
+  const creatorState = project.creators?.[kind] || {};
+  const reference = creatorState.reference || null;
+  const items: any[] = Array.isArray(creatorState.items)
+    ? creatorState.items
+    : [];
+  const selected: string | null = creatorState.selectedId || null;
+  const [referenceUrl, setReferenceUrl] = useState("");
+  const [sampleColor, setSampleColor] = useState("#ffffff");
+  const [assetTarget, setAssetTarget] = useState<string>(typeOptions[0][1]);
+  const saveCreator = (changes: Record<string, any>) =>
+    update((next: any) => {
+      next.creators ??= {};
+      next.creators[kind] ??= {};
+      Object.assign(next.creators[kind], changes);
+    });
+  useEffect(() => {
+    let active = true;
+    if (!reference) {
+      setReferenceUrl("");
+      return () => {
+        active = false;
+      };
+    }
+    window.jersey
+      .fileDataUrl(reference)
+      .then((value) => {
+        if (active) setReferenceUrl(value);
+      })
+      .catch(() => {
+        if (active) setReferenceUrl("");
+      });
+    return () => {
+      active = false;
+    };
+  }, [reference]);
+  const chooseReference = async () => {
+    const source = await window.jersey.chooseFile(isLogo ? "logo" : "trim");
+    if (!source) return;
+    const stored = await window.jersey.storeAsset(
+      projectPath,
+      source,
+      "references",
+      `${kind}_reference`,
+    );
+    saveCreator({ reference: stored });
+  };
+  const persistSessionItems = async (staged: any[]) =>
+    Promise.all(
+      staged.map(async (item) => {
+        const stored = await window.jersey.storeAsset(
+          projectPath,
+          item.path,
+          isLogo ? "logos" : "trims",
+          item.typeLabel || kind,
+        );
+        let storedSource: string | null = null;
+        if (item.sourcePath) {
+          try {
+            storedSource = await window.jersey.storeAsset(
+              projectPath,
+              item.sourcePath,
+              isLogo ? "logos" : "trims",
+              `${item.typeLabel || kind}_source`,
+            );
+          } catch {
+            storedSource = null;
+          }
+        }
+        return {
+          ...item,
+          path: stored,
+          thumbnailPath: stored,
+          sourcePath: storedSource,
+        };
+      }),
+    );
+  const open = async (editItemId?: string) => {
+    if (!reference) {
+      await chooseReference();
+      return;
+    }
+    try {
+      const result = await window.jersey.openEditor(kind, {
+        reference,
+        items,
+        selectedId: editItemId || selected,
+        startInEditor: Boolean(editItemId),
+      });
+      const staged = await persistSessionItems(result.state?.items || []);
+      saveCreator({
+        items: staged,
+        selectedId:
+          result.state?.selectedId || staged.at(-1)?.id || null,
+      });
+    } catch (error: any) {
+      status(error.message);
+    }
+  };
+  const importImage = async () => {
+    const source = await window.jersey.chooseFile(isLogo ? "logo" : "trim");
+    if (!source) return;
+    try {
+      const option =
+        typeOptions.find((entry) => entry[1] === assetTarget) || typeOptions[0];
+      const stored = await window.jersey.storeAsset(
+        projectPath,
+        source,
+        isLogo ? "logos" : "trims",
+        `imported_${option[0]}`,
+      );
+      const item = {
+        id: `imported-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        typeLabel: option[0],
+        target: option[1],
+        path: stored,
+        thumbnailPath: stored,
+        sourcePath: stored,
+        imported: true,
+        scale: 1,
+      };
+      saveCreator({ items: [...items, item], selectedId: item.id });
+      status(`Imported ${filename(stored)} as ${option[0]}.`);
+    } catch (error: any) {
+      status(error.message);
+    }
+  };
+  const send = async () => {
+    if (!items.length) return;
+    try {
+      const storedItems = await Promise.all(
+        items.map(async (item) => ({
+          item,
+          stored: await window.jersey.storeAsset(
+            projectPath,
+            item.path,
+            isLogo ? "logos" : "trims",
+            item.typeLabel || kind,
+          ),
+        })),
+      );
+      update((next: any) => {
+        for (const { item, stored } of storedItems) {
+          if (!isLogo) {
+            next.generator.images[item.target] = stored;
+            continue;
+          }
+          if (item.target === "front_wordmark") {
+            next.generator.images.front_wordmark_image = stored;
+            continue;
+          }
+          const placement = {
+            path: stored,
+            targetName: item.target || "front_center_chest_logo",
+            offsetX: 0,
+            offsetY: 0,
+            scalePercent: 100,
+            scaleWidthPercent: 100,
+            scaleHeightPercent: 100,
+            stretchX: item.target === "wrap_across_front_back_logo",
+          };
+          const existing = next.generator.logos.findIndex(
+            (logo: any) =>
+              logo.path === stored && logo.targetName === placement.targetName,
+          );
+          if (existing >= 0) next.generator.logos[existing] = placement;
+          else next.generator.logos.push(placement);
+        }
+      });
+      const destinations = storedItems
+        .map(({ item }) => item.typeLabel || (isLogo ? "Logo" : "Trim"))
+        .join(", ");
+      status(
+        `Sent to Generator: ${destinations}. Open Logos or the Web Layer Editor to position them.`,
+      );
+      setPage("generator");
+    } catch (error: any) {
+      status(error.message);
+    }
+  };
+  const exportToAi = async () => {
+    if (!isLogo || !items.length) return;
+    const folder = await window.jersey.chooseFolder();
+    if (!folder) return;
+    try {
+      const result = await window.jersey.exportAiLogoPack(items, folder);
+      status(`AI logo pack saved with ${result.count} reference(s).`);
+    } catch (error: any) {
+      status(error.message);
+    }
+  };
+  const pickColor = async () => {
+    try {
+      const EyeDropper = (window as any).EyeDropper;
+      if (!EyeDropper) {
+        status("Use the color swatch to choose a color on this system.");
+        return;
+      }
+      const result = await new EyeDropper().open();
+      setSampleColor(String(result.sRGBHex || "#ffffff").toLowerCase());
+    } catch {
+      /* Canceling the eyedropper is not an error. */
+    }
+  };
+  const copyColor = async () => {
+    await window.jersey.copyText(sampleColor.toUpperCase());
+    status(`Copied ${sampleColor.toUpperCase()} to the clipboard.`);
+  };
+  const changeAssetType = (target: string) => {
+    setAssetTarget(target);
+    const option = typeOptions.find((entry) => entry[1] === target);
+    if (!selected || !option) return;
+    saveCreator({
+      items: items.map((item) =>
+        item.id === selected
+          ? { ...item, target: option[1], typeLabel: option[0] }
+          : item,
+      ),
+    });
+  };
+  const removeItem = (item: any) => {
+    if (
+      !window.confirm(
+        `Remove ${item.typeLabel || kind} from the staged list?\n\nThe saved image will remain in this project's ${isLogo ? "logos" : "trims"} folder.`,
+      )
+    )
+      return;
+    const remaining = items.filter((candidate) => candidate.id !== item.id);
+    let nextSelected = selected;
+    if (selected === item.id) {
+      const next = remaining.at(-1);
+      nextSelected = next?.id || null;
+      if (next?.target) setAssetTarget(next.target);
+    }
+    saveCreator({ items: remaining, selectedId: nextSelected });
+    status(`Removed ${filename(item.path)} from the staged list.`);
+  };
   const current = items.find((item) => item.id === selected);
-  return <div className="page creator-page"><PageHeader page={kind as PageKey} actions={<><div className="header-reference-color"><strong>Reference color</strong><button className="icon-button" title="Pick from image" onClick={pickColor}><Pipette/></button><input type="color" value={sampleColor} onChange={(event) => setSampleColor(event.target.value)}/><input className="hex" value={sampleColor} onChange={(event) => setSampleColor(event.target.value)}/><button className="icon-button" title="Copy hex color" onClick={copyColor}><Copy/></button></div><button className="primary command large-editor" onClick={open}><WandSparkles/>{reference ? `Open Web ${isLogo ? 'Logo' : 'Trim'} Editor` : 'Choose Reference and Start'}</button></>}/><div className="creator-grid"><div className="creator-left"><div className="reference-panel"><div className="panel-title"><strong>Reference</strong><div><IconButton title="Upload reference" onClick={chooseReference}><Upload/></IconButton><IconButton title={`Import finished ${kind}`} onClick={importImage}><Plus/></IconButton></div></div><div className="reference-image">{referenceUrl ? <img src={referenceUrl}/> : <div><ImageIcon/><span>Upload a uniform reference photo</span></div>}</div><small>{filename(reference)}</small></div><div className="selected-preview"><strong>Selected {isLogo ? 'logo' : 'trim'}</strong>{current ? <><PathImage path={current.path}/><span>{current.typeLabel}</span></> : <div className="empty-preview">Select a staged item</div>}</div></div><div className="creator-right"><section className="tool-panel"><h2>Staged {isLogo ? 'Logos' : 'Trims'}</h2><p>Use the web editor for selection, or reimport a finished image directly into the staged list.</p><div className={`stage-actions ${isLogo ? 'three' : ''}`}><button className="command" onClick={open}><WandSparkles/>Reopen Web Editor</button><button className="primary command" disabled={!items.length} onClick={send}><Layers3/>Send Staged to Generator</button>{isLogo && <button className="command" disabled={!items.length} onClick={exportToAi}><Download/>Export to AI</button>}</div><div className="creator-import"><label className="field"><span>{isLogo ? 'Logo' : 'Trim'} type</span><select value={assetTarget} onChange={(event) => changeAssetType(event.target.value)}>{typeOptions.map(([label, target]) => <option key={target} value={target}>{label}</option>)}</select></label><button className="command" onClick={importImage}><Upload/>Import Finished {isLogo ? 'Logo' : 'Trim'}</button></div><div className="staged-list">{items.length ? items.map((item) => <div className={`staged-item ${item.id === selected ? 'selected' : ''}`} key={item.id}><button className="staged-select" onClick={() => { setSelected(item.id); setAssetTarget(item.target || typeOptions[0][1]); }}><FileImage/><span><strong>{item.typeLabel}</strong><small>{filename(item.path)}</small></span><ChevronRight/></button><button className="staged-remove" title={`Remove ${item.typeLabel || kind}`} onClick={() => removeItem(item)}><X/></button></div>) : <div className="no-items">Nothing staged yet. Select multiple {isLogo ? 'logos with the lasso or box tool' : 'trim lines with the two-point selector'} in the web editor, or import a finished image above.</div>}</div><div className="cleanup-panel"><h3>Cleanup</h3><p>{isLogo ? 'Background removal, edge cleanup, and upscale settings are applied per staged logo in the web editor.' : 'Crop, line correction, sharpening, and color correction are applied per staged trim in the web editor.'}</p></div></section></div></div></div>;
+  return (
+    <div className="page creator-page">
+      <PageHeader
+        page={kind as PageKey}
+        actions={
+          <>
+            <div className="header-reference-color">
+              <strong>Reference color</strong>
+              <button
+                className="icon-button"
+                title="Pick from image"
+                onClick={pickColor}
+              >
+                <Pipette />
+              </button>
+              <input
+                type="color"
+                value={sampleColor}
+                onChange={(event) => setSampleColor(event.target.value)}
+              />
+              <input
+                className="hex"
+                value={sampleColor}
+                onChange={(event) => setSampleColor(event.target.value)}
+              />
+              <button
+                className="icon-button"
+                title="Copy hex color"
+                onClick={copyColor}
+              >
+                <Copy />
+              </button>
+            </div>
+            <button className="primary command large-editor" onClick={() => open()}>
+              <WandSparkles />
+              {reference
+                ? `Open Web ${isLogo ? "Logo" : "Trim"} Editor`
+                : "Choose Reference and Start"}
+            </button>
+          </>
+        }
+      />
+      <div className="creator-grid">
+        <div className="creator-left">
+          <div className="reference-panel">
+            <div className="panel-title">
+              <strong>Reference</strong>
+              <div>
+                <IconButton title="Upload reference" onClick={chooseReference}>
+                  <Upload />
+                </IconButton>
+                <IconButton
+                  title={`Import finished ${kind}`}
+                  onClick={importImage}
+                >
+                  <Plus />
+                </IconButton>
+              </div>
+            </div>
+            <div className="reference-image">
+              {referenceUrl ? (
+                <img src={referenceUrl} />
+              ) : (
+                <div>
+                  <ImageIcon />
+                  <span>Upload a uniform reference photo</span>
+                </div>
+              )}
+            </div>
+            <small>{filename(reference)}</small>
+          </div>
+          <div className="selected-preview">
+            <strong>Selected {isLogo ? "logo" : "trim"}</strong>
+            {current ? (
+              <>
+                <PathImage path={current.path} />
+                <span>{current.typeLabel}</span>
+              </>
+            ) : (
+              <div className="empty-preview">Select a staged item</div>
+            )}
+          </div>
+        </div>
+        <div className="creator-right">
+          <section className="tool-panel">
+            <h2>Staged {isLogo ? "Logos" : "Trims"}</h2>
+            <p>
+              Use the web editor for selection, or reimport a finished image
+              directly into the staged list.
+            </p>
+            <div className={`stage-actions ${isLogo ? "three" : ""}`}>
+              <button className="command" onClick={() => open()}>
+                <WandSparkles />
+                Reopen Web Editor
+              </button>
+              <button
+                className="primary command"
+                disabled={!items.length}
+                onClick={send}
+              >
+                <Layers3 />
+                Send Staged to Generator
+              </button>
+              {isLogo && (
+                <button
+                  className="command"
+                  disabled={!items.length}
+                  onClick={exportToAi}
+                >
+                  <Download />
+                  Export to AI
+                </button>
+              )}
+            </div>
+            <div className="creator-import">
+              <label className="field">
+                <span>{isLogo ? "Logo" : "Trim"} type</span>
+                <select
+                  value={assetTarget}
+                  onChange={(event) => changeAssetType(event.target.value)}
+                >
+                  {typeOptions.map(([label, target]) => (
+                    <option key={target} value={target}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="command" onClick={importImage}>
+                <Upload />
+                Import Finished {isLogo ? "Logo" : "Trim"}
+              </button>
+            </div>
+            <div className="staged-list">
+              {items.length ? (
+                items.map((item) => (
+                  <div
+                    className={`staged-item ${item.id === selected ? "selected" : ""}`}
+                    key={item.id}
+                  >
+                    <button
+                      className="staged-select"
+                      onClick={() => {
+                        saveCreator({ selectedId: item.id });
+                        setAssetTarget(item.target || typeOptions[0][1]);
+                      }}
+                      onDoubleClick={() => open(item.id)}
+                      title={`Double-click to edit ${item.typeLabel || kind}`}
+                    >
+                      <FileImage />
+                      <span>
+                        <strong>{item.typeLabel}</strong>
+                        <small>{filename(item.path)}</small>
+                      </span>
+                      <ChevronRight />
+                    </button>
+                    <button
+                      className="staged-edit"
+                      title={`Edit ${item.typeLabel || kind}`}
+                      onClick={() => open(item.id)}
+                    >
+                      <SlidersHorizontal />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      className="staged-remove"
+                      title={`Remove ${item.typeLabel || kind}`}
+                      onClick={() => removeItem(item)}
+                    >
+                      <X />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="no-items">
+                  Nothing staged yet. Select multiple{" "}
+                  {isLogo
+                    ? "logos with the lasso or box tool"
+                    : "trim lines with the two-point selector"}{" "}
+                  in the web editor, or import a finished image above.
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function PathImage({ path }: { path: string }) { const [src, setSrc] = useState(''); useEffect(() => { let active = true; window.jersey.fileDataUrl(path).then((value) => active && setSrc(value)).catch(() => setSrc('')); return () => { active = false; }; }, [path]); return src ? <img src={src}/> : <div className="empty-preview">Loading preview...</div>; }

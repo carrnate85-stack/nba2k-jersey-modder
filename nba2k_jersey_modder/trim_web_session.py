@@ -4,9 +4,10 @@ from dataclasses import asdict, dataclass
 import json
 import math
 from pathlib import Path
+import shutil
 import uuid
 
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
 from .generator import upscale_logo_image
 from .trim_creator import correct_trim_strip, create_trim_strip_from_line
@@ -37,10 +38,14 @@ class StagedTrim:
     sharpen: bool = False
     colorCorrect: bool = False
     scale: int = 1
+    featherLeft: int = 0
+    featherRight: int = 0
+    featherTop: int = 0
+    featherBottom: int = 0
 
 
 class TrimWebSession:
-    def __init__(self, reference: Path, state_path: Path):
+    def __init__(self, reference: Path, state_path: Path, initial_state: dict | None = None):
         self.reference = reference.resolve()
         self.state_path = state_path.resolve()
         self.folder = self.state_path.parent / "trims"
@@ -50,7 +55,44 @@ class TrimWebSession:
         self.return_requested = False
         with Image.open(self.reference) as opened:
             self.reference_size = ImageOps.exif_transpose(opened).size
+        self._restore_initial(initial_state or {})
         self._write_state()
+
+    def _restore_initial(self, state: dict) -> None:
+        for raw in state.get("items") or []:
+            source = Path(str(raw.get("path") or ""))
+            if not source.is_file():
+                continue
+            item_id = str(raw.get("id") or uuid.uuid4().hex)
+            source_path = Path(str(raw.get("sourcePath") or ""))
+            restored_source = str(source_path) if source_path.is_file() else None
+            imported = bool(raw.get("imported", False))
+            try:
+                start = self._point(raw.get("start"))
+                end = self._point(raw.get("end"))
+            except ValueError:
+                imported = True
+                restored_source = str(source)
+                with Image.open(source) as opened:
+                    width, height = ImageOps.exif_transpose(opened).size
+                start = {"x": 0, "y": height // 2}
+                end = {"x": max(0, width - 1), "y": height // 2}
+            target, label = self._type(raw)
+            item = StagedTrim(
+                id=item_id, typeLabel=label, target=target,
+                path=str(self.folder / f"{item_id}.png"),
+                thumbnailPath=str(self.folder / f"{item_id}.thumb.png"),
+                start=start, end=end, sourcePath=restored_source, imported=imported,
+            )
+            self._apply_options(item, raw)
+            shutil.copyfile(source, item.path)
+            with Image.open(item.path) as opened:
+                thumbnail = ImageOps.exif_transpose(opened).convert("RGBA")
+            thumbnail.thumbnail((240, 100), Image.Resampling.LANCZOS)
+            thumbnail.save(item.thumbnailPath, "PNG", compress_level=1)
+            self.items.append(item)
+        requested = str(state.get("selectedId") or "")
+        self.selected_id = requested if any(item.id == requested for item in self.items) else (self.items[-1].id if self.items else None)
 
     def project(self) -> dict:
         return {
@@ -206,6 +248,7 @@ class TrimWebSession:
             image = image.filter(ImageFilter.UnsharpMask(radius=1.0, percent=70, threshold=3))
         if item.scale > 1:
             image = upscale_logo_image(image, scale_factor=item.scale, sharpen=item.sharpen)
+        image = self._apply_feather(image, item)
         temporary = output.with_suffix(".writing")
         image.save(temporary, "PNG", compress_level=1)
         temporary.replace(output)
@@ -223,6 +266,34 @@ class TrimWebSession:
         item.scale = int(payload.get("scale", item.scale))
         if item.scale not in (1, 2, 4):
             item.scale = 1
+        item.featherLeft = max(0, min(256, int(payload.get("featherLeft", item.featherLeft))))
+        item.featherRight = max(0, min(256, int(payload.get("featherRight", item.featherRight))))
+        item.featherTop = max(0, min(256, int(payload.get("featherTop", item.featherTop))))
+        item.featherBottom = max(0, min(256, int(payload.get("featherBottom", item.featherBottom))))
+
+    @staticmethod
+    def _apply_feather(image: Image.Image, item: StagedTrim) -> Image.Image:
+        values = (item.featherLeft, item.featherRight, item.featherTop, item.featherBottom)
+        if not any(values):
+            return image
+        fade = Image.new("L", image.size, 255)
+        draw = ImageDraw.Draw(fade)
+        left, right, top, bottom = values
+        for x in range(min(left, image.width)):
+            draw.line((x, 0, x, image.height), fill=round(255 * x / max(1, left)))
+        for offset in range(min(right, image.width)):
+            x = image.width - 1 - offset
+            draw.line((x, 0, x, image.height), fill=round(255 * offset / max(1, right)))
+        for y in range(min(top, image.height)):
+            row = Image.new("L", (image.width, 1), round(255 * y / max(1, top)))
+            fade.paste(ImageChops.darker(fade.crop((0, y, image.width, y + 1)), row), (0, y))
+        for offset in range(min(bottom, image.height)):
+            y = image.height - 1 - offset
+            row = Image.new("L", (image.width, 1), round(255 * offset / max(1, bottom)))
+            fade.paste(ImageChops.darker(fade.crop((0, y, image.width, y + 1)), row), (0, y))
+        result = image.copy()
+        result.putalpha(ImageChops.multiply(result.getchannel("A"), fade))
+        return result
 
     def _point(self, value) -> dict[str, int]:
         try:

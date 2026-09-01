@@ -88,6 +88,35 @@ class TrimWebSessionTests(unittest.TestCase):
             saved = json.loads(state.read_text(encoding="utf-8"))
             self.assertTrue(saved["returnRequested"])
 
+    def test_restores_trim_and_feathers_each_requested_edge(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            reference = folder / "mockup.png"
+            imported = folder / "trim.png"
+            Image.new("RGB", (40, 40), "white").save(reference)
+            Image.new("RGBA", (120, 24), (20, 70, 150, 255)).save(imported)
+            first = TrimWebSession(reference, folder / "first" / "state.json")
+            staged = first.import_image({"path": str(imported), "target": "waistband_image"})
+            restored_session = TrimWebSession(
+                reference,
+                folder / "second" / "state.json",
+                {"items": staged["items"], "selectedId": staged["selectedId"]},
+            )
+
+            updated = restored_session.update({
+                "id": staged["selectedId"],
+                "featherLeft": 8, "featherRight": 8,
+                "featherTop": 4, "featherBottom": 4,
+            })
+            item = updated["items"][0]
+            with Image.open(item["path"]) as output:
+                alpha = output.convert("RGBA").getchannel("A")
+                self.assertEqual(0, alpha.getpixel((0, output.height // 2)))
+                self.assertEqual(0, alpha.getpixel((output.width - 1, output.height // 2)))
+                self.assertEqual(0, alpha.getpixel((output.width // 2, 0)))
+                self.assertEqual(0, alpha.getpixel((output.width // 2, output.height - 1)))
+                self.assertEqual(255, alpha.getpixel((output.width // 2, output.height // 2)))
+
 
 if __name__ == "__main__":
     unittest.main()

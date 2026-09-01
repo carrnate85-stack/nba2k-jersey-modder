@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import uuid
 
@@ -45,7 +46,7 @@ class StagedLogo:
 
 
 class LogoWebSession:
-    def __init__(self, reference: Path, state_path: Path):
+    def __init__(self, reference: Path, state_path: Path, initial_state: dict | None = None):
         self.reference = reference.resolve()
         self.state_path = state_path.resolve()
         self.folder = self.state_path.parent / "logos"
@@ -54,7 +55,42 @@ class LogoWebSession:
         self.selected_id: str | None = None
         self.return_requested = False
         self._reference_size = self._read_reference_size()
+        self._restore_initial(initial_state or {})
         self._write_state()
+
+    def _restore_initial(self, state: dict) -> None:
+        for raw in state.get("items") or []:
+            source = Path(str(raw.get("path") or ""))
+            if not source.is_file():
+                continue
+            item_id = str(raw.get("id") or uuid.uuid4().hex)
+            points = self._clean_points(raw.get("points"))
+            source_path = Path(str(raw.get("sourcePath") or ""))
+            restored_source = str(source_path) if source_path.is_file() else None
+            if len(points) < 3:
+                restored_source = str(source)
+                with Image.open(source) as opened:
+                    width, height = ImageOps.exif_transpose(opened).size
+                points = [
+                    {"x": 0, "y": 0}, {"x": width - 1, "y": 0},
+                    {"x": width - 1, "y": height - 1}, {"x": 0, "y": height - 1},
+                ]
+            target, label = self._type(raw)
+            item = StagedLogo(
+                id=item_id, typeLabel=label, target=target,
+                path=str(self.folder / f"{item_id}.png"),
+                thumbnailPath=str(self.folder / f"{item_id}.thumb.png"),
+                points=points, sourcePath=restored_source,
+            )
+            self._apply_options(item, raw)
+            shutil.copyfile(source, item.path)
+            with Image.open(item.path) as opened:
+                thumbnail = ImageOps.exif_transpose(opened).convert("RGBA")
+            thumbnail.thumbnail((180, 120), Image.Resampling.LANCZOS)
+            thumbnail.save(item.thumbnailPath, "PNG", compress_level=1)
+            self.items.append(item)
+        requested = str(state.get("selectedId") or "")
+        self.selected_id = requested if any(item.id == requested for item in self.items) else (self.items[-1].id if self.items else None)
 
     def _read_reference_size(self) -> tuple[int, int]:
         with Image.open(self.reference) as opened:

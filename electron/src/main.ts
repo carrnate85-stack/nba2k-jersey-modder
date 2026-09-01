@@ -14,6 +14,10 @@ let mainWindow: BrowserWindow | null = null;
 
 const defaultProject = (): JsonObject => ({
   app: 'NBA 2K Jersey Modder', projectVersion: 3,
+  creators: {
+    logo: { reference: null, items: [], selectedId: null },
+    trim: { reference: null, items: [], selectedId: null },
+  },
   generator: {
     garment: 'Jersey', jerseyCut: 'Retro U', shortsTemplate: 'Retro shorts',
     colors: {
@@ -156,8 +160,10 @@ async function startWebEditor(kind: string, options: JsonObject): Promise<{ proc
     tool = 'wpf_layer_web.py'; args.push('--project', projectPath, '--state', statePath);
   } else if (kind === 'logo' || kind === 'trim') {
     if (!options.reference || !existsSync(options.reference)) throw new Error('Choose a reference image first.');
+    const initialPath = join(folder, 'initial.json');
+    writeFileSync(initialPath, JSON.stringify({ items: options.items || [], selectedId: options.selectedId || null }), 'utf8');
     tool = kind === 'logo' ? 'wpf_logo_web.py' : 'wpf_trim_web.py';
-    args.push('--reference', options.reference, '--state', statePath);
+    args.push('--reference', options.reference, '--state', statePath, '--initial-state', initialPath);
   } else if (kind === 'paths') {
     if (!options.pattern || !existsSync(options.pattern)) throw new Error('Choose a trim pattern first.');
     const projectPath = join(folder, 'project.json'); writeFileSync(projectPath, JSON.stringify(options.project), 'utf8');
@@ -190,7 +196,7 @@ async function openEditor(kind: string, options: JsonObject): Promise<JsonObject
     backgroundColor: '#f4f6f5',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
-  await editor.loadURL(session.url);
+  await editor.loadURL(options.startInEditor ? `${session.url}edit` : session.url);
   let lastRevision = -1;
   const monitor = setInterval(() => {
     if (!existsSync(session.statePath)) return;
