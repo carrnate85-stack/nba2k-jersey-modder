@@ -42,6 +42,7 @@ class StagedTrim:
     featherRight: int = 0
     featherTop: int = 0
     featherBottom: int = 0
+    flipVertical: bool = False
 
 
 class TrimWebSession:
@@ -248,6 +249,8 @@ class TrimWebSession:
             image = image.filter(ImageFilter.UnsharpMask(radius=1.0, percent=70, threshold=3))
         if item.scale > 1:
             image = upscale_logo_image(image, scale_factor=item.scale, sharpen=item.sharpen)
+        if item.flipVertical:
+            image = ImageOps.flip(image)
         image = self._apply_feather(image, item)
         temporary = output.with_suffix(".writing")
         image.save(temporary, "PNG", compress_level=1)
@@ -270,6 +273,7 @@ class TrimWebSession:
         item.featherRight = max(0, min(256, int(payload.get("featherRight", item.featherRight))))
         item.featherTop = max(0, min(256, int(payload.get("featherTop", item.featherTop))))
         item.featherBottom = max(0, min(256, int(payload.get("featherBottom", item.featherBottom))))
+        item.flipVertical = bool(payload.get("flipVertical", item.flipVertical))
 
     @staticmethod
     def _apply_feather(image: Image.Image, item: StagedTrim) -> Image.Image:

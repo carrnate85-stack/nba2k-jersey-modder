@@ -94,7 +94,9 @@ class TrimWebSessionTests(unittest.TestCase):
             reference = folder / "mockup.png"
             imported = folder / "trim.png"
             Image.new("RGB", (40, 40), "white").save(reference)
-            Image.new("RGBA", (120, 24), (20, 70, 150, 255)).save(imported)
+            trim = Image.new("RGBA", (120, 24), (190, 25, 55, 255))
+            ImageDraw.Draw(trim).rectangle((0, 12, 119, 23), fill=(20, 70, 150, 255))
+            trim.save(imported)
             first = TrimWebSession(reference, folder / "first" / "state.json")
             staged = first.import_image({"path": str(imported), "target": "waistband_image"})
             restored_session = TrimWebSession(
@@ -107,15 +109,20 @@ class TrimWebSessionTests(unittest.TestCase):
                 "id": staged["selectedId"],
                 "featherLeft": 8, "featherRight": 8,
                 "featherTop": 4, "featherBottom": 4,
+                "flipVertical": True,
             })
             item = updated["items"][0]
+            self.assertTrue(item["flipVertical"])
             with Image.open(item["path"]) as output:
-                alpha = output.convert("RGBA").getchannel("A")
+                rgba = output.convert("RGBA")
+                alpha = rgba.getchannel("A")
                 self.assertEqual(0, alpha.getpixel((0, output.height // 2)))
                 self.assertEqual(0, alpha.getpixel((output.width - 1, output.height // 2)))
                 self.assertEqual(0, alpha.getpixel((output.width // 2, 0)))
                 self.assertEqual(0, alpha.getpixel((output.width // 2, output.height - 1)))
                 self.assertEqual(255, alpha.getpixel((output.width // 2, output.height // 2)))
+                self.assertEqual((20, 70, 150), rgba.getpixel((output.width // 2, 6))[:3])
+                self.assertEqual((190, 25, 55), rgba.getpixel((output.width // 2, 18))[:3])
 
 
 if __name__ == "__main__":
