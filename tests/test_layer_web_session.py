@@ -50,6 +50,9 @@ class LayerWebSessionTests(unittest.TestCase):
             folder = Path(temporary)
             trim = folder / "trim_path.png"
             trim_image = Image.new("RGBA", (2048, 2048), (0, 0, 0, 0))
+            for y in range(390, 1800):
+                trim_image.putpixel((1393, y), (0, 0, 0, 32))
+                trim_image.putpixel((1407, y), (0, 0, 0, 32))
             for x in range(1394, 1407):
                 for y in range(390, 1800):
                     trim_image.putpixel((x, y), (0, 0, 0, 255))
@@ -73,6 +76,7 @@ class LayerWebSessionTests(unittest.TestCase):
             with Image.open(paint_path) as painted:
                 painted = painted.convert("RGBA")
                 self.assertEqual(painted.getpixel((1200, 800)), (255, 0, 0, 255))
+                self.assertEqual(painted.getpixel((1393, 800)), (255, 0, 0, 255))
                 self.assertEqual(painted.getpixel((1400, 800))[3], 0)
                 self.assertEqual(painted.getpixel((1600, 800))[3], 0)
             rendered = session.service.render_color(session.document).convert("RGBA")

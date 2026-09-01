@@ -509,6 +509,9 @@ class LayerWebSession:
         ImageDraw.floodfill(working, seed, marker, thresh=tolerance)
         difference = ImageChops.difference(prepared, working).convert("L")
         mask = difference.point(lambda value: 255 if value else 0)
+        safe_area = barrier.point(lambda value: 0 if value >= 128 else 255)
+        for _step in range(3):
+            mask = ImageChops.multiply(mask.filter(ImageFilter.MaxFilter(3)), safe_area)
         if mask.getbbox() is None:
             return {"changed": False, "message": "No connected area could be filled."}
 
@@ -568,7 +571,11 @@ class LayerWebSession:
                 round((zone.x + zone.width) * size[0] / design_width),
                 round((zone.y + zone.height) * size[1] / design_height),
             ), fill=0)
-        return mask.filter(ImageFilter.MaxFilter(3))
+        # Close one-pixel breaks without growing the visible barrier outward.
+        # Low-alpha edge pixels remain paintable because the trim is composited
+        # above this fill layer and supplies its own antialiasing.
+        binary = mask.point(lambda value: 255 if value >= 64 else 0)
+        return binary.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
 
     @staticmethod
     def _paint_label(key: str) -> str:
