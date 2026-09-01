@@ -145,6 +145,15 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("function setPathPosition", TRIM_PATH_LAB_HTML)
         self.assertIn("function updatePositionControls", TRIM_PATH_LAB_HTML)
 
+    def test_trim_path_mirror_copies_are_independent_by_default(self) -> None:
+        self.assertIn('<input id="linkNewCopies" type="checkbox">', TRIM_PATH_LAB_HTML)
+        self.assertIn('<input id="moveLinked" type="checkbox">', TRIM_PATH_LAB_HTML)
+
+    def test_trim_path_mirrors_map_between_full_panel_bounds(self) -> None:
+        self.assertIn('(point.x - source.x) / Math.max(1, source.width) * target.width', TRIM_PATH_LAB_HTML)
+        self.assertIn('(point.y - source.y) / Math.max(1, source.height) * target.height', TRIM_PATH_LAB_HTML)
+        self.assertIn('function extendOpenPathEndpoints(points, amount = 1)', TRIM_PATH_LAB_HTML)
+
     def test_trim_path_done_button_persists_before_returning(self) -> None:
         self.assertIn("async function persistPathsToGenerator", TRIM_PATH_LAB_HTML)
         save_position = TRIM_PATH_LAB_HTML.index("await persistPathsToGenerator(true)")

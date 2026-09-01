@@ -125,8 +125,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           <button id="createXMirror" class="secondary">X-Axis Mirror</button>
         </div>
         <label class="check"><input id="pathVisible" type="checkbox" checked> Show this layer</label>
-        <label class="check"><input id="linkNewCopies" type="checkbox" checked> Link new mirror copies to the source</label>
-        <label class="check"><input id="moveLinked" type="checkbox" checked> Move linked layers together</label>
+        <label class="check"><input id="linkNewCopies" type="checkbox"> Link new mirror copies to the source</label>
+        <label class="check"><input id="moveLinked" type="checkbox"> Move linked layers together</label>
         <button id="unlinkPath" class="secondary" style="width:100%; margin-top:8px;">Unlink Selected Layer</button>
         <div id="linkStatus" class="small">Layer is not linked.</div>
         <div class="small">Drag directly on a finished trim to move its whole layer. For Straight / curve / straight, click the path start, curve start, curve end, then path end. For a T shape, click both crossbar ends, then click the stem end. Angles run clockwise: 0 degrees points right and 90 degrees points down. Right-click finishes the path. Hold Alt while placing a point to bypass snapping.</div>
@@ -337,11 +337,12 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         };
       }
       const {source, target} = pair;
-      const deltaX = target.x + target.width / 2 - (source.x + source.width / 2);
-      const deltaY = target.y + target.height / 2 - (source.y + source.height / 2);
       return {
         ...path,
-        points: path.points.map(point => ({x: point.x + deltaX, y: point.y + deltaY})),
+        points: path.points.map(point => ({
+          x: target.x + (point.x - source.x) / Math.max(1, source.width) * target.width,
+          y: target.y + (point.y - source.y) / Math.max(1, source.height) * target.height,
+        })),
         reverseCrossSection: Boolean(path.reverseCrossSection),
       };
     }
@@ -629,6 +630,26 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       return {x: current.x + miter.x * miterLength, y: current.y + miter.y * miterLength};
     }
 
+    function extendOpenPathEndpoints(points, amount = 1) {
+      if (points.length < 2 || amount <= 0) return points.slice();
+      const extended = points.map(point => ({...point}));
+      const first = extended[0];
+      const second = extended[1];
+      const firstLength = Math.hypot(second.x - first.x, second.y - first.y);
+      if (firstLength >= .01) {
+        first.x -= (second.x - first.x) / firstLength * amount;
+        first.y -= (second.y - first.y) / firstLength * amount;
+      }
+      const last = extended[extended.length - 1];
+      const previous = extended[extended.length - 2];
+      const lastLength = Math.hypot(last.x - previous.x, last.y - previous.y);
+      if (lastLength >= .01) {
+        last.x += (last.x - previous.x) / lastLength * amount;
+        last.y += (last.y - previous.y) / lastLength * amount;
+      }
+      return extended;
+    }
+
     function patternBands() {
       const sourceHeight = Math.max(1, patternSampleCanvas.height);
       const bands = [];
@@ -646,7 +667,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     }
 
     function renderUniformPatternPath(target, path, samples) {
-      const points = path.curve === "straight" ? path.points : samples;
+      const centerline = path.curve === "straight" ? path.points : samples;
+      const points = extendOpenPathEndpoints(centerline);
       if (points.length < 2) return false;
       const sourceHeight = Math.max(1, patternSampleCanvas.height);
       const bands = patternBands();
@@ -852,8 +874,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           const nextDistance = index < samples.length - 1
             ? Math.hypot(next.x - current.x, next.y - current.y)
             : 0;
-          let leftExtent = index === 0 ? 0 : previousDistance / 2 + .08;
-          let rightExtent = index === samples.length - 1 ? 0 : nextDistance / 2 + .08;
+          let leftExtent = index === 0 ? 1 : previousDistance / 2 + .08;
+          let rightExtent = index === samples.length - 1 ? 1 : nextDistance / 2 + .08;
           if (index > 0 && cornerFlags[index - 1]) leftExtent = previousDistance + .05;
           if (index < samples.length - 1 && cornerFlags[index + 1]) rightExtent = nextDistance + .05;
           target.save();
