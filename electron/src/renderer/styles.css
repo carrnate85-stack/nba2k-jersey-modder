@@ -137,6 +137,9 @@ footer .working { color: #168579; }
 .cleanup-panel h3 { margin: 0 0 5px; font-size: 14px; }
 .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .stat-number { font-size: 46px; font-weight: 650; color: #168579; }
+.trim-source-panel { display: flex; flex-direction: column; }
+.trim-source-preview { height: 170px; display: grid; place-items: center; overflow: hidden; margin: 2px 0 10px; border: 1px solid #d7dfdd; background-color: #f7f9f8; background-image: linear-gradient(45deg,#edf1f0 25%,transparent 25%),linear-gradient(-45deg,#edf1f0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#edf1f0 75%),linear-gradient(-45deg,transparent 75%,#edf1f0 75%); background-size: 20px 20px; background-position: 0 0,0 10px,10px -10px,-10px 0; }
+.trim-source-preview img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
 .editor-split { display: grid; grid-template-columns: minmax(500px, 1.6fr) minmax(320px, .7fr); gap: 14px; height: calc(100vh - 190px); min-height: 520px; }
 .right-controls .tool-panel { min-height: 100%; }
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }

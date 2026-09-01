@@ -315,7 +315,6 @@ function Creator({ kind, project, projectPath, update, status, setPage }: any) {
         for (const { item, stored } of storedItems) {
           if (!isLogo) {
             if (item.target === "trim_path_pattern") {
-              next.generator.trimPathPattern = stored;
               continue;
             }
             next.generator.images[item.target] = stored;
@@ -350,9 +349,9 @@ function Creator({ kind, project, projectPath, update, status, setPage }: any) {
         .join(", ");
       const hasTrimPath = !isLogo && storedItems.some(({ item }) => item.target === "trim_path_pattern");
       status(hasTrimPath
-        ? `Loaded ${destinations}. The Trim Path Lab is ready to draw with this pattern.`
+        ? `Staged ${destinations}. Choose a Trim Path source on the Trim Path Lab tab when you are ready.`
         : `Sent to Generator: ${destinations}. Open the Web Layer Editor to position them.`);
-      setPage(hasTrimPath ? "paths" : "generator");
+      if (!hasTrimPath) setPage("generator");
     } catch (error: any) {
       status(error.message);
     }
@@ -630,29 +629,39 @@ function Creator({ kind, project, projectPath, update, status, setPage }: any) {
 function PathImage({ path }: { path: string }) { const [src, setSrc] = useState(''); useEffect(() => { let active = true; window.jersey.fileDataUrl(path).then((value) => active && setSrc(value)).catch(() => setSrc('')); return () => { active = false; }; }, [path]); return src ? <img src={src}/> : <div className="empty-preview">Loading preview...</div>; }
 
 function TrimPaths({ project, projectPath, update, status }: any) {
+  const stagedPatterns: any[] = (project.creators?.trim?.items || []).filter(
+    (item: any) => item.target === 'trim_path_pattern' && item.path,
+  );
   const pattern: string | null = project.generator.trimPathPattern || null;
+  const selectPattern = (path: string) => {
+    update((next: any) => { next.generator.trimPathPattern = path || null; });
+    if (path) status(`Selected ${filename(path)} for the Trim Path Lab.`);
+  };
   const choose = async (): Promise<string | null> => {
     const source = await window.jersey.chooseFile('trim');
     if (!source) return null;
     const stored = await window.jersey.storeAsset(projectPath, source, 'trims', 'trim_path_pattern');
-    update((next: any) => { next.generator.trimPathPattern = stored; });
+    selectPattern(stored);
     status(`Loaded ${filename(stored)} as the Trim Path pattern.`);
     return stored;
   };
   const clear = () => update((next: any) => { next.generator.trimPathPattern = null; });
   const open = async () => {
-    const selectedPattern = pattern || await choose();
-    if (!selectedPattern) return;
+    if (!pattern) {
+      status('Select a staged Trim Path source before opening the web lab.');
+      return;
+    }
     try {
       const editorProject = clone(project);
-      editorProject.generator.trimPathPattern = selectedPattern;
-      const result = await window.jersey.openEditor('paths', { project: editorProject, projectPath, pattern: selectedPattern });
+      editorProject.generator.trimPathPattern = pattern;
+      const result = await window.jersey.openEditor('paths', { project: editorProject, projectPath, pattern });
       if (result.project) update((next: any) => Object.assign(next, result.project));
     } catch (error: any) {
       status(error.message);
     }
   };
-  return <div className="page"><PageHeader page="paths" actions={<button className="primary command large-editor" onClick={open}><Blend/>{pattern ? 'Open Web Trim Path Lab' : 'Choose Trim Pattern'}</button>}/><div className="two-column"><section className="tool-panel"><h2>Trim source</h2><AssetRow label="Straight trim pattern" path={pattern} choose={choose} clear={clear}/><p className="muted">Choose Trim Path in the Trim Creator to send a staged strip here automatically. The pattern bends continuously along straight segments, smooth curves, T junctions, and mirrored paths.</p></section><section className="tool-panel"><h2>Current project paths</h2><div className="stat-number">{project.generator.trimPathLayers.filter((item: any) => item.garment === project.generator.garment).length}</div><p>{project.generator.garment} trim path layer(s) on {project.generator.garment === 'Jersey' ? project.generator.jerseyCut : project.generator.shortsTemplate}.</p><button className="command full" onClick={open}><Play/>Continue Editing</button></section></div></div>;
+  const patternIsStaged = stagedPatterns.some((item) => item.path === pattern);
+  return <div className="page"><PageHeader page="paths" actions={<button className="primary command large-editor" disabled={!pattern} onClick={open}><Blend/>Open Web Trim Path Lab</button>}/><div className="two-column"><section className="tool-panel trim-source-panel"><h2>Trim source</h2><p>Choose one of the strips staged as Trim Path in Trim Creator, then open the web lab.</p><label className="field"><span>Staged Trim Paths</span><select value={pattern || ''} onChange={(event) => selectPattern(event.target.value)}><option value="">Select a staged trim...</option>{pattern && !patternIsStaged && <option value={pattern}>Imported: {filename(pattern)}</option>}{stagedPatterns.map((item, index) => <option key={item.id || `${item.path}-${index}`} value={item.path}>{index + 1}. {filename(item.path)}</option>)}</select></label><div className="trim-source-preview">{pattern ? <PathImage path={pattern}/> : <div className="empty-preview">No Trim Path source selected</div>}</div><AssetRow label="Import another trim pattern" path={pattern} choose={choose} clear={clear}/><p className="muted">The selected pattern bends continuously along straight segments, smooth curves, T junctions, and mirrored paths.</p></section><section className="tool-panel"><h2>Current project paths</h2><div className="stat-number">{project.generator.trimPathLayers.filter((item: any) => item.garment === project.generator.garment).length}</div><p>{project.generator.garment} trim path layer(s) on {project.generator.garment === 'Jersey' ? project.generator.jerseyCut : project.generator.shortsTemplate}.</p><button className="command full" disabled={!pattern} onClick={open}><Play/>Open Selected Trim Path</button></section></div></div>;
 }
 
 function NumberEditor({ status }: any) { const [source, setSource] = useState<string | null>(null); const [preview, setPreview] = useState(''); const [fill, setFill] = useState(''); const [outline, setOutline] = useState(''); const [edge, setEdge] = useState(0); const [thickness, setThickness] = useState(0); const open = async () => { const path = await window.jersey.chooseFile('iff'); if (!path) return; try { const result = await window.jersey.engine('font_open', { path }); setSource(result.source); setPreview(await window.jersey.fileDataUrl(result.preview)); status(`Loaded ${filename(path)} (${result.width} x ${result.height}).`); } catch (error: any) { status(error.message); } }; const recolor = async () => { if (!source) return; try { const result = await window.jersey.engine('font_recolor', { source, fill: fill || null, outline: outline || null, edge, thickness }); setPreview(await window.jersey.fileDataUrl(result.path)); status('Number recolor preview updated.'); } catch (error: any) { status(error.message); } }; useEffect(() => { if (!source) return; const timer = setTimeout(recolor, 180); return () => clearTimeout(timer); }, [fill, outline, edge, thickness]); const save = async () => { if (!source) return; const destination = await window.jersey.saveFile('iff', `${parseName(source)}_recolor.iff`); if (!destination) return; try { await window.jersey.engine('font_save', { source, destination, fill: fill || null, outline: outline || null, edge, thickness }); status(`Saved ${filename(destination)}.`); } catch (error: any) { status(error.message); } }; return <div className="page"><PageHeader page="number" actions={<><button className="command" onClick={open}><FolderOpen/>Open Font IFF</button><button className="primary command" disabled={!source} onClick={save}><Save/>Save Font IFF As</button></>}/><div className="editor-split"><div className="image-workspace">{preview ? <img src={preview}/> : <div className="preview-loading"><Sparkles/>Open a font IFF to preview its number sheet.</div>}</div><div className="right-controls"><section className="tool-panel"><h2>Recolor</h2><ColorControl label="Fill" value={fill} setValue={setFill}/><ColorControl label="Outline" value={outline} setValue={setOutline}/><Range label="Edge protection" value={edge} min={0} max={100} onChange={setEdge}/><Range label="Outline thickness" value={thickness} min={0} max={20} onChange={setThickness}/><p className="muted">No change is the default for both colors. Entering a hex value enables that recolor automatically.</p></section></div></div></div>; }
