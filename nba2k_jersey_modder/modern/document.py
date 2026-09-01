@@ -47,7 +47,8 @@ def new_project_payload() -> dict:
                               "scaleWidthPercent": 100, "scaleHeightPercent": 100,
                               "lockAspect": True},
             "jerseyBackground": {"tile": False, "tileScalePercent": 100},
-            "logos": [], "trimPathLayers": [], "trimPathDesigns": [], "trimPathPattern": None,
+            "logos": [], "trimPathLayers": [], "paintFillLayers": [],
+            "trimPathDesigns": [], "trimPathPattern": None,
             "trimPlacements": {},
             "backgroundCleanup": {"removeWhite": False, "removeBlack": False,
                                   "outsideOnly": True, "tolerance": 32},
@@ -157,6 +158,14 @@ class ProjectDocument:
             front_wordmark_scale_width_percent=_int(wordmark.get("scaleWidthPercent"), 100, 1, 500),
             front_wordmark_scale_height_percent=_int(wordmark.get("scaleHeightPercent"), 100, 1, 500),
             logo_placements=logos, trim_path_layers=trims,
+            paint_fill_layers=tuple(
+                path for item in g.get("paintFillLayers", [])
+                if isinstance(item, dict)
+                and str(item.get("garment") or garment) == garment
+                and str(item.get("templateName") or self.template_name) == self.template_name
+                and (path := _path(item.get("path"))) is not None
+                and path.exists()
+            ),
             fabric_overlay_image=_path(fabric.get("customPath")),
             fabric_overlay_opacity=_int(fabric.get("opacity"), 0, 0, 100),
             fabric_overlay_blend_mode=str(fabric.get("blendMode") or "multiply"),

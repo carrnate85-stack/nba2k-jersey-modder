@@ -12,6 +12,45 @@ from nba2k_jersey_modder.modern.document import ProjectDocument
 
 
 class LayerWebSessionTests(unittest.TestCase):
+    def test_paint_bucket_uses_trim_path_as_a_hard_fill_barrier(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            trim = folder / "trim_path.png"
+            trim_image = Image.new("RGBA", (2048, 2048), (0, 0, 0, 0))
+            for x in range(1394, 1407):
+                for y in range(390, 1800):
+                    trim_image.putpixel((x, y), (0, 0, 0, 255))
+            trim_image.save(trim)
+            project_path = folder / "project.json"
+            document = ProjectDocument()
+            document.generator["trimPathLayers"] = [{
+                "path": str(trim), "name": "Divider", "garment": "Jersey",
+                "templateName": "Retro U", "x": 0, "y": 0,
+                "width": 2048, "height": 2048, "rotationDegrees": 0,
+            }]
+            document.save(project_path)
+            session = LayerWebSession(project_path, folder / "state.json", folder)
+
+            result = session._web_editor_paint({
+                "key": "base_colors", "x": 1200 / 2048, "y": 800 / 2048,
+                "color": "#ff0000", "tolerance": 24,
+            })
+            self.assertTrue(result["changed"])
+            paint_path = Path(session.document.generator["paintFillLayers"][0]["path"])
+            with Image.open(paint_path) as painted:
+                painted = painted.convert("RGBA")
+                self.assertEqual(painted.getpixel((1200, 800)), (255, 0, 0, 255))
+                self.assertEqual(painted.getpixel((1400, 800))[3], 0)
+                self.assertEqual(painted.getpixel((1600, 800))[3], 0)
+            rendered = session.service.render_color(session.document).convert("RGBA")
+            self.assertEqual(rendered.getpixel((1200, 800))[:3], (255, 0, 0))
+            self.assertEqual(rendered.getpixel((1400, 800))[:3], (0, 0, 0))
+            self.assertEqual(rendered.getpixel((1600, 800))[:3], (255, 255, 255))
+
+            undo = session._web_editor_undo_paint({"key": "base_colors"})
+            self.assertTrue(undo["ok"])
+            self.assertEqual(session.document.generator["paintFillLayers"], [])
+
     def test_paint_bucket_updates_and_undoes_template_base_color(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

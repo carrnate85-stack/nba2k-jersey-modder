@@ -190,6 +190,7 @@ class GeneratorInputs:
     front_wordmark_scale_height_percent: int | None = None
     logo_placements: tuple[LogoPlacement, ...] = ()
     trim_path_layers: tuple[TrimPathLayer, ...] = ()
+    paint_fill_layers: tuple[Path, ...] = ()
     fabric_overlay_image: Path | None = None
     fabric_overlay_opacity: int = 0
     fabric_overlay_blend_mode: str = "multiply"
@@ -269,7 +270,17 @@ def render_jersey_layers(
             zone_layers.append(RenderLayer(f"{_human_zone_name(zone.name)} Image", layer))
 
     background_layer = jersey_background_layer(template, inputs, size)
-    layers = base_color_layers + ([background_layer] if background_layer else []) + layers
+    paint_layers: list[RenderLayer] = []
+    for index, path in enumerate(inputs.paint_fill_layers, start=1):
+        if not path.exists():
+            continue
+        with Image.open(path) as opened:
+            fill = opened.convert("RGBA")
+        if fill.size != size:
+            fill = fill.resize(size, Image.Resampling.NEAREST)
+        paint_layers.append(RenderLayer(f"Paint Fill {index}", fill))
+
+    layers = base_color_layers + ([background_layer] if background_layer else []) + paint_layers + layers
 
     # Waistband color and artwork sit above the shorts side panels.
     layers.extend(waistband_layers)

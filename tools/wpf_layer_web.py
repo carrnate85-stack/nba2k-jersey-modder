@@ -17,8 +17,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
     parser.add_argument("--state", required=True)
+    parser.add_argument("--project-folder")
     arguments = parser.parse_args()
-    session = LayerWebSession(Path(arguments.project), Path(arguments.state))
+    session = LayerWebSession(
+        Path(arguments.project),
+        Path(arguments.state),
+        Path(arguments.project_folder) if arguments.project_folder else None,
+    )
     server = WebEditorServer(session, port=0)
     url = server.start()
     print(json.dumps({"url": url}), flush=True)

@@ -33,7 +33,7 @@ const defaultProject = (): JsonObject => ({
       right_arm_hole_trim_image: null, collar_trim_image: null,
     },
     frontWordmark: { offsetX: 0, offsetY: 0, scalePercent: 100, scaleWidthPercent: 100, scaleHeightPercent: 100, lockAspect: true },
-    jerseyBackground: { tile: false, tileScalePercent: 100 }, logos: [], trimPathLayers: [], trimPathDesigns: [], trimPathPattern: null, trimPlacements: {},
+    jerseyBackground: { tile: false, tileScalePercent: 100 }, logos: [], trimPathLayers: [], paintFillLayers: [], trimPathDesigns: [], trimPathPattern: null, trimPlacements: {},
     backgroundCleanup: { removeWhite: false, removeBlack: false, outsideOnly: true, tolerance: 32 },
     fabricOverlay: { preset: 'None', customPath: null, blendMode: 'multiply', opacity: 0 },
     uvOverlay: { enabled: true, opacity: 45 },
@@ -168,7 +168,8 @@ async function startWebEditor(kind: string, options: JsonObject): Promise<{ proc
   let tool = ''; const args: string[] = [];
   if (kind === 'layer') {
     const projectPath = join(folder, 'project.json'); writeFileSync(projectPath, JSON.stringify(options.project), 'utf8');
-    tool = 'wpf_layer_web.py'; args.push('--project', projectPath, '--state', statePath);
+    tool = 'wpf_layer_web.py';
+    args.push('--project', projectPath, '--state', statePath, '--project-folder', dirname(options.projectPath));
   } else if (kind === 'logo' || kind === 'trim') {
     if (!options.reference || !existsSync(options.reference)) throw new Error('Choose a reference image first.');
     const initialPath = join(folder, 'initial.json');

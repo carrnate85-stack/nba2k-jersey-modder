@@ -7,7 +7,7 @@ from pathlib import Path
 import threading
 import uuid
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from .generator import (
     BackgroundCleanupSettings,
@@ -44,15 +44,16 @@ WAISTBAND_KEYS = {
 class LayerWebSession:
     """Browser layer editor adapter for the WPF project document."""
 
-    def __init__(self, project_path: Path, state_path: Path) -> None:
+    def __init__(self, project_path: Path, state_path: Path, project_folder: Path | None = None) -> None:
         self.document = ProjectDocument.load(project_path)
         self.state_path = state_path
+        self.project_folder = project_folder or project_path.parent
         self.service = GeneratorService()
         self._lock = threading.RLock()
         self._revision = 0
         self._return_requested = False
         self._paint_history: list[tuple[str, Path, Path]] = []
-        self._color_paint_history: list[tuple[str, str]] = []
+        self._base_paint_history: list[tuple[str, object]] = []
         self._write_state()
 
     def _run_on_ui_thread(self, callback):
@@ -177,7 +178,7 @@ class LayerWebSession:
             "textureSize": 2048,
             "baseUrl": "/api/base.png",
             "uvOverlay": {"available": uv_path.exists(), "imageUrl": "/api/uv.png", "enabled": bool(uv.get("enabled", True)), "opacity": _int(uv.get("opacity"), 45, 0, 100)},
-            "canUndoBasePaint": bool(self._color_paint_history),
+            "canUndoBasePaint": bool(self._base_paint_history),
             "overlays": overlays,
         }
 
@@ -396,10 +397,18 @@ class LayerWebSession:
     def _web_editor_undo_paint(self, payload: dict) -> dict:
         key = str(payload.get("key") or "")
         if key == "base_colors":
-            if not self._color_paint_history:
+            if not self._base_paint_history:
                 return {"ok": False, "message": "No base color fill is available to undo."}
-            color_key, previous = self._color_paint_history.pop()
-            self.generator["colors"][color_key] = previous
+            kind, previous = self._base_paint_history.pop()
+            if kind == "raster":
+                previous_path = str(previous)
+                self.generator["paintFillLayers"] = [
+                    item for item in self.generator.get("paintFillLayers", [])
+                    if not isinstance(item, dict) or str(item.get("path") or "") != previous_path
+                ]
+            else:
+                color_key, previous_color = previous
+                self.generator["colors"][str(color_key)] = str(previous_color)
             self._write_state()
             return {"ok": True}
         for index in range(len(self._paint_history) - 1, -1, -1):
@@ -413,6 +422,8 @@ class LayerWebSession:
         return {"ok": False, "message": "No Paint Bucket change is available to undo for this layer."}
 
     def _paint_base_color(self, payload: dict, color: tuple[int, int, int]) -> dict:
+        if self._active_trim_entries():
+            return self._paint_raster_region(payload, color)
         normalized_x = _float(payload.get("x"), 0.5, 0.0, 1.0)
         normalized_y = _float(payload.get("y"), 0.5, 0.0, 1.0)
         template = self.service.template(self.document)
@@ -436,10 +447,131 @@ class LayerWebSession:
         previous = str(self.generator["colors"].get(color_key) or "")
         if previous.lower() == value:
             return {"changed": False, "message": "That area already uses the selected color."}
-        self._color_paint_history.append((color_key, previous))
+        self._base_paint_history.append(("color", (color_key, previous)))
         self.generator["colors"][color_key] = value
         self._write_state()
         return {"changed": True, "label": _paint_zone_label(zone.name)}
+
+    def _paint_raster_region(self, payload: dict, color: tuple[int, int, int]) -> dict:
+        normalized_x = _float(payload.get("x"), 0.5, 0.0, 1.0)
+        normalized_y = _float(payload.get("y"), 0.5, 0.0, 1.0)
+        tolerance = min(96, _int(payload.get("tolerance"), 24, 0, 255))
+        composite = self.service.render_color(self.document).convert("RGBA")
+        seed = (
+            min(composite.width - 1, max(0, round(normalized_x * (composite.width - 1)))),
+            min(composite.height - 1, max(0, round(normalized_y * (composite.height - 1)))),
+        )
+        if composite.getpixel(seed)[3] < 8:
+            return {"changed": False, "message": "Click inside the jersey or shorts texture."}
+
+        template = self.service.template(self.document)
+        design_width = max(2048, max((zone.x + zone.width for zone in template.zones), default=2048))
+        design_height = max(2048, max((zone.y + zone.height for zone in template.zones), default=2048))
+        point_x = normalized_x * design_width
+        point_y = normalized_y * design_height
+        matching = [
+            zone for zone in template.zones
+            if _color_key_for_zone(zone.name) is not None
+            and zone.x <= point_x <= zone.x + zone.width
+            and zone.y <= point_y <= zone.y + zone.height
+        ]
+        if not matching:
+            return {"changed": False, "message": "No editable color zone is under that point."}
+        zone = max(matching, key=lambda item: item.layer)
+        color_key = _color_key_for_zone(zone.name)
+        allowed = Image.new("L", composite.size, 0)
+        allowed_draw = ImageDraw.Draw(allowed)
+        for candidate in template.zones:
+            if _color_key_for_zone(candidate.name) != color_key:
+                continue
+            allowed_draw.rectangle((
+                round(candidate.x * composite.width / design_width),
+                round(candidate.y * composite.height / design_height),
+                round((candidate.x + candidate.width) * composite.width / design_width),
+                round((candidate.y + candidate.height) * composite.height / design_height),
+            ), fill=255)
+
+        barrier = ImageChops.lighter(
+            self._trim_path_barrier_mask(composite.size),
+            allowed.point(lambda value: 255 - value),
+        )
+        if barrier.getpixel(seed) >= 8:
+            return {"changed": False, "message": "Click beside the trim path, not directly on its edge."}
+
+        seed_pixel = composite.getpixel(seed)
+        barrier_color = tuple(255 if channel < 128 else 0 for channel in seed_pixel[:3]) + (255,)
+        working = composite.copy()
+        working.paste(barrier_color, (0, 0), barrier)
+        prepared = working.copy()
+        marker = (
+            (seed_pixel[0] + 113) % 256,
+            (seed_pixel[1] + 71) % 256,
+            (seed_pixel[2] + 157) % 256,
+            255,
+        )
+        ImageDraw.floodfill(working, seed, marker, thresh=tolerance)
+        difference = ImageChops.difference(prepared, working).convert("L")
+        mask = difference.point(lambda value: 255 if value else 0)
+        if mask.getbbox() is None:
+            return {"changed": False, "message": "No connected area could be filled."}
+
+        overlay = Image.new("RGBA", composite.size, (*color, 0))
+        overlay.putalpha(mask)
+        output_dir = self.project_folder / "assets" / "paint"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output = output_dir / f"{self.document.garment.lower()}_paint_{uuid.uuid4().hex[:8]}.png"
+        overlay.save(output, "PNG", compress_level=1)
+        item = {
+            "path": str(output),
+            "name": f"{_paint_zone_label(zone.name)} Paint Fill",
+            "garment": self.document.garment,
+            "templateName": self.document.template_name,
+        }
+        self.generator.setdefault("paintFillLayers", []).append(item)
+        self._base_paint_history.append(("raster", output))
+        self._write_state()
+        return {"changed": True, "label": item["name"]}
+
+    def _trim_path_barrier_mask(self, size: tuple[int, int]) -> Image.Image:
+        mask = Image.new("L", size, 0)
+        scale_x = size[0] / 2048
+        scale_y = size[1] / 2048
+        for _index, item in self._active_trim_entries():
+            path = Path(str(item.get("path") or ""))
+            if not path.exists():
+                continue
+            with Image.open(path) as opened:
+                alpha = opened.convert("RGBA").getchannel("A")
+            target_width = max(1, round(_int(item.get("width"), 2048, 1, 8192) * scale_x))
+            target_height = max(1, round(_int(item.get("height"), 2048, 1, 8192) * scale_y))
+            alpha = alpha.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            x = round(_int(item.get("x"), 0, -8192, 8192) * scale_x)
+            y = round(_int(item.get("y"), 0, -8192, 8192) * scale_y)
+            rotation = _float(item.get("rotationDegrees"), 0, -360, 360)
+            if rotation:
+                center_x = x + alpha.width / 2
+                center_y = y + alpha.height / 2
+                alpha = alpha.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
+                x = round(center_x - alpha.width / 2)
+                y = round(center_y - alpha.height / 2)
+            placed = Image.new("L", size, 0)
+            placed.paste(alpha, (x, y))
+            mask = ImageChops.lighter(mask, placed)
+
+        template = self.service.template(self.document)
+        design_width = max(2048, max((zone.x + zone.width for zone in template.zones), default=2048))
+        design_height = max(2048, max((zone.y + zone.height for zone in template.zones), default=2048))
+        draw = ImageDraw.Draw(mask)
+        for zone in template.zones:
+            if not zone.name.startswith("shorts_waistband"):
+                continue
+            draw.rectangle((
+                round(zone.x * size[0] / design_width),
+                round(zone.y * size[1] / design_height),
+                round((zone.x + zone.width) * size[0] / design_width),
+                round((zone.y + zone.height) * size[1] / design_height),
+            ), fill=0)
+        return mask.filter(ImageFilter.MaxFilter(3))
 
     @staticmethod
     def _paint_label(key: str) -> str:
