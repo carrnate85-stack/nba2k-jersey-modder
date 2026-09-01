@@ -211,6 +211,7 @@ INDEX_HTML = """<!doctype html>
     let lastSizeField = "width";
     let activeTool = "select";
     let paintBusy = false;
+    let lastPaintTarget = null;
     const PAINT_BUCKET_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(`
       <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="#168579" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/>
@@ -320,7 +321,9 @@ INDEX_HTML = """<!doctype html>
     function renderInspector() {
       const item = activeItem();
       const disabled = !item;
-      undoPaint.disabled = activeTool !== "bucket" || paintBusy || disabled || !item.canPaint || !item.canUndoPaint;
+      const canUndoSelected = Boolean(item?.canPaint && item.canUndoPaint);
+      const canUndoBase = lastPaintTarget === "base_colors" && Boolean(project?.canUndoBasePaint);
+      undoPaint.disabled = activeTool !== "bucket" || paintBusy || (!canUndoSelected && !canUndoBase);
       for (const input of [posX, posY, posW, posH]) input.disabled = disabled || !item.canTransform;
       rotation.disabled = disabled || !item.canRotate;
       applyPosition.disabled = disabled || !item.canTransform;
@@ -635,32 +638,31 @@ INDEX_HTML = """<!doctype html>
     async function paintAt(point) {
       if (paintBusy || viewMode !== "texture") return;
       const hit = paintHitTest(point);
-      if (!hit) {
-        loadStatus.textContent = "Choose a visible logo, trim, or panel image to fill.";
-        return;
-      }
-      activeKey = hit.item.key;
+      const paintKey = hit?.item.key || "base_colors";
+      const paintLabel = hit?.item.label || "template color area";
+      activeKey = hit?.item.key || null;
       paintBusy = true;
       renderLayerList();
       setTool("bucket");
-      loadStatus.textContent = `Filling ${hit.item.label}...`;
+      loadStatus.textContent = `Filling ${paintLabel}...`;
       try {
         const response = await fetch("/api/paint", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
-            key: hit.item.key,
-            x: hit.x,
-            y: hit.y,
+            key: paintKey,
+            x: hit?.x ?? point.x / 2048,
+            y: hit?.y ?? point.y / 2048,
             color: paintColor.value,
             tolerance: Number(paintTolerance.value || 0),
           }),
         });
         if (!response.ok) throw new Error(`Paint failed: ${response.status}`);
         const result = await response.json();
+        if (result.changed) lastPaintTarget = paintKey;
         await loadProject();
         loadStatus.textContent = result.changed
-          ? `Filled ${hit.item.label}`
+          ? `Filled ${result.label || paintLabel}`
           : (result.message || "No pixels changed.");
       } catch (error) {
         loadStatus.textContent = error.message;
@@ -975,21 +977,24 @@ INDEX_HTML = """<!doctype html>
     paintToleranceNumber.oninput = () => setPaintTolerance(paintToleranceNumber.value);
     undoPaint.onclick = async () => {
       const item = activeItem();
-      if (!item?.canPaint || !item.canUndoPaint || paintBusy) return;
+      const paintKey = item?.canPaint && item.canUndoPaint ? item.key : lastPaintTarget;
+      if (!paintKey || paintBusy) return;
+      const paintLabel = item?.label || "template color area";
       paintBusy = true;
       setTool("bucket");
-      loadStatus.textContent = `Undoing fill on ${item.label}...`;
+      loadStatus.textContent = `Undoing fill on ${paintLabel}...`;
       try {
         const response = await fetch("/api/paint/undo", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({key: item.key}),
+          body: JSON.stringify({key: paintKey}),
         });
         if (!response.ok) throw new Error(`Undo failed: ${response.status}`);
         const result = await response.json();
         await loadProject();
+        if (paintKey === "base_colors" && !project?.canUndoBasePaint) lastPaintTarget = null;
         loadStatus.textContent = result.ok
-          ? `Undid fill on ${item.label}`
+          ? `Undid fill on ${paintLabel}`
           : (result.message || "No fill is available to undo.");
       } catch (error) {
         loadStatus.textContent = error.message;

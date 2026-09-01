@@ -122,6 +122,7 @@ class ScannerTests(unittest.TestCase):
         self.assertIn('fetch("/api/paint"', INDEX_HTML)
         self.assertIn("PAINT_BUCKET_CURSOR", INDEX_HTML)
         self.assertIn('class="tool-icon"', INDEX_HTML)
+        self.assertIn('"base_colors"', INDEX_HTML)
 
     def test_trim_path_lab_has_saved_smooth_curve_bend_control(self) -> None:
         self.assertIn('id="curveStrength"', TRIM_PATH_LAB_HTML)

@@ -12,6 +12,32 @@ from nba2k_jersey_modder.modern.document import ProjectDocument
 
 
 class LayerWebSessionTests(unittest.TestCase):
+    def test_paint_bucket_updates_and_undoes_template_base_color(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            project_path = folder / "project.json"
+            document = ProjectDocument()
+            document.save(project_path)
+            session = LayerWebSession(project_path, folder / "state.json")
+            template = session.service.template(session.document)
+            zone = next(item for item in template.zones if item.name == "front_jersey_base")
+            design_width = max(2048, max(item.x + item.width for item in template.zones))
+            design_height = max(2048, max(item.y + item.height for item in template.zones))
+
+            result = session._web_editor_paint({
+                "key": "base_colors",
+                "x": (zone.x + zone.width / 2) / design_width,
+                "y": (zone.y + zone.height / 2) / design_height,
+                "color": "#123456",
+            })
+            self.assertTrue(result["changed"])
+            self.assertEqual(session.document.generator["colors"]["front_color"], "#123456")
+            self.assertTrue(session._web_editor_project()["canUndoBasePaint"])
+
+            undo = session._web_editor_undo_paint({"key": "base_colors"})
+            self.assertTrue(undo["ok"])
+            self.assertEqual(session.document.generator["colors"]["front_color"], "#ffffff")
+
     def test_paint_bucket_recolors_and_undoes_a_logo_layer(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

@@ -52,6 +52,7 @@ class LayerWebSession:
         self._revision = 0
         self._return_requested = False
         self._paint_history: list[tuple[str, Path, Path]] = []
+        self._color_paint_history: list[tuple[str, str]] = []
         self._write_state()
 
     def _run_on_ui_thread(self, callback):
@@ -108,7 +109,8 @@ class LayerWebSession:
         if jersey_background_layer(template, inputs, (2048, 2048)) is not None:
             overlays.append(self._overlay(
                 "jersey_background", "Background Jersey Image", 0, 0, 2048, 2048,
-                can_transform=False, can_cleanup=False, layer_label="Background layer",
+                can_transform=False, can_cleanup=False, can_paint=True,
+                layer_label="Background layer",
             ))
 
         for active_index, (_stored_index, item) in enumerate(self._active_trim_entries()):
@@ -175,6 +177,7 @@ class LayerWebSession:
             "textureSize": 2048,
             "baseUrl": "/api/base.png",
             "uvOverlay": {"available": uv_path.exists(), "imageUrl": "/api/uv.png", "enabled": bool(uv.get("enabled", True)), "opacity": _int(uv.get("opacity"), 45, 0, 100)},
+            "canUndoBasePaint": bool(self._color_paint_history),
             "overlays": overlays,
         }
 
@@ -347,10 +350,12 @@ class LayerWebSession:
 
     def _web_editor_paint(self, payload: dict) -> dict:
         key = str(payload.get("key") or "")
+        color = _hex_color(payload.get("color"))
+        if key == "base_colors":
+            return self._paint_base_color(payload, color)
         source = self._source_path(key)
         if source is None:
-            raise ValueError("The selected layer cannot be painted.")
-        color = _hex_color(payload.get("color"))
+            return {"changed": False, "message": "The selected layer cannot be painted."}
         tolerance = _int(payload.get("tolerance"), 24, 0, 255)
         normalized_x = _float(payload.get("x"), 0.5, 0.0, 1.0)
         normalized_y = _float(payload.get("y"), 0.5, 0.0, 1.0)
@@ -359,13 +364,21 @@ class LayerWebSession:
 
         with Image.open(source) as opened:
             image = opened.convert("RGBA")
+        if key == "jersey_background" and bool(self.generator["jerseyBackground"].get("tile", False)):
+            tile_scale = _int(self.generator["jerseyBackground"].get("tileScalePercent"), 100, 10, 200)
+            tile_width = max(1, round(image.width * tile_scale / 100))
+            tile_height = max(1, round(image.height * tile_scale / 100))
+            rendered_x = normalized_x * 2048
+            rendered_y = normalized_y * 2048
+            normalized_x = (rendered_x % tile_width) / tile_width
+            normalized_y = (rendered_y % tile_height) / tile_height
         seed = (
             min(image.width - 1, max(0, round(normalized_x * (image.width - 1)))),
             min(image.height - 1, max(0, round(normalized_y * (image.height - 1)))),
         )
         seed_pixel = image.getpixel(seed)
         if seed_pixel[3] < 8:
-            raise ValueError("Paint Bucket cannot fill a transparent area.")
+            return {"changed": False, "message": "That point is transparent. Click inside a colored area."}
         replacement = (*color, seed_pixel[3])
         if seed_pixel == replacement:
             return {"changed": False, "message": "That area already uses the selected color."}
@@ -378,10 +391,17 @@ class LayerWebSession:
         self._set_source_path(key, output)
         self._paint_history.append((key, source, output))
         self._write_state()
-        return {"changed": True, "path": str(output)}
+        return {"changed": True, "path": str(output), "label": self._paint_label(key)}
 
     def _web_editor_undo_paint(self, payload: dict) -> dict:
         key = str(payload.get("key") or "")
+        if key == "base_colors":
+            if not self._color_paint_history:
+                return {"ok": False, "message": "No base color fill is available to undo."}
+            color_key, previous = self._color_paint_history.pop()
+            self.generator["colors"][color_key] = previous
+            self._write_state()
+            return {"ok": True}
         for index in range(len(self._paint_history) - 1, -1, -1):
             history_key, previous, _painted = self._paint_history[index]
             if history_key != key:
@@ -392,7 +412,48 @@ class LayerWebSession:
             return {"ok": True}
         return {"ok": False, "message": "No Paint Bucket change is available to undo for this layer."}
 
+    def _paint_base_color(self, payload: dict, color: tuple[int, int, int]) -> dict:
+        normalized_x = _float(payload.get("x"), 0.5, 0.0, 1.0)
+        normalized_y = _float(payload.get("y"), 0.5, 0.0, 1.0)
+        template = self.service.template(self.document)
+        design_width = max(2048, max((zone.x + zone.width for zone in template.zones), default=2048))
+        design_height = max(2048, max((zone.y + zone.height for zone in template.zones), default=2048))
+        point_x = normalized_x * design_width
+        point_y = normalized_y * design_height
+        matching = [
+            zone for zone in template.zones
+            if _color_key_for_zone(zone.name) is not None
+            and zone.x <= point_x <= zone.x + zone.width
+            and zone.y <= point_y <= zone.y + zone.height
+        ]
+        if not matching:
+            return {"changed": False, "message": "No editable color zone is under that point."}
+        zone = max(matching, key=lambda item: item.layer)
+        color_key = _color_key_for_zone(zone.name)
+        if color_key is None:
+            return {"changed": False, "message": "That template area is not paintable."}
+        value = "#{:02x}{:02x}{:02x}".format(*color)
+        previous = str(self.generator["colors"].get(color_key) or "")
+        if previous.lower() == value:
+            return {"changed": False, "message": "That area already uses the selected color."}
+        self._color_paint_history.append((color_key, previous))
+        self.generator["colors"][color_key] = value
+        self._write_state()
+        return {"changed": True, "label": _paint_zone_label(zone.name)}
+
+    @staticmethod
+    def _paint_label(key: str) -> str:
+        if key == "jersey_background":
+            return "Background Jersey Image"
+        if key == "front_wordmark":
+            return "Front Wordmark"
+        if key.startswith("logo:"):
+            return "Logo"
+        return key.replace("_", " ").title()
+
     def _source_path(self, key: str) -> Path | None:
+        if key == "jersey_background":
+            return _path(self.generator["images"].get("jersey_background_image"))
         if key == "front_wordmark":
             return _path(self.generator["images"].get("front_wordmark_image"))
         if key.startswith("logo:"):
@@ -403,6 +464,9 @@ class LayerWebSession:
         return _path(self.generator["images"].get(image_key)) if image_key else None
 
     def _set_source_path(self, key: str, path: Path) -> None:
+        if key == "jersey_background":
+            self.generator["images"]["jersey_background_image"] = str(path)
+            return
         if key == "front_wordmark":
             self.generator["images"]["front_wordmark_image"] = str(path)
             return
@@ -481,3 +545,32 @@ def _hex_color(value: object) -> tuple[int, int, int]:
         return tuple(int(text[index:index + 2], 16) for index in (0, 2, 4))
     except ValueError as exc:
         raise ValueError("Choose a valid six-digit paint color.") from exc
+
+
+def _color_key_for_zone(name: str) -> str | None:
+    if name.startswith("shorts_waistband"):
+        return "waistband_color"
+    if name == "shorts_left_panel":
+        return "shorts_left_panel_color"
+    if name == "shorts_right_panel":
+        return "shorts_right_panel_color"
+    if name.startswith("front_jersey_base"):
+        return "front_color"
+    if name.startswith("back_jersey_base"):
+        return "back_color"
+    return {
+        "left_side_panel": "left_panel_color",
+        "right_side_panel": "right_panel_color",
+        "collar_background": "collar_background_color",
+        "left_arm_hole_trim": "left_arm_hole_trim_color",
+        "right_arm_hole_trim": "right_arm_hole_trim_color",
+        "collar_trim": "collar_trim_color",
+    }.get(name)
+
+
+def _paint_zone_label(name: str) -> str:
+    if name.startswith("front_jersey_base"):
+        return "Front Base"
+    if name.startswith("back_jersey_base"):
+        return "Back Base"
+    return name.replace("shorts_", "").replace("_", " ").title()
