@@ -88,7 +88,7 @@ class TrimCreatorPage(FeaturePage):
         split=QSplitter(Qt.Orientation.Horizontal);root.addWidget(split,1);left=QWidget();ll=QVBoxLayout(left);ll.setContentsMargins(0,0,8,0)
         self.file=FileField("Jersey mockup");self.file.changed.connect(self._load);ll.addWidget(self.file);self.view=ImageView();self.view.pointClicked.connect(self._point);ll.addWidget(self.view,1);self.pick_status=QLabel("Choose a mockup, then click two points across the trim.");self.pick_status.setObjectName("muted");ll.addWidget(self.pick_status);split.addWidget(left)
         right=QWidget();rl=QVBoxLayout(right);rl.setContentsMargins(8,0,0,0);self.preview=ImageView();self.preview.setMinimumHeight(220);rl.addWidget(self.preview,1)
-        row=QHBoxLayout();row.addWidget(QLabel("Trim type"));self.target=QComboBox();self.target.addItems(("Collar Trim","Left Arm Hole Trim","Right Arm Hole Trim","Waistband"));row.addWidget(self.target,1);rl.addLayout(row)
+        row=QHBoxLayout();row.addWidget(QLabel("Trim type"));self.target=QComboBox();self.target.addItems(("Collar Trim","Left Arm Hole Trim","Right Arm Hole Trim","Waistband","Trim Path"));row.addWidget(self.target,1);rl.addLayout(row)
         crop=QHBoxLayout();crop.addWidget(QLabel("Crop top"));self.top=QSpinBox();self.top.setRange(-64,64);crop.addWidget(self.top);crop.addWidget(QLabel("Crop bottom"));self.bottom=QSpinBox();self.bottom.setRange(-64,64);crop.addWidget(self.bottom);rl.addLayout(crop)
         self.sharpen=QCheckBox("Correct gaps and even lines");self.sharpen.setChecked(True);rl.addWidget(self.sharpen);create=QPushButton("Create Trim Preview");create.clicked.connect(self._create);rl.addWidget(create)
         actions=QHBoxLayout();stage=QPushButton("Stage Current Trim");send=QPushButton("Send Staged to Generator");actions.addWidget(stage);actions.addWidget(send);rl.addLayout(actions);stage.clicked.connect(self._stage);send.clicked.connect(self._send)
@@ -109,7 +109,9 @@ class TrimCreatorPage(FeaturePage):
         path=WORK_DIR/f"staged_trim_{len(self.staged)+1}.png";path.write_bytes(self.current.read_bytes());target=self.target.currentText();self.staged.append((target,path));self.list.addItem(f"{target} | {path.name}")
     def _send(self):
         keys={"Collar Trim":"collar_trim_image","Left Arm Hole Trim":"left_arm_hole_trim_image","Right Arm Hole Trim":"right_arm_hole_trim_image","Waistband":"waistband_image"}
-        for target,path in self.staged:self.document.generator["images"][keys[target]]=str(path)
+        for target,path in self.staged:
+            if target=="Trim Path":self.document.generator["trimPathPattern"]=str(path)
+            else:self.document.generator["images"][keys[target]]=str(path)
         if self.staged:self.documentChanged.emit();self.statusChanged.emit(f"Sent {len(self.staged)} staged trim(s) to Generator.")
     def _save(self):
         if not self.current:return

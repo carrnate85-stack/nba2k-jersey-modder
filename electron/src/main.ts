@@ -32,7 +32,7 @@ const defaultProject = (): JsonObject => ({
       right_arm_hole_trim_image: null, collar_trim_image: null,
     },
     frontWordmark: { offsetX: 0, offsetY: 0, scalePercent: 100, scaleWidthPercent: 100, scaleHeightPercent: 100, lockAspect: true },
-    jerseyBackground: { tile: false, tileScalePercent: 100 }, logos: [], trimPathLayers: [], trimPlacements: {},
+    jerseyBackground: { tile: false, tileScalePercent: 100 }, logos: [], trimPathLayers: [], trimPathPattern: null, trimPlacements: {},
     backgroundCleanup: { removeWhite: false, removeBlack: false, outsideOnly: true, tolerance: 32 },
     fabricOverlay: { preset: 'None', customPath: null, blendMode: 'multiply', opacity: 0 },
     uvOverlay: { enabled: true, opacity: 45 },

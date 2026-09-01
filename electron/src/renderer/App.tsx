@@ -42,6 +42,11 @@ const logoTypes = [
 const trimTypes = [
   ['Collar Trim', 'collar_trim_image'], ['Left Arm Hole Trim', 'left_arm_hole_trim_image'],
   ['Right Arm Hole Trim', 'right_arm_hole_trim_image'], ['Waistband', 'waistband_image'],
+  ['Trim Path', 'trim_path_pattern'],
+] as const;
+const shortsColors = [
+  ['left_panel_color', 'Left shorts panel'], ['right_panel_color', 'Right shorts panel'],
+  ['waistband_color', 'Waistband'],
 ] as const;
 
 function clone<T>(value: T): T { return structuredClone(value); }
@@ -144,7 +149,7 @@ function Generator({ project, projectPath, update, setPage, status }: any) {
   const render = useCallback(async () => { const id = ++renderId.current; setRendering(true); try { const result = await window.jersey.engine('render', { project, kind: 'preview' }); const url = await window.jersey.fileDataUrl(result.path); if (id === renderId.current) { setPreview(url); status('Preview updated.'); } } catch (error: any) { status(error.message); } finally { if (id === renderId.current) setRendering(false); } }, [project, status]);
   useEffect(() => { const timer = setTimeout(render, 180); return () => clearTimeout(timer); }, [render]);
   const openEditor = async () => { try { const result = await window.jersey.openEditor('layer', { project, projectPath }); if (result.project) update((next: any) => Object.assign(next, result.project)); } catch (error: any) { status(error.message); } };
-  const colors = project.generator.garment === 'Shorts' ? [['waistband_color', 'Waistband']] : jerseyColors;
+  const colors = project.generator.garment === 'Shorts' ? shortsColors : jerseyColors;
   const visibleImages: (readonly [string, string])[] = imageRows.filter(([key]) => project.generator.garment === 'Jersey' ? !key.startsWith('shorts_') && key !== 'waistband_image' : key.startsWith('shorts_') || key === 'waistband_image');
   if (project.generator.garment === 'Jersey') visibleImages.splice(1, 0, ['wrap_across_front_back_logo', 'Wrap image']);
   const visibleLogoTypes = logoTypes.filter(([, target]) => project.generator.garment === 'Shorts' ? target === 'shorts_belt_buckle_logo' : target !== 'shorts_belt_buckle_logo' && target !== 'wrap_across_front_back_logo');
@@ -309,6 +314,10 @@ function Creator({ kind, project, projectPath, update, status, setPage }: any) {
       update((next: any) => {
         for (const { item, stored } of storedItems) {
           if (!isLogo) {
+            if (item.target === "trim_path_pattern") {
+              next.generator.trimPathPattern = stored;
+              continue;
+            }
             next.generator.images[item.target] = stored;
             continue;
           }
@@ -339,10 +348,11 @@ function Creator({ kind, project, projectPath, update, status, setPage }: any) {
       const destinations = storedItems
         .map(({ item }) => item.typeLabel || (isLogo ? "Logo" : "Trim"))
         .join(", ");
-      status(
-        `Sent to Generator: ${destinations}. Open Logos or the Web Layer Editor to position them.`,
-      );
-      setPage("generator");
+      const hasTrimPath = !isLogo && storedItems.some(({ item }) => item.target === "trim_path_pattern");
+      status(hasTrimPath
+        ? `Loaded ${destinations}. The Trim Path Lab is ready to draw with this pattern.`
+        : `Sent to Generator: ${destinations}. Open the Web Layer Editor to position them.`);
+      setPage(hasTrimPath ? "paths" : "generator");
     } catch (error: any) {
       status(error.message);
     }
@@ -619,7 +629,31 @@ function Creator({ kind, project, projectPath, update, status, setPage }: any) {
 
 function PathImage({ path }: { path: string }) { const [src, setSrc] = useState(''); useEffect(() => { let active = true; window.jersey.fileDataUrl(path).then((value) => active && setSrc(value)).catch(() => setSrc('')); return () => { active = false; }; }, [path]); return src ? <img src={src}/> : <div className="empty-preview">Loading preview...</div>; }
 
-function TrimPaths({ project, projectPath, update, status }: any) { const [pattern, setPattern] = useState<string | null>(null); const choose = async () => { const source = await window.jersey.chooseFile('trim'); if (!source) return; setPattern(await window.jersey.storeAsset(projectPath, source, 'trims', 'trim_path_pattern')); }; const open = async () => { if (!pattern) { await choose(); return; } try { const result = await window.jersey.openEditor('paths', { project, projectPath, pattern }); if (result.project) update((next: any) => Object.assign(next, result.project)); } catch (error: any) { status(error.message); } }; return <div className="page"><PageHeader page="paths" actions={<button className="primary command large-editor" onClick={open}><Blend/>{pattern ? 'Open Web Trim Path Lab' : 'Choose Trim Pattern'}</button>}/><div className="two-column"><section className="tool-panel"><h2>Trim source</h2><AssetRow label="Straight trim pattern" path={pattern} choose={choose} clear={() => setPattern(null)}/><p className="muted">The pattern is bent continuously along each path. Straight segments are the default; smooth curves, T junctions, mirroring, and linked movement remain available in the web lab.</p></section><section className="tool-panel"><h2>Current project paths</h2><div className="stat-number">{project.generator.trimPathLayers.filter((item: any) => item.garment === project.generator.garment).length}</div><p>{project.generator.garment} trim path layer(s) on {project.generator.garment === 'Jersey' ? project.generator.jerseyCut : project.generator.shortsTemplate}.</p><button className="command full" onClick={open}><Play/>Continue Editing</button></section></div></div>; }
+function TrimPaths({ project, projectPath, update, status }: any) {
+  const pattern: string | null = project.generator.trimPathPattern || null;
+  const choose = async (): Promise<string | null> => {
+    const source = await window.jersey.chooseFile('trim');
+    if (!source) return null;
+    const stored = await window.jersey.storeAsset(projectPath, source, 'trims', 'trim_path_pattern');
+    update((next: any) => { next.generator.trimPathPattern = stored; });
+    status(`Loaded ${filename(stored)} as the Trim Path pattern.`);
+    return stored;
+  };
+  const clear = () => update((next: any) => { next.generator.trimPathPattern = null; });
+  const open = async () => {
+    const selectedPattern = pattern || await choose();
+    if (!selectedPattern) return;
+    try {
+      const editorProject = clone(project);
+      editorProject.generator.trimPathPattern = selectedPattern;
+      const result = await window.jersey.openEditor('paths', { project: editorProject, projectPath, pattern: selectedPattern });
+      if (result.project) update((next: any) => Object.assign(next, result.project));
+    } catch (error: any) {
+      status(error.message);
+    }
+  };
+  return <div className="page"><PageHeader page="paths" actions={<button className="primary command large-editor" onClick={open}><Blend/>{pattern ? 'Open Web Trim Path Lab' : 'Choose Trim Pattern'}</button>}/><div className="two-column"><section className="tool-panel"><h2>Trim source</h2><AssetRow label="Straight trim pattern" path={pattern} choose={choose} clear={clear}/><p className="muted">Choose Trim Path in the Trim Creator to send a staged strip here automatically. The pattern bends continuously along straight segments, smooth curves, T junctions, and mirrored paths.</p></section><section className="tool-panel"><h2>Current project paths</h2><div className="stat-number">{project.generator.trimPathLayers.filter((item: any) => item.garment === project.generator.garment).length}</div><p>{project.generator.garment} trim path layer(s) on {project.generator.garment === 'Jersey' ? project.generator.jerseyCut : project.generator.shortsTemplate}.</p><button className="command full" onClick={open}><Play/>Continue Editing</button></section></div></div>;
+}
 
 function NumberEditor({ status }: any) { const [source, setSource] = useState<string | null>(null); const [preview, setPreview] = useState(''); const [fill, setFill] = useState(''); const [outline, setOutline] = useState(''); const [edge, setEdge] = useState(0); const [thickness, setThickness] = useState(0); const open = async () => { const path = await window.jersey.chooseFile('iff'); if (!path) return; try { const result = await window.jersey.engine('font_open', { path }); setSource(result.source); setPreview(await window.jersey.fileDataUrl(result.preview)); status(`Loaded ${filename(path)} (${result.width} x ${result.height}).`); } catch (error: any) { status(error.message); } }; const recolor = async () => { if (!source) return; try { const result = await window.jersey.engine('font_recolor', { source, fill: fill || null, outline: outline || null, edge, thickness }); setPreview(await window.jersey.fileDataUrl(result.path)); status('Number recolor preview updated.'); } catch (error: any) { status(error.message); } }; useEffect(() => { if (!source) return; const timer = setTimeout(recolor, 180); return () => clearTimeout(timer); }, [fill, outline, edge, thickness]); const save = async () => { if (!source) return; const destination = await window.jersey.saveFile('iff', `${parseName(source)}_recolor.iff`); if (!destination) return; try { await window.jersey.engine('font_save', { source, destination, fill: fill || null, outline: outline || null, edge, thickness }); status(`Saved ${filename(destination)}.`); } catch (error: any) { status(error.message); } }; return <div className="page"><PageHeader page="number" actions={<><button className="command" onClick={open}><FolderOpen/>Open Font IFF</button><button className="primary command" disabled={!source} onClick={save}><Save/>Save Font IFF As</button></>}/><div className="editor-split"><div className="image-workspace">{preview ? <img src={preview}/> : <div className="preview-loading"><Sparkles/>Open a font IFF to preview its number sheet.</div>}</div><div className="right-controls"><section className="tool-panel"><h2>Recolor</h2><ColorControl label="Fill" value={fill} setValue={setFill}/><ColorControl label="Outline" value={outline} setValue={setOutline}/><Range label="Edge protection" value={edge} min={0} max={100} onChange={setEdge}/><Range label="Outline thickness" value={thickness} min={0} max={20} onChange={setThickness}/><p className="muted">No change is the default for both colors. Entering a hex value enables that recolor automatically.</p></section></div></div></div>; }
 function ColorControl({ label, value, setValue }: any) { return <div className="color-control"><div><strong>{label}</strong><label className="check"><input type="checkbox" checked={!value} onChange={(event) => setValue(event.target.checked ? '' : '#ffffff')}/>No change</label></div><div><input className="hex" value={value} disabled={!value} placeholder="#ffffff" onChange={(event) => setValue(event.target.value)}/><input type="color" value={value || '#ffffff'} onChange={(event) => setValue(event.target.value)}/></div></div>; }

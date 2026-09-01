@@ -24,6 +24,10 @@ class TrimWebSessionTests(unittest.TestCase):
             trim.save(imported)
 
             session = TrimWebSession(reference, folder / "state.json")
+            self.assertIn(
+                {"label": "Trim Path", "target": "trim_path_pattern"},
+                session.project()["trimTypes"],
+            )
             project = session.import_image({
                 "path": str(imported),
                 "target": "waistband_image",

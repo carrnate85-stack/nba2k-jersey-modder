@@ -18,6 +18,7 @@ TRIM_TYPES = (
     ("Left Arm Hole Trim", "left_arm_hole_trim_image"),
     ("Right Arm Hole Trim", "right_arm_hole_trim_image"),
     ("Waistband", "waistband_image"),
+    ("Trim Path", "trim_path_pattern"),
 )
 
 
