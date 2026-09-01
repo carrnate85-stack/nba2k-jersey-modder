@@ -119,6 +119,12 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("curveStrength: 100", TRIM_PATH_LAB_HTML)
         self.assertIn("Number(path.curveStrength ?? 100) / 100", TRIM_PATH_LAB_HTML)
 
+    def test_trim_path_lab_supports_straight_curve_straight_paths(self) -> None:
+        self.assertIn('value="straight_curve_straight"', TRIM_PATH_LAB_HTML)
+        self.assertIn("function straightCurveStraightSamples", TRIM_PATH_LAB_HTML)
+        self.assertIn('path?.curve === "straight_curve_straight"', TRIM_PATH_LAB_HTML)
+        self.assertIn("return 4;", TRIM_PATH_LAB_HTML)
+
     def test_logo_ai_prompt_straightens_only_accidental_distortion(self) -> None:
         app = object.__new__(JerseyModderApp)
         app._logo_creator_canvas_size = lambda: 1024

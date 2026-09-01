@@ -86,9 +86,10 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <select id="curveMode">
           <option value="smooth">Smooth curve</option>
           <option value="straight" selected>Straight segments</option>
+          <option value="straight_curve_straight">Straight / curve / straight (4 points)</option>
           <option value="t">T shape (3 points)</option>
         </select>
-        <label id="curveStrengthLabel" for="curveStrength">Curve bend (smooth only)</label>
+        <label id="curveStrengthLabel" for="curveStrength">Curve bend (curve shapes only)</label>
         <div class="range-row"><input id="curveStrength" type="range" min="0" max="200" value="100"><input id="curveStrengthNumber" type="number" min="0" max="200" value="100" aria-label="Curve bend value"></div>
         <div class="small">100% is the standard curve. Lower values tighten the bend; higher values create a broader sweep.</div>
         <label id="tJunctionLabel" for="tJunctionMode">T junction (T shape only)</label>
@@ -121,7 +122,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <label class="check"><input id="moveLinked" type="checkbox" checked> Move linked layers together</label>
         <button id="unlinkPath" class="secondary" style="width:100%; margin-top:8px;">Unlink Selected Layer</button>
         <div id="linkStatus" class="small">Layer is not linked.</div>
-        <div class="small">Drag directly on a finished trim to move its whole layer. For a T shape, click both crossbar ends, then click the stem end. Angles run clockwise: 0 degrees points right and 90 degrees points down. Right-click finishes the path. Hold Alt while placing a point to bypass snapping.</div>
+        <div class="small">Drag directly on a finished trim to move its whole layer. For Straight / curve / straight, click the path start, curve start, curve end, then path end. For a T shape, click both crossbar ends, then click the stem end. Angles run clockwise: 0 degrees points right and 90 degrees points down. Right-click finishes the path. Hold Alt while placing a point to bypass snapping.</div>
       </div>
       <div class="panel">
         <h2>View</h2>
@@ -190,7 +191,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         width,
         patternScale: Math.max(25, Math.min(400, Number(raw?.patternScale) || 100)),
         patternOffset: Math.max(-1024, Math.min(1024, Number(raw?.patternOffset) || 0)),
-        curve: ["smooth", "straight", "t"].includes(raw?.curve) ? raw.curve : "straight",
+        curve: ["smooth", "straight", "straight_curve_straight", "t"].includes(raw?.curve) ? raw.curve : "straight",
         curveStrength: Math.max(0, Math.min(200, Number.isFinite(rawCurveStrength) ? rawCurveStrength : 100)),
         tJunctionMode: raw?.tJunctionMode === "closed" ? "closed" : "open",
         visible: raw?.visible !== false,
@@ -423,7 +424,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     }
 
     function minimumPathPoints(path) {
-      return path?.curve === "t" ? 3 : 2;
+      if (path?.curve === "t") return 3;
+      if (path?.curve === "straight_curve_straight") return 4;
+      return 2;
     }
 
     function pathIsRenderable(path) {
@@ -434,6 +437,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const points = path.points;
       if (points.length < 2) return points.slice();
       if (path.curve === "straight" || points.length < 3) return straightSamples(points, targetStep);
+      if (path.curve === "straight_curve_straight") return straightCurveStraightSamples(path, targetStep);
       const samples = [];
       const tangentScale = Math.max(0, Math.min(2, Number(path.curveStrength ?? 100) / 100));
       for (let index = 0; index < points.length - 1; index++) {
@@ -465,6 +469,56 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
           });
         }
       }
+      return samples;
+    }
+
+    function straightCurveStraightSamples(path, targetStep) {
+      const points = path.points;
+      if (points.length < 4) return straightSamples(points, targetStep);
+      const [pathStart, curveStart, curveEnd, pathEnd] = points;
+      const incomingLength = Math.hypot(curveStart.x - pathStart.x, curveStart.y - pathStart.y);
+      const outgoingLength = Math.hypot(pathEnd.x - curveEnd.x, pathEnd.y - curveEnd.y);
+      const curveChord = Math.hypot(curveEnd.x - curveStart.x, curveEnd.y - curveStart.y);
+      if (incomingLength < .01 || outgoingLength < .01 || curveChord < .01) {
+        return straightSamples(points, targetStep);
+      }
+      const strength = Math.max(0, Math.min(2, Number(path.curveStrength ?? 100) / 100));
+      const incoming = {
+        x: (curveStart.x - pathStart.x) / incomingLength,
+        y: (curveStart.y - pathStart.y) / incomingLength,
+      };
+      const outgoing = {
+        x: (pathEnd.x - curveEnd.x) / outgoingLength,
+        y: (pathEnd.y - curveEnd.y) / outgoingLength,
+      };
+      const firstHandleLength = Math.min(incomingLength * .95, curveChord * .55 * strength);
+      const secondHandleLength = Math.min(outgoingLength * .95, curveChord * .55 * strength);
+      const firstControl = {
+        x: curveStart.x + incoming.x * firstHandleLength,
+        y: curveStart.y + incoming.y * firstHandleLength,
+      };
+      const secondControl = {
+        x: curveEnd.x - outgoing.x * secondHandleLength,
+        y: curveEnd.y - outgoing.y * secondHandleLength,
+      };
+      const estimatedCurveLength = curveChord + firstHandleLength + secondHandleLength;
+      const curveSteps = Math.max(4, Math.ceil(estimatedCurveLength / targetStep));
+      const samples = straightSamples([pathStart, curveStart], targetStep);
+      for (let step = 1; step <= curveSteps; step++) {
+        const amount = step / curveSteps;
+        const inverse = 1 - amount;
+        samples.push({
+          x: inverse ** 3 * curveStart.x
+            + 3 * inverse ** 2 * amount * firstControl.x
+            + 3 * inverse * amount ** 2 * secondControl.x
+            + amount ** 3 * curveEnd.x,
+          y: inverse ** 3 * curveStart.y
+            + 3 * inverse ** 2 * amount * firstControl.y
+            + 3 * inverse * amount ** 2 * secondControl.y
+            + amount ** 3 * curveEnd.y,
+        });
+      }
+      samples.push(...straightSamples([curveEnd, pathEnd], targetStep).slice(1));
       return samples;
     }
 
@@ -818,7 +872,10 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         target.lineWidth = 2 / viewScale;
         target.setLineDash([8 / viewScale, 6 / viewScale]);
         target.beginPath();
-        pathPointRuns(path).forEach(points => {
+        const guideRuns = path.curve === "t"
+          ? pathPointRuns(path)
+          : [centerlineSamples(path, Math.max(2, 6 / viewScale))];
+        guideRuns.forEach(points => {
           points.forEach((point, index) => index ? target.lineTo(point.x, point.y) : target.moveTo(point.x, point.y));
         });
         target.stroke();
@@ -1052,7 +1109,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         path.points.push(drawingPoint(event));
         selectedPointIndex = path.points.length - 1;
         livePoint = null;
-        if (path.curve === "t" && path.points.length >= 3) {
+        if ((path.curve === "t" && path.points.length >= 3)
+            || (path.curve === "straight_curve_straight" && path.points.length >= 4)) {
           finishPath();
           return;
         }
@@ -1128,7 +1186,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function finishPath() {
       const path = activePath();
       if (!path || path.points.length < minimumPathPoints(path)) {
-        setStatus(path?.curve === "t" ? "A T shape needs two crossbar ends and one stem end." : "Add at least two points before finishing the path.");
+        if (path?.curve === "t") setStatus("A T shape needs two crossbar ends and one stem end.");
+        else if (path?.curve === "straight_curve_straight") setStatus("This shape needs a path start, curve start, curve end, and path end.");
+        else setStatus("Add at least two points before finishing the path.");
         return;
       }
       path.finished = true;
@@ -1267,8 +1327,9 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       document.getElementById("curveMode").value = path.curve;
       document.getElementById("curveStrength").value = path.curveStrength;
       document.getElementById("curveStrengthNumber").value = path.curveStrength;
-      document.getElementById("curveStrength").disabled = path.curve !== "smooth";
-      document.getElementById("curveStrengthNumber").disabled = path.curve !== "smooth";
+      const curveStrengthEnabled = ["smooth", "straight_curve_straight"].includes(path.curve);
+      document.getElementById("curveStrength").disabled = !curveStrengthEnabled;
+      document.getElementById("curveStrengthNumber").disabled = !curveStrengthEnabled;
       document.getElementById("tJunctionMode").value = path.tJunctionMode;
       document.getElementById("tJunctionMode").disabled = path.curve !== "t";
       document.getElementById("trimWidth").value = path.width;
@@ -1304,7 +1365,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     function changePathShape(event) {
       const path = activePath();
       if (!path) return;
-      path.curve = ["smooth", "straight", "t"].includes(event.target.value)
+      path.curve = ["smooth", "straight", "straight_curve_straight", "t"].includes(event.target.value)
         ? event.target.value
         : "straight";
       if (path.curve === "t") {
@@ -1314,6 +1375,13 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         setStatus(path.finished
           ? `${path.name} changed to a T shape.`
           : "T shape: click two crossbar ends, then click the stem end.");
+      } else if (path.curve === "straight_curve_straight") {
+        path.points = path.points.slice(0, 4);
+        path.finished = path.points.length >= 4;
+        drawing = !path.finished;
+        setStatus(path.finished
+          ? `${path.name} changed to a straight / curve / straight path.`
+          : "Click the path start, curve start, curve end, then path end.");
       } else if (path.points.length < 2) {
         path.finished = false;
         drawing = true;
