@@ -25,6 +25,8 @@ INDEX_HTML = """<!doctype html>
     #toolBar .divider { width: 1px; height: 26px; background: #3b4556; margin: 0 3px; }
     #toolBar .tool-label { color: #aab3c2; font-size: 12px; }
     #toolBar button.active { background: #168579; color: #fff; }
+    #toolBar button { display: inline-flex; align-items: center; gap: 7px; }
+    #toolBar .tool-icon { width: 18px; height: 18px; flex: 0 0 18px; }
     #toolBar input { width: auto; }
     #toolBar input[type="color"] { width: 38px; height: 32px; padding: 2px; }
     #toolBar input[type="text"] { width: 82px; }
@@ -80,7 +82,15 @@ INDEX_HTML = """<!doctype html>
   </header>
   <div id="toolBar">
     <button id="toolSelect" class="active" title="Select and move layers">Select / Move</button>
-    <button id="toolBucket" class="secondary" title="Fill a connected color area">Paint Bucket</button>
+    <button id="toolBucket" class="secondary" title="Fill a connected color area">
+      <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"></path>
+        <path d="m5 2 5 5"></path>
+        <path d="M2 13h15"></path>
+        <path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"></path>
+      </svg>
+      <span>Paint Bucket</span>
+    </button>
     <span class="divider"></span>
     <div id="bucketControls">
       <span class="tool-label">Fill</span>
@@ -201,6 +211,14 @@ INDEX_HTML = """<!doctype html>
     let lastSizeField = "width";
     let activeTool = "select";
     let paintBusy = false;
+    const PAINT_BUCKET_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="#168579" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/>
+        <path d="m5 2 5 5"/>
+        <path d="M2 13h15"/>
+        <path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/>
+      </svg>
+    `)}") 3 17, crosshair`;
     const HANDLE_SIZE = 56;
     const HANDLE_HIT_RADIUS = 58;
     const ALPHA_HIT_THRESHOLD = 12;
@@ -609,7 +627,7 @@ INDEX_HTML = """<!doctype html>
       for (const input of [paintColor, paintHex, paintTolerance, paintToleranceNumber]) {
         input.disabled = !bucketEnabled || paintBusy;
       }
-      canvas.style.cursor = bucketEnabled ? "crosshair" : "default";
+      canvas.style.cursor = bucketEnabled ? PAINT_BUCKET_CURSOR : "default";
       renderInspector();
       draw();
     }
@@ -820,7 +838,7 @@ INDEX_HTML = """<!doctype html>
     canvas.addEventListener("pointerup", async event => {
       if (pan && pan.pointerId === event.pointerId) {
         pan = null;
-        canvas.style.cursor = activeTool === "bucket" ? "crosshair" : "default";
+        canvas.style.cursor = activeTool === "bucket" ? PAINT_BUCKET_CURSOR : "default";
         return;
       }
       if (viewMode === "region" || activeTool !== "select") return;
@@ -835,7 +853,7 @@ INDEX_HTML = """<!doctype html>
     canvas.addEventListener("pointercancel", event => {
       if (pan && pan.pointerId === event.pointerId) {
         pan = null;
-        canvas.style.cursor = activeTool === "bucket" ? "crosshair" : "default";
+        canvas.style.cursor = activeTool === "bucket" ? PAINT_BUCKET_CURSOR : "default";
       }
     });
 
