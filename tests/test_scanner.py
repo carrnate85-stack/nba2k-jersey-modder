@@ -151,6 +151,12 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("function setPathPosition", TRIM_PATH_LAB_HTML)
         self.assertIn("function updatePositionControls", TRIM_PATH_LAB_HTML)
 
+    def test_trim_path_position_allows_negative_coordinates(self) -> None:
+        self.assertIn('id="pathPositionX" type="number" min="-8192"', TRIM_PATH_LAB_HTML)
+        self.assertIn('id="pathPositionY" type="number" min="-8192"', TRIM_PATH_LAB_HTML)
+        self.assertIn("const POSITION_LIMIT = 8192", TRIM_PATH_LAB_HTML)
+        self.assertIn("Math.max(-POSITION_LIMIT, Math.min(maximum, parsed))", TRIM_PATH_LAB_HTML)
+
     def test_trim_path_mirror_copies_are_independent_by_default(self) -> None:
         self.assertIn('<input id="linkNewCopies" type="checkbox">', TRIM_PATH_LAB_HTML)
         self.assertIn('<input id="moveLinked" type="checkbox">', TRIM_PATH_LAB_HTML)

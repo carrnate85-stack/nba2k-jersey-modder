@@ -111,8 +111,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         <div id="segmentReadout" class="small">Angle: -- | Length: --</div>
         <label>Path position</label>
         <div class="position-row">
-          <label for="pathPositionX">X (left edge)<input id="pathPositionX" type="number" min="0" step="1" aria-label="Path X position"></label>
-          <label for="pathPositionY">Y (top edge)<input id="pathPositionY" type="number" min="0" step="1" aria-label="Path Y position"></label>
+          <label for="pathPositionX">X (left edge)<input id="pathPositionX" type="number" min="-8192" max="8192" step="1" aria-label="Path X position"></label>
+          <label for="pathPositionY">Y (top edge)<input id="pathPositionY" type="number" min="-8192" max="8192" step="1" aria-label="Path Y position"></label>
         </div>
         <label for="trimWidth">Trim width</label>
         <div class="range-row"><input id="trimWidth" type="range" min="2" max="300" value="64"><input id="trimWidthNumber" type="number" min="2" max="300" value="64" aria-label="Trim width value"></div>
@@ -186,6 +186,7 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
     let patternLengthUniform = false;
     let uvOverlayAvailable = false;
     let pathMutationPending = false;
+    const POSITION_LIMIT = 8192;
 
     function setStatus(message) { statusNode.textContent = message; }
     function activePath() { return paths[activePathIndex] || null; }
@@ -1121,8 +1122,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const minY = Math.min(...allPoints.map(point => point.y));
       const maxY = Math.max(...allPoints.map(point => point.y));
       return {
-        deltaX: Math.max(-minX, Math.min(project.width - maxX, deltaX)),
-        deltaY: Math.max(-minY, Math.min(project.height - maxY, deltaY)),
+        deltaX: Math.max(-POSITION_LIMIT - minX, Math.min(POSITION_LIMIT - maxX, deltaX)),
+        deltaY: Math.max(-POSITION_LIMIT - minY, Math.min(POSITION_LIMIT - maxY, deltaY)),
       };
     }
 
@@ -1143,8 +1144,10 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
       const yInput = document.getElementById("pathPositionY");
       xInput.disabled = !bounds;
       yInput.disabled = !bounds;
-      xInput.max = Math.max(0, (project?.width || 0) - (bounds?.width || 0));
-      yInput.max = Math.max(0, (project?.height || 0) - (bounds?.height || 0));
+      xInput.min = -POSITION_LIMIT;
+      yInput.min = -POSITION_LIMIT;
+      xInput.max = POSITION_LIMIT - (bounds?.width || 0);
+      yInput.max = POSITION_LIMIT - (bounds?.height || 0);
       xInput.value = bounds ? Math.round(bounds.x) : "";
       yInput.value = bounds ? Math.round(bounds.y) : "";
     }
@@ -1190,10 +1193,8 @@ TRIM_PATH_LAB_HTML = r"""<!doctype html>
         return;
       }
       const current = axis === "x" ? bounds.x : bounds.y;
-      const maximum = axis === "x"
-        ? Math.max(0, project.width - bounds.width)
-        : Math.max(0, project.height - bounds.height);
-      const target = Math.max(0, Math.min(maximum, parsed));
+      const maximum = POSITION_LIMIT - (axis === "x" ? bounds.width : bounds.height);
+      const target = Math.max(-POSITION_LIMIT, Math.min(maximum, parsed));
       moveSelectedLayers(axis === "x" ? target - current : 0, axis === "y" ? target - current : 0);
       updatePositionControls();
       setStatus(`${activePath().name} moved to X ${document.getElementById("pathPositionX").value}, Y ${document.getElementById("pathPositionY").value}.`);
