@@ -1672,7 +1672,7 @@ class WebEditorServer:
         for candidate in range(self.port, self.port + 25):
             try:
                 self.httpd = ThreadingHTTPServer((self.host, candidate), handler)
-                self.port = candidate
+                self.port = int(self.httpd.server_address[1])
                 break
             except OSError:
                 continue

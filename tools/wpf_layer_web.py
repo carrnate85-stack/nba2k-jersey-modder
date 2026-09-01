@@ -19,7 +19,7 @@ def main() -> int:
     parser.add_argument("--state", required=True)
     arguments = parser.parse_args()
     session = LayerWebSession(Path(arguments.project), Path(arguments.state))
-    server = WebEditorServer(session, port=8790)
+    server = WebEditorServer(session, port=0)
     url = server.start()
     print(json.dumps({"url": url}), flush=True)
     try:
