@@ -488,9 +488,11 @@ class LayerWebSession:
                 round((candidate.y + candidate.height) * composite.height / design_height),
             ), fill=255)
 
+        outside_zone = allowed.point(lambda value: 255 - value)
+        trim_alpha = self._trim_path_alpha_mask(composite.size)
         barrier = ImageChops.lighter(
-            self._trim_path_barrier_mask(composite.size),
-            allowed.point(lambda value: 255 - value),
+            self._closed_trim_barrier(trim_alpha, 64),
+            outside_zone,
         )
         if barrier.getpixel(seed) >= 8:
             return {"changed": False, "message": "Click beside the trim path, not directly on its edge."}
@@ -509,7 +511,14 @@ class LayerWebSession:
         ImageDraw.floodfill(working, seed, marker, thresh=tolerance)
         difference = ImageChops.difference(prepared, working).convert("L")
         mask = difference.point(lambda value: 255 if value else 0)
-        safe_area = barrier.point(lambda value: 0 if value >= 128 else 255)
+        # Let the fill reach underneath partially transparent trim pixels so the
+        # previous base color cannot show through the antialiased edge. The
+        # opaque trim core remains protected and is still composited above it.
+        safe_barrier = ImageChops.lighter(
+            self._closed_trim_barrier(trim_alpha, 224),
+            outside_zone,
+        )
+        safe_area = safe_barrier.point(lambda value: 0 if value >= 128 else 255)
         for _step in range(3):
             mask = ImageChops.multiply(mask.filter(ImageFilter.MaxFilter(3)), safe_area)
         if mask.getbbox() is None:
@@ -532,7 +541,7 @@ class LayerWebSession:
         self._write_state()
         return {"changed": True, "label": item["name"]}
 
-    def _trim_path_barrier_mask(self, size: tuple[int, int]) -> Image.Image:
+    def _trim_path_alpha_mask(self, size: tuple[int, int]) -> Image.Image:
         mask = Image.new("L", size, 0)
         scale_x = size[0] / 2048
         scale_y = size[1] / 2048
@@ -571,11 +580,16 @@ class LayerWebSession:
                 round((zone.x + zone.width) * size[0] / design_width),
                 round((zone.y + zone.height) * size[1] / design_height),
             ), fill=0)
-        # Close one-pixel breaks without growing the visible barrier outward.
-        # Low-alpha edge pixels remain paintable because the trim is composited
-        # above this fill layer and supplies its own antialiasing.
-        binary = mask.point(lambda value: 255 if value >= 64 else 0)
+        return mask
+
+    @staticmethod
+    def _closed_trim_barrier(mask: Image.Image, threshold: int) -> Image.Image:
+        # Close one-pixel breaks without permanently widening the trim path.
+        binary = mask.point(lambda value: 255 if value >= threshold else 0)
         return binary.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
+
+    def _trim_path_barrier_mask(self, size: tuple[int, int]) -> Image.Image:
+        return self._closed_trim_barrier(self._trim_path_alpha_mask(size), 64)
 
     @staticmethod
     def _paint_label(key: str) -> str:

@@ -51,8 +51,8 @@ class LayerWebSessionTests(unittest.TestCase):
             trim = folder / "trim_path.png"
             trim_image = Image.new("RGBA", (2048, 2048), (0, 0, 0, 0))
             for y in range(390, 1800):
-                trim_image.putpixel((1393, y), (0, 0, 0, 32))
-                trim_image.putpixel((1407, y), (0, 0, 0, 32))
+                trim_image.putpixel((1393, y), (0, 0, 0, 96))
+                trim_image.putpixel((1407, y), (0, 0, 0, 96))
             for x in range(1394, 1407):
                 for y in range(390, 1800):
                     trim_image.putpixel((x, y), (0, 0, 0, 255))
