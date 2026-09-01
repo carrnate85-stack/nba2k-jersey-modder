@@ -22,6 +22,7 @@ const defaultProject = (): JsonObject => ({
     garment: 'Jersey', jerseyCut: 'Retro U', shortsTemplate: 'Retro shorts',
     colors: {
       front_color: '#ffffff', back_color: '#ffffff', left_panel_color: '', right_panel_color: '',
+      shorts_left_panel_color: '', shorts_right_panel_color: '',
       collar_background_color: '#ffffff', waistband_color: '#ffffff',
       left_arm_hole_trim_color: '#ffffff', right_arm_hole_trim_color: '#ffffff', collar_trim_color: '#ffffff',
     },
@@ -47,6 +48,16 @@ function mergeDefaults(target: JsonObject, defaults: JsonObject): JsonObject {
     else if (value && typeof value === 'object' && !Array.isArray(value) && typeof target[key] === 'object' && !Array.isArray(target[key])) mergeDefaults(target[key], value);
   }
   target.projectVersion = 3;
+  return target;
+}
+
+function migratePanelColors(target: JsonObject): JsonObject {
+  const generator = target.generator;
+  if (!generator || typeof generator !== 'object' || Array.isArray(generator)) return target;
+  const colors = generator.colors;
+  if (!colors || typeof colors !== 'object' || Array.isArray(colors)) return target;
+  if (colors.shorts_left_panel_color === undefined) colors.shorts_left_panel_color = colors.left_panel_color ?? '';
+  if (colors.shorts_right_panel_color === undefined) colors.shorts_right_panel_color = colors.right_panel_color ?? '';
   return target;
 }
 
@@ -82,12 +93,12 @@ function ensureProjectStructure(projectPath: string): void {
 function loadProject(path: string): JsonObject {
   const payload = JSON.parse(readFileSync(path, 'utf8'));
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Project JSON is invalid.');
-  return mergeDefaults(payload, defaultProject());
+  return mergeDefaults(migratePanelColors(payload), defaultProject());
 }
 
 function saveProject(path: string, project: JsonObject): string {
   ensureProjectStructure(path);
-  writeFileSync(path, `${JSON.stringify(mergeDefaults(project, defaultProject()), null, 2)}\n`, 'utf8');
+  writeFileSync(path, `${JSON.stringify(mergeDefaults(migratePanelColors(project), defaultProject()), null, 2)}\n`, 'utf8');
   return path;
 }
 

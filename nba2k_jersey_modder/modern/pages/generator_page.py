@@ -71,9 +71,9 @@ class GeneratorPage(FeaturePage):
 
     def _build_colors(self) -> None:
         self.colors_section = CollapsibleSection("Colors"); self.controls_layout.addWidget(self.colors_section); self.color_fields = {}
-        labels = {"front_color":"Front", "back_color":"Back", "left_panel_color":"Left side panel", "right_panel_color":"Right side panel", "collar_background_color":"Collar background", "waistband_color":"Waistband"}
+        labels = {"front_color":"Front", "back_color":"Back", "left_panel_color":"Left side panel", "right_panel_color":"Right side panel", "shorts_left_panel_color":"Left shorts panel", "shorts_right_panel_color":"Right shorts panel", "collar_background_color":"Collar background", "waistband_color":"Waistband"}
         for key, label in labels.items():
-            field = ColorField(label, allow_none=key in {"left_panel_color", "right_panel_color"}); field.changed.connect(lambda value, k=key: self._set_color(k, value))
+            field = ColorField(label, allow_none=key in {"left_panel_color", "right_panel_color", "shorts_left_panel_color", "shorts_right_panel_color"}); field.changed.connect(lambda value, k=key: self._set_color(k, value))
             self.color_fields[key] = field; self.colors_section.body_layout.addWidget(field)
         self.trim_section = CollapsibleSection("Trim Colors"); self.controls_layout.addWidget(self.trim_section)
         for key, label in (("left_arm_hole_trim_color","Left arm hole"),("right_arm_hole_trim_color","Right arm hole"),("collar_trim_color","Collar trim")):
@@ -122,6 +122,8 @@ class GeneratorPage(FeaturePage):
         shorts = self.garment.currentText() == "Shorts"
         for key in ("front_color","back_color","collar_background_color","left_arm_hole_trim_color","right_arm_hole_trim_color","collar_trim_color"):
             self.color_fields[key].setVisible(not shorts)
+        self.color_fields["left_panel_color"].setVisible(not shorts); self.color_fields["right_panel_color"].setVisible(not shorts)
+        self.color_fields["shorts_left_panel_color"].setVisible(shorts); self.color_fields["shorts_right_panel_color"].setVisible(shorts)
         self.color_fields["waistband_color"].setVisible(shorts); self.trim_section.setVisible(not shorts); self.waistband_section.setVisible(shorts)
         for key, field in self.image_fields.items(): field.setVisible((key in dict(SHORTS_IMAGE_ROWS)) if shorts else (key in dict(IMAGE_ROWS)))
         self.tile.setVisible(not shorts); self.tile_widget.setVisible(not shorts and self.tile.isChecked())

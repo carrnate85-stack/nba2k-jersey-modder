@@ -45,7 +45,7 @@ const trimTypes = [
   ['Trim Path', 'trim_path_pattern'],
 ] as const;
 const shortsColors = [
-  ['left_panel_color', 'Left shorts panel'], ['right_panel_color', 'Right shorts panel'],
+  ['shorts_left_panel_color', 'Left shorts panel'], ['shorts_right_panel_color', 'Right shorts panel'],
   ['waistband_color', 'Waistband'],
 ] as const;
 

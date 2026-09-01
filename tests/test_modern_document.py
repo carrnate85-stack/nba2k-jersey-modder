@@ -18,6 +18,7 @@ class ModernProjectDocumentTests(unittest.TestCase):
         self.assertEqual(document.template_name, "Retro U")
         self.assertEqual(document.generator["colors"]["front_color"], "#ffffff")
         self.assertEqual(document.generator["colors"]["left_panel_color"], "")
+        self.assertEqual(document.generator["colors"]["shorts_left_panel_color"], "")
         self.assertTrue(document.generator["uvOverlay"]["enabled"])
         self.assertIsNone(document.generator["trimPathPattern"])
 
@@ -45,8 +46,26 @@ class ModernProjectDocumentTests(unittest.TestCase):
             document.generator["garment"] = "Shorts"
             document.generator["images"]["left_panel_image"] = str(jersey_panel)
             document.generator["images"]["shorts_left_panel_image"] = str(shorts_panel)
+            document.generator["colors"]["left_panel_color"] = "#112233"
+            document.generator["colors"]["shorts_left_panel_color"] = "#445566"
             inputs = document.to_generator_inputs()
             self.assertEqual(inputs.left_panel_image, shorts_panel)
+            self.assertEqual(inputs.left_panel_color, "#445566")
+
+    def test_legacy_shared_panel_colors_are_copied_then_independent(self) -> None:
+        document = ProjectDocument({
+            "generator": {
+                "garment": "Shorts",
+                "colors": {"left_panel_color": "#123456", "right_panel_color": "#654321"},
+                "images": {},
+            },
+        })
+        colors = document.generator["colors"]
+        self.assertEqual(colors["shorts_left_panel_color"], "#123456")
+        self.assertEqual(colors["shorts_right_panel_color"], "#654321")
+        colors["shorts_left_panel_color"] = "#abcdef"
+        self.assertEqual(colors["left_panel_color"], "#123456")
+        self.assertEqual(document.to_generator_inputs().left_panel_color, "#abcdef")
 
     def test_manifest_font_description_adds_team_and_uniform_search_terms(self) -> None:
         entry = ManifestEntry(

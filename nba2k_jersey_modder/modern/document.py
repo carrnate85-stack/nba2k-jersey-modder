@@ -19,6 +19,8 @@ GENERATOR_DEFAULT_COLORS = {
     "back_color": "#ffffff",
     "left_panel_color": "",
     "right_panel_color": "",
+    "shorts_left_panel_color": "",
+    "shorts_right_panel_color": "",
     "collar_background_color": "#ffffff",
     "waistband_color": "#ffffff",
     "left_arm_hole_trim_color": "#ffffff",
@@ -108,6 +110,8 @@ class ProjectDocument:
         garment = self.garment
         left_key = "shorts_left_panel_image" if garment == "Shorts" else "left_panel_image"
         right_key = "shorts_right_panel_image" if garment == "Shorts" else "right_panel_image"
+        left_color_key = "shorts_left_panel_color" if garment == "Shorts" else "left_panel_color"
+        right_color_key = "shorts_right_panel_color" if garment == "Shorts" else "right_panel_color"
         collar_key = "waistband_color" if garment == "Shorts" else "collar_background_color"
         logos = tuple(_logo(item) for item in g.get("logos", []) if _valid_path_item(item))
         trims = tuple(
@@ -132,8 +136,8 @@ class ProjectDocument:
         return GeneratorInputs(
             front_color=str(colors.get("front_color") or "#ffffff"),
             back_color=str(colors.get("back_color") or "#ffffff"),
-            left_panel_color=str(colors.get("left_panel_color") or ""),
-            right_panel_color=str(colors.get("right_panel_color") or ""),
+            left_panel_color=str(colors.get(left_color_key) or ""),
+            right_panel_color=str(colors.get(right_color_key) or ""),
             collar_background_color=str(colors.get(collar_key) or "#ffffff"),
             left_arm_hole_trim_color=str(colors.get("left_arm_hole_trim_color") or "#ffffff"),
             right_arm_hole_trim_color=str(colors.get("right_arm_hole_trim_color") or "#ffffff"),
@@ -172,6 +176,10 @@ class ProjectDocument:
         generator = result.setdefault("generator", {})
         if not isinstance(generator, dict):
             raise ValueError("Project file is missing generator data.")
+        colors = generator.get("colors")
+        if isinstance(colors, dict):
+            colors.setdefault("shorts_left_panel_color", colors.get("left_panel_color", ""))
+            colors.setdefault("shorts_right_panel_color", colors.get("right_panel_color", ""))
         for key, value in defaults["generator"].items():
             if key not in generator:
                 generator[key] = deepcopy(value)
