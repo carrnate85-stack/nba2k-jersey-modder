@@ -1027,25 +1027,22 @@ def _overlay_at_zone(
         return overlay, x, y
 
     if logo is not None and logo.stretch_x:
-        ratio = zone.width / max(1, overlay.width)
-        width_scale = _independent_scale_percent(
-            logo.scale_width_percent,
-            100,
-        ) / 100
+        texture_width = 2048
+        ratio = texture_width / max(1, overlay.width)
         height_scale = _independent_scale_percent(
             logo.scale_height_percent,
             logo.scale_percent,
         ) / 100
         overlay = overlay.resize(
             (
-                max(1, round(zone.width * width_scale)),
+                texture_width,
                 max(1, round(overlay.height * ratio * height_scale)),
             ),
             Image.Resampling.LANCZOS,
         )
         return (
             overlay,
-            zone.x,
+            0,
             zone.y + (zone.height - overlay.height) // 2 + logo.offset_y,
         )
 

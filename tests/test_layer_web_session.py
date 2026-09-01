@@ -203,6 +203,47 @@ class LayerWebSessionTests(unittest.TestCase):
             )
             self.assertFalse(reopened_overlay["lockAspect"])
 
+    def test_wrap_image_is_locked_to_the_full_texture_width(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            wrap = folder / "wrap.png"
+            Image.new("RGBA", (32, 8), (20, 80, 180, 255)).save(wrap)
+            project_path = folder / "project.json"
+            document = ProjectDocument()
+            document.generator["logos"] = [{
+                "path": str(wrap),
+                "targetName": "wrap_across_front_back_logo",
+                "offsetX": 300,
+                "offsetY": 0,
+                "scalePercent": 100,
+                "scaleWidthPercent": 60,
+                "scaleHeightPercent": 100,
+                "lockAspect": True,
+                "stretchX": True,
+            }]
+            document.save(project_path)
+            session = LayerWebSession(project_path, folder / "state.json")
+            overlay = next(
+                item for item in session._web_editor_project()["overlays"]
+                if item["key"] == "logo:0"
+            )
+            self.assertEqual((overlay["x"], overlay["width"]), (0, 2048))
+            self.assertTrue(overlay["lockX"])
+            self.assertTrue(overlay["lockWidth"])
+            self.assertFalse(overlay["lockAspect"])
+
+            updated = session._web_editor_update({
+                "key": "logo:0",
+                "x": 400,
+                "y": overlay["y"] + 20,
+                "width": 900,
+                "height": overlay["height"] * 1.25,
+                "rotation": 0,
+            })
+            self.assertEqual((updated["x"], updated["width"]), (0, 2048))
+            self.assertEqual(session.document.generator["logos"][0]["offsetX"], 0)
+            self.assertEqual(session.document.generator["logos"][0]["scaleWidthPercent"], 100)
+
 
 if __name__ == "__main__":
     unittest.main()

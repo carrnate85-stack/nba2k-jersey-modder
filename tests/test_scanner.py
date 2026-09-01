@@ -2365,7 +2365,7 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(placements[0].x, 0)
         self.assertEqual(placements[0].y, -184)
 
-    def test_wrap_logo_scales_width_and_height_independently(self) -> None:
+    def test_wrap_image_stays_full_width_while_scaling_height(self) -> None:
         try:
             from PIL import Image
         except ImportError:
@@ -2393,7 +2393,7 @@ class GeneratorTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual((placements[0].width, placements[0].height), (1024, 1536))
+        self.assertEqual((placements[0].width, placements[0].height), (2048, 1536))
         self.assertEqual(placements[0].x, 0)
 
     def test_front_wordmark_renders_above_logos(self) -> None:

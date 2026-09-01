@@ -138,13 +138,20 @@ class LayerWebSession:
             is_side = key in SIDE_PANEL_KEYS
             is_waistband = key in WAISTBAND_KEYS
             is_logo = key.startswith("logo:")
-            can_lock_aspect = key == "front_wordmark" or is_logo
+            logo_index = _int(key.split(":", 1)[1], -1, -1, 9999) if is_logo else -1
+            logos = self.generator.get("logos", [])
+            is_wrap = (
+                0 <= logo_index < len(logos)
+                and logos[logo_index].get("targetName") == "wrap_across_front_back_logo"
+            )
+            can_lock_aspect = key == "front_wordmark" or (is_logo and not is_wrap)
             if key == "front_wordmark":
                 lock_aspect = self.generator["frontWordmark"].get("lockAspect", True) is not False
             elif is_logo:
-                logo_index = _int(key.split(":", 1)[1], -1, -1, 9999)
-                logos = self.generator.get("logos", [])
-                lock_aspect = not (0 <= logo_index < len(logos) and logos[logo_index].get("lockAspect", True) is False)
+                lock_aspect = False if is_wrap else not (
+                    0 <= logo_index < len(logos)
+                    and logos[logo_index].get("lockAspect", True) is False
+                )
             else:
                 lock_aspect = not (is_side or is_waistband)
             guide = None
@@ -161,6 +168,10 @@ class LayerWebSession:
                 clip_box=clip, guide_box=guide,
                 layer_label=("Top layer" if key == "front_wordmark" else "Side panel layer" if is_side else "Waistband image layer" if is_waistband else "Trim layer" if is_trim else "Logo layer" if is_logo else "Layer"),
             )
+            if is_wrap:
+                item["lockX"] = True
+                item["lockWidth"] = True
+                item["layerLabel"] = "Full-width base image"
             overlays.append(item)
 
         fabric = fabric_overlay_layer(template, inputs, (2048, 2048))
@@ -301,12 +312,24 @@ class LayerWebSession:
             logos = self.generator.get("logos", [])
             if not 0 <= index < len(logos): return None
             item = logos[index]
-            saved_lock_aspect = payload.get("lockAspect", item.get("lockAspect", True)) is not False
-            item["lockAspect"] = saved_lock_aspect
-            item["offsetX"] = _int(item.get("offsetX"), 0, -9999, 9999) + dx
-            item["offsetY"] = _int(item.get("offsetY"), 0, -9999, 9999) + dy
-            item["scaleWidthPercent"] = _scaled(item.get("scaleWidthPercent", item.get("scalePercent", 100)), width, current.width)
-            item["scaleHeightPercent"] = _scaled(item.get("scaleHeightPercent", item.get("scalePercent", 100)), height, current.height)
+            if item.get("targetName") == "wrap_across_front_back_logo":
+                saved_lock_aspect = False
+                item["lockAspect"] = False
+                item["offsetX"] = 0
+                item["scaleWidthPercent"] = 100
+                item["offsetY"] = _int(item.get("offsetY"), 0, -9999, 9999) + dy
+                item["scaleHeightPercent"] = _scaled(
+                    item.get("scaleHeightPercent", item.get("scalePercent", 100)),
+                    height,
+                    current.height,
+                )
+            else:
+                saved_lock_aspect = payload.get("lockAspect", item.get("lockAspect", True)) is not False
+                item["lockAspect"] = saved_lock_aspect
+                item["offsetX"] = _int(item.get("offsetX"), 0, -9999, 9999) + dx
+                item["offsetY"] = _int(item.get("offsetY"), 0, -9999, 9999) + dy
+                item["scaleWidthPercent"] = _scaled(item.get("scaleWidthPercent", item.get("scalePercent", 100)), width, current.width)
+                item["scaleHeightPercent"] = _scaled(item.get("scaleHeightPercent", item.get("scalePercent", 100)), height, current.height)
         else:
             item = self.generator["trimPlacements"].setdefault(key, {})
             item["offsetX"] = _int(item.get("offsetX"), 0, -9999, 9999) + dx
