@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NBA 2K Logo Selector</title>
+  <style>
+    :root { color-scheme: dark; font-family: Segoe UI, Arial, sans-serif; }
+    body { margin: 0; background: #171a20; color: #edf1f7; overflow: hidden; }
+    header { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #222833; border-bottom: 1px solid #343b49; }
+    button { background: #f0b429; color: #171a20; border: 0; padding: 8px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #303746; color: #edf1f7; border: 1px solid #475064; }
+    .hint { color: #aab3c2; font-size: 13px; margin-left: 4px; }
+    #wrap { height: calc(100vh - 49px); display: grid; grid-template-columns: 1fr 280px; }
+    #stage { min-width: 0; min-height: 0; background: #11141a; position: relative; }
+    canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+    aside { border-left: 1px solid #343b49; padding: 12px; background: #1d222c; overflow: auto; }
+    h2 { font-size: 14px; margin: 0 0 10px; color: #f8fafc; }
+    .buttons { display: flex; gap: 8px; margin-bottom: 8px; }
+    .buttons button { flex: 1; }
+    .small { color: #9aa4b5; font-size: 12px; line-height: 1.4; margin-top: 12px; }
+    .status { color: #d7deeb; font-size: 13px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Logo Selector</strong>
+    <button id="zoomOut" class="secondary">Zoom -</button>
+    <button id="fit" class="secondary">Fit</button>
+    <button id="zoomIn" class="secondary">Zoom +</button>
+    <button id="clear" class="secondary">Clear</button>
+    <button id="send">Send Selection</button>
+    <span class="hint">Wheel zooms. Shift-drag pans. Drag around the logo to lasso.</span>
+  </header>
+  <div id="wrap">
+    <main id="stage"><canvas id="canvas"></canvas></main>
+    <aside>
+      <h2>Selection</h2>
+      <div class="buttons">
+        <button id="sendSide">Send</button>
+        <button id="clearSide" class="secondary">Clear</button>
+      </div>
+      <div id="status" class="status">Loading reference...</div>
+      <div class="small">After sending, the desktop Logo Creator preview updates and can be saved or sent to the Generator.</div>
+    </aside>
+  </div>
+  <script>
+function escapeHtml(value) { const node = document.createElement("span"); node.textContent = String(value ?? ""); return node.innerHTML; }
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const stage = document.getElementById("stage");
+    const status = document.getElementById("status");
+    const image = new Image();
+    let project = null;
+    let scale = 1;
+    let minScale = 1;
+    let panX = 0;
+    let panY = 0;
+    let points = [];
+    let drawing = false;
+    let panning = false;
+    let panStart = null;
+    let dirty = false;
+
+    function resizeCanvas() {
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(stage.clientWidth * ratio));
+      canvas.height = Math.max(1, Math.floor(stage.clientHeight * ratio));
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      draw();
+    }
+
+    async function loadProject() {
+      try {
+        const response = await fetch("/api/logo/project", {cache: "no-store"});
+        if (!response.ok) throw new Error(`Project failed: ${response.status}`);
+        project = await response.json();
+        points = project.points || [];
+        if (!project.hasImage) {
+          status.textContent = project.message || "Upload a reference photo in the desktop Logo Creator first.";
+          draw();
+          return;
+        }
+        await new Promise((resolve, reject) => {
+          image.onload = resolve;
+          image.onerror = () => reject(new Error("Reference image failed to load."));
+          image.src = project.imageUrl + "?t=" + Date.now();
+        });
+        fitImage();
+        status.textContent = points.length
+          ? `${points.length} lasso points loaded. ${project.message || ""}`
+          : `Ready to lasso. ${project.message || ""}`;
+      } catch (error) {
+        status.textContent = `Could not load reference: ${error.message}`;
+      }
+    }
+
+    function fitImage() {
+      if (!project?.hasImage) return;
+      const width = stage.clientWidth;
+      const height = stage.clientHeight;
+      minScale = Math.min((width - 32) / project.width, (height - 32) / project.height);
+      minScale = Math.max(0.05, Math.min(1, minScale));
+      scale = minScale;
+      panX = (width - project.width * scale) / 2;
+      panY = (height - project.height * scale) / 2;
+      draw();
+    }
+
+    function draw() {
+      const width = stage.clientWidth;
+      const height = stage.clientHeight;
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#11141a";
+      ctx.fillRect(0, 0, width, height);
+      if (!project?.hasImage || !image.complete) return;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(image, panX, panY, project.width * scale, project.height * scale);
+      if (!points.length) return;
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#ffcc33";
+      ctx.fillStyle = "rgba(240, 180, 41, 0.16)";
+      ctx.beginPath();
+      for (let index = 0; index < points.length; index++) {
+        const x = panX + points[index].x * scale;
+        const y = panY + points[index].y * scale;
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      if (!drawing && points.length > 2) ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function scheduleDraw() {
+      if (dirty) return;
+      dirty = true;
+      requestAnimationFrame(() => {
+        dirty = false;
+        draw();
+      });
+    }
+
+    function canvasPoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {x: event.clientX - rect.left, y: event.clientY - rect.top};
+    }
+
+    function imagePoint(event) {
+      const point = canvasPoint(event);
+      return {
+        x: Math.max(0, Math.min(project.width - 1, Math.round((point.x - panX) / scale))),
+        y: Math.max(0, Math.min(project.height - 1, Math.round((point.y - panY) / scale))),
+      };
+    }
+
+    function zoomAt(factor, center) {
+      if (!project?.hasImage) return;
+      const beforeX = (center.x - panX) / scale;
+      const beforeY = (center.y - panY) / scale;
+      scale = Math.max(minScale * 0.5, Math.min(12, scale * factor));
+      panX = center.x - beforeX * scale;
+      panY = center.y - beforeY * scale;
+      scheduleDraw();
+    }
+
+    canvas.addEventListener("pointerdown", event => {
+      if (!project?.hasImage) return;
+      canvas.setPointerCapture(event.pointerId);
+      if (event.shiftKey || event.button === 1 || event.button === 2) {
+        panning = true;
+        const point = canvasPoint(event);
+        panStart = {x: point.x, y: point.y, panX, panY};
+        return;
+      }
+      drawing = true;
+      points = [imagePoint(event)];
+      status.textContent = "Lassoing...";
+      scheduleDraw();
+    });
+
+    canvas.addEventListener("pointermove", event => {
+      if (panning && panStart) {
+        const point = canvasPoint(event);
+        panX = panStart.panX + point.x - panStart.x;
+        panY = panStart.panY + point.y - panStart.y;
+        scheduleDraw();
+        return;
+      }
+      if (!drawing) return;
+      const point = imagePoint(event);
+      const last = points[points.length - 1];
+      if (!last || Math.abs(point.x - last.x) + Math.abs(point.y - last.y) >= 2) {
+        points.push(point);
+        scheduleDraw();
+      }
+    });
+
+    canvas.addEventListener("pointerup", event => {
+      if (panning) {
+        panning = false;
+        panStart = null;
+        return;
+      }
+      if (!drawing) return;
+      drawing = false;
+      if (points.length < 3) {
+        points = [];
+        status.textContent = "Draw a larger lasso.";
+      } else {
+        status.textContent = `${points.length} lasso points ready.`;
+      }
+      scheduleDraw();
+    });
+
+    canvas.addEventListener("wheel", event => {
+      event.preventDefault();
+      zoomAt(event.deltaY < 0 ? 1.18 : 1 / 1.18, canvasPoint(event));
+    }, {passive: false});
+
+    canvas.addEventListener("contextmenu", event => event.preventDefault());
+
+    async function sendSelection() {
+      if (!points.length) {
+        status.textContent = "Draw a lasso before sending.";
+        return;
+      }
+      await fetch("/api/logo/lasso", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({points}),
+      });
+      status.textContent = "Selection sent to desktop preview.";
+    }
+
+    async function clearSelection() {
+      points = [];
+      await fetch("/api/logo/clear", {method: "POST"});
+      status.textContent = "Selection cleared.";
+      scheduleDraw();
+    }
+
+    document.getElementById("zoomOut").onclick = () => zoomAt(1 / 1.25, {x: stage.clientWidth / 2, y: stage.clientHeight / 2});
+    document.getElementById("zoomIn").onclick = () => zoomAt(1.25, {x: stage.clientWidth / 2, y: stage.clientHeight / 2});
+    document.getElementById("fit").onclick = fitImage;
+    document.getElementById("clear").onclick = clearSelection;
+    document.getElementById("clearSide").onclick = clearSelection;
+    document.getElementById("send").onclick = sendSelection;
+    document.getElementById("sendSide").onclick = sendSelection;
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+    loadProject();
+  </script>
+</body>
+</html>

@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NBA 2K Number Selector</title>
+  <style>
+    :root { color-scheme: dark; font-family: Segoe UI, Arial, sans-serif; }
+    body { margin: 0; background: #171a20; color: #edf1f7; overflow: hidden; }
+    header { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #222833; border-bottom: 1px solid #343b49; }
+    button { background: #f0b429; color: #171a20; border: 0; padding: 8px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #303746; color: #edf1f7; border: 1px solid #475064; }
+    select { background: #11141a; color: #edf1f7; border: 1px solid #475064; border-radius: 6px; padding: 7px; }
+    .hint { color: #aab3c2; font-size: 13px; margin-left: 4px; }
+    #wrap { height: calc(100vh - 49px); display: grid; grid-template-columns: 1fr 280px; }
+    #stage { min-width: 0; min-height: 0; background: #11141a; position: relative; }
+    canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+    aside { border-left: 1px solid #343b49; padding: 12px; background: #1d222c; overflow: auto; }
+    h2 { font-size: 14px; margin: 0 0 10px; color: #f8fafc; }
+    .buttons { display: flex; gap: 8px; margin-bottom: 8px; }
+    .buttons button { flex: 1; }
+    .small { color: #9aa4b5; font-size: 12px; line-height: 1.4; margin-top: 12px; }
+    .status { color: #d7deeb; font-size: 13px; margin-top: 10px; }
+    label { display: block; color: #aab3c2; font-size: 12px; margin: 10px 0 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Number Selector</strong>
+    <button id="zoomOut" class="secondary">Zoom -</button>
+    <button id="fit" class="secondary">Fit</button>
+    <button id="zoomIn" class="secondary">Zoom +</button>
+    <button id="clear" class="secondary">Clear</button>
+    <button id="send">Send to Digit</button>
+    <span class="hint">Wheel zooms. Shift-drag pans. Box is best for clean jersey numbers.</span>
+  </header>
+  <div id="wrap">
+    <main id="stage"><canvas id="canvas"></canvas></main>
+    <aside>
+      <h2>Selection</h2>
+      <label for="mode">Pick mode</label>
+      <select id="mode"><option>Box</option><option>Lasso</option></select>
+      <div class="buttons" style="margin-top: 12px;">
+        <button id="sendSide">Send</button>
+        <button id="clearSide" class="secondary">Clear</button>
+      </div>
+      <div id="status" class="status">Loading reference...</div>
+      <div class="small">The browser sends the selection into the active digit slot in the desktop Number Set Creator.</div>
+    </aside>
+  </div>
+  <script>
+function escapeHtml(value) { const node = document.createElement("span"); node.textContent = String(value ?? ""); return node.innerHTML; }
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const stage = document.getElementById("stage");
+    const status = document.getElementById("status");
+    const modeSelect = document.getElementById("mode");
+    const image = new Image();
+    let project = null;
+    let scale = 1;
+    let minScale = 1;
+    let panX = 0;
+    let panY = 0;
+    let points = [];
+    let box = null;
+    let drawing = false;
+    let panning = false;
+    let panStart = null;
+    let dirty = false;
+
+    function resizeCanvas() {
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(stage.clientWidth * ratio));
+      canvas.height = Math.max(1, Math.floor(stage.clientHeight * ratio));
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      draw();
+    }
+
+    async function loadProject() {
+      try {
+        const response = await fetch("/api/number/project", {cache: "no-store"});
+        if (!response.ok) throw new Error(`Project failed: ${response.status}`);
+        project = await response.json();
+        modeSelect.value = project.mode || "Box";
+        points = project.points || [];
+        box = project.box || null;
+        if (!project.hasImage) {
+          status.textContent = "Upload a reference photo in the desktop Number Set Creator first.";
+          draw();
+          return;
+        }
+        await new Promise((resolve, reject) => {
+          image.onload = resolve;
+          image.onerror = () => reject(new Error("Reference image failed to load."));
+          image.src = project.imageUrl + "?t=" + Date.now();
+        });
+        fitImage();
+        status.textContent = `Ready for digit ${project.digit}.`;
+      } catch (error) {
+        status.textContent = `Could not load reference: ${error.message}`;
+      }
+    }
+
+    function fitImage() {
+      if (!project?.hasImage) return;
+      const width = stage.clientWidth;
+      const height = stage.clientHeight;
+      minScale = Math.min((width - 32) / project.width, (height - 32) / project.height);
+      minScale = Math.max(0.05, Math.min(1, minScale));
+      scale = minScale;
+      panX = (width - project.width * scale) / 2;
+      panY = (height - project.height * scale) / 2;
+      draw();
+    }
+
+    function draw() {
+      const width = stage.clientWidth;
+      const height = stage.clientHeight;
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#11141a";
+      ctx.fillRect(0, 0, width, height);
+      if (!project?.hasImage || !image.complete) return;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(image, panX, panY, project.width * scale, project.height * scale);
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#ffcc33";
+      ctx.fillStyle = "rgba(240, 180, 41, 0.16)";
+      if (modeSelect.value === "Box" && box) {
+        const left = panX + Math.min(box.x1, box.x2) * scale;
+        const top = panY + Math.min(box.y1, box.y2) * scale;
+        const right = panX + Math.max(box.x1, box.x2) * scale;
+        const bottom = panY + Math.max(box.y1, box.y2) * scale;
+        ctx.fillRect(left, top, right - left, bottom - top);
+        ctx.strokeRect(left, top, right - left, bottom - top);
+      }
+      if (modeSelect.value === "Lasso" && points.length) {
+        ctx.beginPath();
+        for (let index = 0; index < points.length; index++) {
+          const x = panX + points[index].x * scale;
+          const y = panY + points[index].y * scale;
+          if (index === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        if (!drawing && points.length > 2) ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function scheduleDraw() {
+      if (dirty) return;
+      dirty = true;
+      requestAnimationFrame(() => {
+        dirty = false;
+        draw();
+      });
+    }
+
+    function canvasPoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {x: event.clientX - rect.left, y: event.clientY - rect.top};
+    }
+
+    function imagePoint(event) {
+      const point = canvasPoint(event);
+      return {
+        x: Math.max(0, Math.min(project.width - 1, Math.round((point.x - panX) / scale))),
+        y: Math.max(0, Math.min(project.height - 1, Math.round((point.y - panY) / scale))),
+      };
+    }
+
+    function zoomAt(factor, center) {
+      if (!project?.hasImage) return;
+      const beforeX = (center.x - panX) / scale;
+      const beforeY = (center.y - panY) / scale;
+      scale = Math.max(minScale * 0.5, Math.min(16, scale * factor));
+      panX = center.x - beforeX * scale;
+      panY = center.y - beforeY * scale;
+      scheduleDraw();
+    }
+
+    canvas.addEventListener("pointerdown", event => {
+      if (!project?.hasImage) return;
+      canvas.setPointerCapture(event.pointerId);
+      if (event.shiftKey || event.button === 1 || event.button === 2) {
+        panning = true;
+        const point = canvasPoint(event);
+        panStart = {x: point.x, y: point.y, panX, panY};
+        return;
+      }
+      drawing = true;
+      const point = imagePoint(event);
+      if (modeSelect.value === "Box") {
+        box = {x1: point.x, y1: point.y, x2: point.x, y2: point.y};
+        points = [];
+      } else {
+        points = [point];
+        box = null;
+      }
+      status.textContent = "Selecting...";
+      scheduleDraw();
+    });
+
+    canvas.addEventListener("pointermove", event => {
+      if (panning && panStart) {
+        const point = canvasPoint(event);
+        panX = panStart.panX + point.x - panStart.x;
+        panY = panStart.panY + point.y - panStart.y;
+        scheduleDraw();
+        return;
+      }
+      if (!drawing) return;
+      const point = imagePoint(event);
+      if (modeSelect.value === "Box") {
+        box.x2 = point.x;
+        box.y2 = point.y;
+      } else {
+        const last = points[points.length - 1];
+        if (!last || Math.abs(point.x - last.x) + Math.abs(point.y - last.y) >= 2) {
+          points.push(point);
+        }
+      }
+      scheduleDraw();
+    });
+
+    canvas.addEventListener("pointerup", event => {
+      if (panning) {
+        panning = false;
+        panStart = null;
+        return;
+      }
+      if (!drawing) return;
+      drawing = false;
+      if (modeSelect.value === "Lasso" && points.length < 3) {
+        points = [];
+        status.textContent = "Draw a larger lasso.";
+      } else if (modeSelect.value === "Box" && box && Math.abs(box.x2 - box.x1) < 2 && Math.abs(box.y2 - box.y1) < 2) {
+        box = null;
+        status.textContent = "Draw a larger box.";
+      } else {
+        status.textContent = "Selection ready.";
+      }
+      scheduleDraw();
+    });
+
+    canvas.addEventListener("wheel", event => {
+      event.preventDefault();
+      zoomAt(event.deltaY < 0 ? 1.18 : 1 / 1.18, canvasPoint(event));
+    }, {passive: false});
+
+    canvas.addEventListener("contextmenu", event => event.preventDefault());
+    modeSelect.onchange = () => {
+      points = [];
+      box = null;
+      scheduleDraw();
+      status.textContent = `${modeSelect.value} mode.`;
+    };
+
+    async function sendSelection() {
+      const mode = modeSelect.value;
+      if (mode === "Box" && !box) {
+        status.textContent = "Draw a box before sending.";
+        return;
+      }
+      if (mode === "Lasso" && points.length < 3) {
+        status.textContent = "Draw a lasso before sending.";
+        return;
+      }
+      const response = await fetch("/api/number/selection", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({mode, box, points}),
+      });
+      if (!response.ok) {
+        status.textContent = "Desktop app could not save the selection.";
+        return;
+      }
+      const result = await response.json();
+      status.textContent = `Saved digit ${result.digit}: ${result.saved}`;
+    }
+
+    async function clearSelection() {
+      points = [];
+      box = null;
+      await fetch("/api/number/clear", {method: "POST"});
+      status.textContent = "Selection cleared.";
+      scheduleDraw();
+    }
+
+    document.getElementById("zoomOut").onclick = () => zoomAt(1 / 1.25, {x: stage.clientWidth / 2, y: stage.clientHeight / 2});
+    document.getElementById("zoomIn").onclick = () => zoomAt(1.25, {x: stage.clientWidth / 2, y: stage.clientHeight / 2});
+    document.getElementById("fit").onclick = fitImage;
+    document.getElementById("clear").onclick = clearSelection;
+    document.getElementById("clearSide").onclick = clearSelection;
+    document.getElementById("send").onclick = sendSelection;
+    document.getElementById("sendSide").onclick = sendSelection;
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+    loadProject();
+  </script>
+</body>
+</html>

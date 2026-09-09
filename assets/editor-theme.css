@@ -1,0 +1,11 @@
+:root {
+  --accent: #168579;
+  --accent-hover: #116e64;
+  --control-radius: 4px;
+  --control-gap: 8px;
+}
+button, input, select { font-family: "Segoe UI", Arial, sans-serif; letter-spacing: 0; border-radius: var(--control-radius); }
+button:focus-visible { outline: 2px solid #43b9aa; outline-offset: 2px; }
+button.primary, button.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover, button.accent:hover { background: var(--accent-hover); }
+button, label, select { min-width: 0; }

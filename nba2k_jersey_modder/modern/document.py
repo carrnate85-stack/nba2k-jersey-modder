@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from .. import __app_name__
@@ -36,31 +38,7 @@ GENERATOR_IMAGE_KEYS = (
 
 
 def new_project_payload() -> dict:
-    return {
-        "app": __app_name__, "projectVersion": 2,
-        "generator": {
-            "garment": "Jersey", "jerseyCut": "Retro U",
-            "shortsTemplate": "Retro shorts",
-            "colors": dict(GENERATOR_DEFAULT_COLORS),
-            "images": {key: None for key in GENERATOR_IMAGE_KEYS},
-            "frontWordmark": {"offsetX": 0, "offsetY": 0, "scalePercent": 100,
-                              "scaleWidthPercent": 100, "scaleHeightPercent": 100,
-                              "lockAspect": True},
-            "jerseyBackground": {"tile": False, "tileScalePercent": 100},
-            "logos": [], "trimPathLayers": [], "paintFillLayers": [],
-            "trimPathDesigns": [], "trimPathPattern": None,
-            "trimPlacements": {},
-            "backgroundCleanup": {"removeWhite": False, "removeBlack": False,
-                                  "outsideOnly": True, "tolerance": 32},
-            "fabricOverlay": {"preset": "None", "customPath": None,
-                              "blendMode": "multiply", "opacity": 0},
-            "uvOverlay": {"enabled": True, "opacity": 45, "color": "black"},
-            "numberPreview": {"enabled": True, "text": "15", "x": 1160,
-                              "y": 780, "scale": 100, "scaleWidth": 100,
-                              "scaleHeight": 100},
-            "webEditor": {"layerOrder": [], "layerCleanup": {}},
-        },
-    }
+    return json.loads((Path(__file__).resolve().parents[2] / "assets/project-defaults.json").read_text(encoding="utf-8"))
 
 
 class ProjectDocument:
@@ -92,7 +70,16 @@ class ProjectDocument:
         if destination is None:
             raise ValueError("Choose a project file first.")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(json.dumps(self.payload, indent=2), encoding="utf-8")
+        data = json.dumps(self.payload, indent=2)
+        fd, temporary = tempfile.mkstemp(prefix=destination.name, suffix=".tmp", dir=destination.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, destination)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
         self.path = destination
         return destination
 
@@ -101,7 +88,15 @@ class ProjectDocument:
         payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("Project file must contain a JSON object.")
-        return cls(payload, path)
+        def resolve_assets(value):
+            if isinstance(value, str) and value.replace("\\", "/").startswith(("assets/", "references/")):
+                return str(path.parent / value)
+            if isinstance(value, list):
+                return [resolve_assets(item) for item in value]
+            if isinstance(value, dict):
+                return {key: resolve_assets(item) for key, item in value.items()}
+            return value
+        return cls(resolve_assets(payload), path)
 
     def to_generator_inputs(self) -> GeneratorInputs:
         g = self.generator
@@ -182,6 +177,8 @@ class ProjectDocument:
         if not isinstance(payload, dict):
             raise ValueError("Project data must be an object.")
         result, defaults = deepcopy(payload), new_project_payload()
+        if int(result.get("projectVersion", 1)) > defaults["projectVersion"]:
+            raise ValueError("This project was saved by a newer version of Jersey Modder.")
         generator = result.setdefault("generator", {})
         if not isinstance(generator, dict):
             raise ValueError("Project file is missing generator data.")
@@ -198,7 +195,8 @@ class ProjectDocument:
         if generator.get("garment") not in {"Jersey", "Shorts"}:
             generator["garment"] = "Jersey"
         result.setdefault("app", __app_name__)
-        result["projectVersion"] = max(2, _int(result.get("projectVersion"), 2, 1, 999))
+        result.setdefault("creators", deepcopy(defaults["creators"]))
+        result["projectVersion"] = defaults["projectVersion"]
         return result
 
 

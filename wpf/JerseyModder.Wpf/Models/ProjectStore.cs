@@ -134,21 +134,6 @@ public sealed class ProjectStore : INotifyPropertyChanged
         }
     }
 
-    private static JsonObject CreateDefaultRoot() => JsonNode.Parse("""
-    {
-      "app":"NBA 2K Jersey Modder","projectVersion":3,
-      "generator":{
-        "garment":"Jersey","jerseyCut":"Retro U","shortsTemplate":"Retro shorts",
-        "colors":{"front_color":"#ffffff","back_color":"#ffffff","left_panel_color":"","right_panel_color":"","collar_background_color":"#ffffff","waistband_color":"#ffffff","left_arm_hole_trim_color":"#ffffff","right_arm_hole_trim_color":"#ffffff","collar_trim_color":"#ffffff"},
-        "images":{"left_panel_image":null,"right_panel_image":null,"shorts_left_panel_image":null,"shorts_right_panel_image":null,"waistband_image":null,"jersey_background_image":null,"front_wordmark_image":null,"left_arm_hole_trim_image":null,"right_arm_hole_trim_image":null,"collar_trim_image":null},
-        "frontWordmark":{"offsetX":0,"offsetY":0,"scalePercent":100,"scaleWidthPercent":100,"scaleHeightPercent":100},
-        "jerseyBackground":{"tile":false,"tileScalePercent":100},"logos":[],"trimPathLayers":[],"trimPlacements":{},
-        "backgroundCleanup":{"removeWhite":false,"removeBlack":false,"outsideOnly":true,"tolerance":32},
-        "fabricOverlay":{"preset":"None","customPath":null,"blendMode":"multiply","opacity":0},
-        "uvOverlay":{"enabled":true,"opacity":45},
-        "numberPreview":{"enabled":true,"text":"15","x":1160,"y":780,"scale":100,"scaleWidth":100,"scaleHeight":100},
-        "webEditor":{"layerOrder":[],"layerCleanup":{}}
-      }
-    }
-    """)!.AsObject();
+    private static JsonObject CreateDefaultRoot() => JsonNode.Parse(File.ReadAllText(
+        Path.Combine(JerseyModder.Wpf.Services.ProjectWorkspace.ApplicationRoot, "assets", "project-defaults.json")))!.AsObject();
 }

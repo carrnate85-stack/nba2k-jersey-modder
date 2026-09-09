@@ -8,13 +8,14 @@ where git >nul 2>nul && set "GIT_EXE=git"
 if not defined GIT_EXE if exist "%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd\git.exe" set "GIT_EXE=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd\git.exe"
 if not defined GIT_EXE if exist "C:\Program Files\Git\cmd\git.exe" set "GIT_EXE=C:\Program Files\Git\cmd\git.exe"
 if not defined GIT_EXE if exist "%LOCALAPPDATA%\Programs\Git\cmd\git.exe" set "GIT_EXE=%LOCALAPPDATA%\Programs\Git\cmd\git.exe"
+if /i "%GIT_EXE%"=="%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd\git.exe" set "GIT_EXEC_PATH=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\mingw64\bin"
 
 set "CURRENT_COMMIT="
 if defined GIT_EXE (
     "!GIT_EXE!" -C "%~dp0" rev-parse --is-inside-work-tree >nul 2>nul
     if not errorlevel 1 (
         echo Checking GitHub for updates...
-        "!GIT_EXE!" -C "%~dp0" pull --rebase --autostash
+        "!GIT_EXE!" -C "%~dp0" pull --ff-only
         if errorlevel 1 echo Update could not be applied. Starting the installed version.
         for /f %%C in ('"!GIT_EXE!" -C "%~dp0" rev-parse HEAD 2^>nul') do set "CURRENT_COMMIT=%%C"
     )
@@ -55,7 +56,7 @@ if "%NEEDS_BUILD%"=="1" (
     set "PATH=!NODE_DIR!;!PATH!"
     echo Preparing Electron workspace...
     pushd "%~dp0electron"
-    "!PNPM_EXE!" install
+    "!PNPM_EXE!" install --frozen-lockfile
     if errorlevel 1 (popd & goto :wpf_fallback)
     "!PNPM_EXE!" package
     if errorlevel 1 (popd & goto :wpf_fallback)
@@ -72,17 +73,12 @@ if exist "%ELECTRON_EXE%" (
 )
 
 :wpf_fallback
-echo Electron is unavailable. Starting the WPF fallback...
-where dotnet >nul 2>nul
-if errorlevel 1 (
-    echo Neither Electron nor the WPF fallback could be prepared.
-    pause
-    exit /b 1
+echo The update could not be built.
+if exist "%~dp0electron\out\NBA 2K Jersey Modder-win32-x64\NBA2KJerseyModder.exe" (
+    echo Starting the last installed Electron version.
+    start "" /d "%~dp0" "%~dp0electron\out\NBA 2K Jersey Modder-win32-x64\NBA2KJerseyModder.exe"
+    exit /b 0
 )
-dotnet build "%~dp0wpf\JerseyModder.Wpf\JerseyModder.Wpf.csproj" -c Release --nologo --verbosity quiet
-if errorlevel 1 (
-    pause
-    exit /b 1
-)
-start "" /d "%~dp0" "%~dp0wpf\JerseyModder.Wpf\bin\Release\net8.0-windows\NBA2KJerseyModder.exe"
-exit /b 0
+echo Install Python, Node.js and pnpm, then try again.
+pause
+exit /b 1

@@ -38,7 +38,7 @@ class ModernProjectDocumentTests(unittest.TestCase):
         self.assertIn("back_color", document.generator["colors"])
         self.assertIn("uvOverlay", document.generator)
         self.assertEqual(document.generator["uvOverlay"]["color"], "black")
-        self.assertEqual(document.payload["projectVersion"], 2)
+        self.assertEqual(document.payload["projectVersion"], 3)
 
     def test_shorts_inputs_use_dedicated_panel_images(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

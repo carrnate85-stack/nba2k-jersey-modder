@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import time
 import traceback
 import uuid
 import zipfile
@@ -19,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from nba2k_jersey_modder.app import _recolor_font_image
+from nba2k_jersey_modder.font_recolor import _recolor_font_image
 from nba2k_jersey_modder.font_iff import (
     extract_number_sheet_from_font_iff,
     inspect_font_number_texture,
@@ -59,6 +60,14 @@ SERVICE = GeneratorService()
 def _output(name: str, suffix: str = ".png") -> Path:
     folder = WORK / name
     folder.mkdir(parents=True, exist_ok=True)
+    if name in {"renders", "fonts", "thumbnails"}:
+        files = sorted(folder.glob("*.png"), key=lambda item: item.stat().st_mtime, reverse=True)
+        for old in files[127:]:
+            if time.time() - old.stat().st_mtime > 60:
+                try:
+                    old.unlink(missing_ok=True)
+                except OSError:
+                    pass
     return folder / f"{uuid.uuid4().hex}{suffix}"
 
 
@@ -69,7 +78,7 @@ def _document(params: dict) -> ProjectDocument:
 def render(params: dict):
     document = _document(params)
     kind = str(params.get("kind") or "preview")
-    strength = int(params.get("strength") or 15)
+    strength = int(params.get("strength", 15))
     image = SERVICE.render_preview(document) if kind == "preview" else SERVICE.render_texture(document, kind, strength)
     output = _output("renders")
     image.save(output, "PNG", compress_level=1)
@@ -86,7 +95,7 @@ def save_texture(params: dict):
     path = Path(params["path"])
     kind = str(params.get("kind") or "Color Texture")
     fmt = str(params.get("format") or path.suffix.lower())
-    strength = int(params.get("strength") or 15)
+    strength = int(params.get("strength", 15))
     if kind == "Color Texture" and fmt == ".psd": SERVICE.save_psd(document, path)
     elif kind == "Color Texture" and fmt == ".dds": SERVICE.save_dds(document, path)
     else:
@@ -305,6 +314,8 @@ def _recolored_sheet(params: dict):
 def _rgb(value):
     if not value: return None
     text = str(value).lstrip("#")
+    if len(text) != 6 or any(char not in "0123456789abcdefABCDEF" for char in text):
+        raise ValueError("Enter a six-digit hex color, such as #ffffff.")
     return tuple(int(text[index:index + 2], 16) for index in (0, 2, 4))
 
 

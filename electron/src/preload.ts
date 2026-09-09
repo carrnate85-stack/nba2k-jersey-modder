@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { JerseyApi, JsonObject } from './shared';
 const api: JerseyApi = {
+  setDirty: value => ipcRenderer.invoke('project:dirty', value),
+  confirmLeave: () => ipcRenderer.invoke('project:confirm'),
+  saveRecovery: (path, project) => ipcRenderer.invoke('project:recover', { path, project }),
+  discardRecovery: path => ipcRenderer.invoke('project:discard-recovery', path),
+  closeApp: () => ipcRenderer.invoke('app:close'),
+  onCloseRequest: listener => { const handler = () => listener(); ipcRenderer.on('app:close-request', handler); return () => ipcRenderer.removeListener('app:close-request', handler); },
   appInfo: () => ipcRenderer.invoke('app:info'),
   listProjects: () => ipcRenderer.invoke('project:list'),
   createProject: (name) => ipcRenderer.invoke('project:create', name),

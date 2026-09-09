@@ -1,65 +1,22 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, copyFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, copyFileSync, unlinkSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, parse, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import type { JsonObject } from './shared';
+import { atomicWrite, normalizeProject, readProject, portableProject } from './project-storage';
+import { LatestQueue } from './latest-queue';
+import { FileAccess } from './file-access';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
 let mainWindow: BrowserWindow | null = null;
 
-const defaultProject = (): JsonObject => ({
-  app: 'NBA 2K Jersey Modder', projectVersion: 3,
-  creators: {
-    logo: { reference: null, items: [], selectedId: null },
-    trim: { reference: null, items: [], selectedId: null },
-  },
-  generator: {
-    garment: 'Jersey', jerseyCut: 'Retro U', shortsTemplate: 'Retro shorts',
-    colors: {
-      front_color: '#ffffff', back_color: '#ffffff', left_panel_color: '', right_panel_color: '',
-      shorts_left_panel_color: '', shorts_right_panel_color: '',
-      collar_background_color: '#ffffff', waistband_color: '#ffffff',
-      left_arm_hole_trim_color: '#ffffff', right_arm_hole_trim_color: '#ffffff', collar_trim_color: '#ffffff',
-    },
-    images: {
-      left_panel_image: null, right_panel_image: null, shorts_left_panel_image: null,
-      shorts_right_panel_image: null, waistband_image: null, jersey_background_image: null,
-      front_wordmark_image: null, left_arm_hole_trim_image: null,
-      right_arm_hole_trim_image: null, collar_trim_image: null,
-    },
-    frontWordmark: { offsetX: 0, offsetY: 0, scalePercent: 100, scaleWidthPercent: 100, scaleHeightPercent: 100, lockAspect: true },
-    jerseyBackground: { tile: false, tileScalePercent: 100 }, logos: [], trimPathLayers: [], paintFillLayers: [], trimPathDesigns: [], trimPathPattern: null, trimPlacements: {},
-    backgroundCleanup: { removeWhite: false, removeBlack: false, outsideOnly: true, tolerance: 32 },
-    fabricOverlay: { preset: 'None', customPath: null, blendMode: 'multiply', opacity: 0 },
-    uvOverlay: { enabled: true, opacity: 45, color: 'black' },
-    numberPreview: { enabled: true, text: '15', x: 1160, y: 780, scale: 100, scaleWidth: 100, scaleHeight: 100 },
-    webEditor: { layerOrder: [], layerCleanup: {} },
-  },
-});
-
-function mergeDefaults(target: JsonObject, defaults: JsonObject): JsonObject {
-  for (const [key, value] of Object.entries(defaults)) {
-    if (target[key] === undefined || target[key] === null) target[key] = structuredClone(value);
-    else if (value && typeof value === 'object' && !Array.isArray(value) && typeof target[key] === 'object' && !Array.isArray(target[key])) mergeDefaults(target[key], value);
-  }
-  target.projectVersion = 3;
-  return target;
-}
-
-function migratePanelColors(target: JsonObject): JsonObject {
-  const generator = target.generator;
-  if (!generator || typeof generator !== 'object' || Array.isArray(generator)) return target;
-  const colors = generator.colors;
-  if (!colors || typeof colors !== 'object' || Array.isArray(colors)) return target;
-  if (colors.shorts_left_panel_color === undefined) colors.shorts_left_panel_color = colors.left_panel_color ?? '';
-  if (colors.shorts_right_panel_color === undefined) colors.shorts_right_panel_color = colors.right_panel_color ?? '';
-  return target;
-}
+const defaultProject = (): JsonObject => JSON.parse(readFileSync(join(root, "assets/project-defaults.json"), "utf8"));
 
 function findRoot(): string {
   const candidates = [process.env.JERSEY_MODDER_ROOT, resolve(__dirname, '..', '..', '..'), process.cwd(), dirname(process.execPath)];
@@ -76,7 +33,26 @@ function findRoot(): string {
 
 const root = findRoot();
 const projectsFolder = join(root, 'projects');
-const assetFolders = ['logos', 'trims', 'numbers', 'textures'];
+const access = new FileAccess();
+access.grantTree(projectsFolder, true);
+access.grantTree(join(root, 'assets'));
+access.grantTree(join(root, 'blendermodels'));
+access.grantTree(join(root, 'wpf', 'JerseyModder.Wpf', 'Assets'));
+access.grantTree(join(root, 'cache'));
+access.grantTree(join(tmpdir(), 'nba2k_jersey_modder'), true);
+const previews = new LatestQueue();
+let dirty = false;
+let closeAllowed = false;
+let editorOpen = false;
+const recoveredPaths = new Set<string>();
+
+function handle(channel: string, listener: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('Untrusted request.');
+    return listener(event, ...args);
+  });
+}
+const assetFolders = ['logos', 'trims', 'numbers', 'textures', 'tweaks'];
 
 function safeName(value: string): string {
   return value.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '');
@@ -91,14 +67,34 @@ function ensureProjectStructure(projectPath: string): void {
 }
 
 function loadProject(path: string): JsonObject {
-  const payload = JSON.parse(readFileSync(path, 'utf8'));
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Project JSON is invalid.');
-  return mergeDefaults(migratePanelColors(payload), defaultProject());
+  access.check(path);
+  recoveredPaths.delete(path);
+  let project: JsonObject;
+  try { project = readProject(path, defaultProject()); }
+  catch (error) {
+    if (error instanceof Error && error.message.includes('newer version')) throw error;
+    if (!existsSync(`${path}.bak`)) throw error;
+    project = readProject(`${path}.bak`, defaultProject());
+    recoveredPaths.add(path);
+    dialog.showMessageBoxSync(mainWindow!, { message: 'The project file could not be read. Its previous backup was loaded.', type: 'warning' });
+  }
+  const recovery = `${path}.recovery`;
+  if (existsSync(recovery) && statSync(recovery).mtimeMs > statSync(path).mtimeMs) {
+    const choice = dialog.showMessageBoxSync(mainWindow!, { type: 'question', message: 'Recover unsaved changes?', buttons: ['Recover', 'Use saved project'], defaultId: 0 });
+    if (choice === 0) {
+      try { project = readProject(recovery, defaultProject()); recoveredPaths.add(path); }
+      catch { dialog.showMessageBoxSync(mainWindow!, { type: 'warning', message: 'The recovery copy could not be read. The saved project was loaded.' }); }
+    } else { unlinkSync(recovery); }
+  }
+  access.grantTree(dirname(path), true);
+  return project;
 }
 
 function saveProject(path: string, project: JsonObject): string {
+  access.check(path, true);
   ensureProjectStructure(path);
-  writeFileSync(path, `${JSON.stringify(mergeDefaults(migratePanelColors(project), defaultProject()), null, 2)}\n`, 'utf8');
+  atomicWrite(path, `${JSON.stringify(portableProject(normalizeProject(project, defaultProject()), path), null, 2)}\n`, true);
+  if (existsSync(`${path}.recovery`)) unlinkSync(`${path}.recovery`);
   return path;
 }
 
@@ -137,13 +133,19 @@ class PythonEngine {
       for (const pending of this.pending.values()) pending.reject(new Error('The Python engine stopped.'));
       this.pending.clear(); this.process = null;
     });
+    this.process.on('error', (error) => {
+      for (const pending of this.pending.values()) pending.reject(error);
+      this.pending.clear(); this.process = null;
+    });
   }
 
   call(method: string, params: JsonObject = {}): Promise<any> {
     this.start(); const id = ++this.nextId;
     return new Promise((resolveCall, reject) => {
       this.pending.set(id, { resolve: resolveCall, reject });
-      this.process!.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+      this.process!.stdin.write(`${JSON.stringify({ id, method, params })}\n`, error => {
+        if (error) { this.pending.delete(id); reject(error); }
+      });
     });
   }
 
@@ -156,9 +158,10 @@ class PythonEngine {
 
 const engine = new PythonEngine();
 
-function dataUrl(path: string): string {
+async function dataUrl(path: string): Promise<string> {
+  access.check(path);
   const mime: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.dds': 'image/vnd-ms.dds' };
-  return `data:${mime[extname(path).toLowerCase()] || 'application/octet-stream'};base64,${readFileSync(path).toString('base64')}`;
+  return `data:${mime[extname(path).toLowerCase()] || 'application/octet-stream'};base64,${(await readFile(path)).toString('base64')}`;
 }
 
 async function startWebEditor(kind: string, options: JsonObject): Promise<{ process: ChildProcessWithoutNullStreams; url: string; statePath: string }> {
@@ -186,7 +189,8 @@ async function startWebEditor(kind: string, options: JsonObject): Promise<{ proc
   const child = spawn(findPython(), ['-u', join(root, 'tools', tool), ...args], { cwd: root, windowsHide: true });
   child.stderr.setEncoding('utf8'); child.stderr.on('data', (message: string) => console.error(`[${kind} editor] ${message.trimEnd()}`));
   const url = await new Promise<string>((resolveUrl, reject) => {
-    let buffer = ''; const timer = setTimeout(() => reject(new Error('The web editor took too long to start.')), 20000);
+    let buffer = ''; const timer = setTimeout(() => { child.kill(); reject(new Error('The web editor took too long to start.')); }, 20000);
+    child.on('error', error => { clearTimeout(timer); reject(error); });
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       buffer += chunk; const newline = buffer.indexOf('\n'); if (newline < 0) return;
@@ -199,15 +203,20 @@ async function startWebEditor(kind: string, options: JsonObject): Promise<{ proc
 }
 
 async function openEditor(kind: string, options: JsonObject): Promise<JsonObject> {
+  if (editorOpen) throw new Error('Finish the current editor before opening another.');
+  editorOpen = true;
+  try {
   mainWindow?.webContents.send('app:status', `Opening ${kind === 'paths' ? 'Trim Path Lab' : `${kind} editor`}...`);
   const session = await startWebEditor(kind, options);
   const editor = new BrowserWindow({
-    parent: mainWindow || undefined, width: 1500, height: 940, minWidth: 960, minHeight: 650,
+    parent: mainWindow || undefined, modal: true, width: 1500, height: 940, minWidth: 960, minHeight: 650,
     title: kind === 'layer' ? 'Jersey Modder - Layer Editor' : `Jersey Modder - ${kind}`,
     icon: join(root, 'wpf', 'JerseyModder.Wpf', 'Assets', 'app-icon.ico'),
     backgroundColor: '#f4f6f5',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
+  editor.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  editor.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== new URL(session.url).origin) event.preventDefault(); });
   await editor.loadURL(options.startInEditor ? `${session.url}edit` : session.url);
   let lastRevision = -1;
   const monitor = setInterval(() => {
@@ -230,42 +239,44 @@ async function openEditor(kind: string, options: JsonObject): Promise<JsonObject
       resolveResult({ kind, state, project: state?.project });
     });
   });
+  } finally { editorOpen = false; }
 }
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1540, height: 940, minWidth: 1080, minHeight: 700, show: false,
+    width: 1540, height: 940, minWidth: 960, minHeight: 650, show: false,
     title: 'NBA 2K Jersey Modder', icon: join(root, 'wpf', 'JerseyModder.Wpf', 'Assets', 'app-icon.ico'),
     backgroundColor: '#f4f6f5',
     webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   mainWindow.removeMenu();
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', event => event.preventDefault());
+  mainWindow.on('close', event => {
+    if (!closeAllowed && dirty) { event.preventDefault(); mainWindow?.webContents.send('app:close-request'); }
+  });
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   else mainWindow.loadFile(join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
   mainWindow.once('ready-to-show', () => mainWindow?.show());
-  if (process.env.JERSEY_MODDER_SCREENSHOT) {
-    mainWindow.webContents.once('did-finish-load', () => setTimeout(async () => {
-      if (!mainWindow) return;
-      if (process.env.JERSEY_MODDER_TEST_PROJECT) {
-        await mainWindow.webContents.executeJavaScript(`(() => {
-          const input = document.querySelector('.startup-grid input');
-          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-          setter.call(input, ${JSON.stringify(process.env.JERSEY_MODDER_TEST_PROJECT)});
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          setTimeout(() => document.querySelector('.startup-grid .primary.command.full').click(), 100);
-        })()`);
-        await new Promise((resolveWait) => setTimeout(resolveWait, 4500));
-      }
-      const image = await mainWindow.webContents.capturePage();
-      writeFileSync(process.env.JERSEY_MODDER_SCREENSHOT!, image.toPNG());
-      app.quit();
-    }, 1800));
-  }
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-ipcMain.handle('app:info', () => ({ version: app.getVersion(), root, projectsFolder }));
-ipcMain.handle('project:list', () => {
+handle('app:info', () => ({ version: app.getVersion(), root, projectsFolder }));
+handle('project:dirty', (_event, value: boolean) => { dirty = Boolean(value); });
+handle('project:confirm', async () => {
+  const result = await dialog.showMessageBox(mainWindow!, { type: 'question', message: 'Save changes before leaving this project?', buttons: ['Save', 'Discard', 'Cancel'], defaultId: 0, cancelId: 2 });
+  return ['save', 'discard', 'cancel'][result.response];
+});
+handle('app:close', () => { closeAllowed = true; mainWindow?.close(); });
+handle('project:recover', (_event, payload: JsonObject) => {
+  access.check(payload.path, true);
+  atomicWrite(`${payload.path}.recovery`, JSON.stringify(normalizeProject(payload.project, defaultProject())));
+});
+handle('project:discard-recovery', (_event, path: string) => {
+  access.check(path, true);
+  if (existsSync(`${path}.recovery`)) unlinkSync(`${path}.recovery`);
+});
+handle('project:list', () => {
   mkdirSync(projectsFolder, { recursive: true });
   const values: JsonObject[] = [];
   for (const folder of readdirSync(projectsFolder, { withFileTypes: true })) {
@@ -277,19 +288,19 @@ ipcMain.handle('project:list', () => {
   }
   return values.sort((a, b) => b.modified - a.modified);
 });
-ipcMain.handle('project:create', (_event, rawName: string) => {
+handle('project:create', (_event, rawName: string) => {
   const name = safeName(rawName); if (!name) throw new Error('Enter a project name.');
   const path = join(projectsFolder, name, `${name}.nba2kproject.json`); if (existsSync(path)) throw new Error('A project with this name already exists.');
   const project = defaultProject(); saveProject(path, project); return { path, project };
 });
-ipcMain.handle('project:choose', async () => {
+handle('project:choose', async () => {
   mkdirSync(projectsFolder, { recursive: true });
   const result = await dialog.showOpenDialog(mainWindow!, { title: 'Open jersey project', defaultPath: projectsFolder, properties: ['openFile'], filters: [{ name: 'NBA 2K projects', extensions: ['json'] }] });
-  if (result.canceled || !result.filePaths[0]) return null; const path = result.filePaths[0]; ensureProjectStructure(path); return { path, project: loadProject(path) };
+  if (result.canceled || !result.filePaths[0]) return null; const path = access.grant(result.filePaths[0], true); const project = loadProject(path); return { path, project, recovered: recoveredPaths.has(path) };
 });
-ipcMain.handle('project:load', (_event, path: string) => ({ path, project: loadProject(path) }));
-ipcMain.handle('project:save', (_event, payload: JsonObject) => saveProject(payload.path, payload.project));
-ipcMain.handle('file:choose', async (_event, kind: string) => {
+handle('project:load', (_event, path: string) => { const project = loadProject(path); return { path, project, recovered: recoveredPaths.has(path) }; });
+handle('project:save', (_event, payload: JsonObject) => saveProject(payload.path, payload.project));
+handle('file:choose', async (_event, kind: string) => {
   const filters: Record<string, Electron.FileFilter[]> = {
     image: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'dds', 'psd'] }],
     logo: [{ name: 'Logo images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
@@ -298,14 +309,17 @@ ipcMain.handle('file:choose', async (_event, kind: string) => {
     project: [{ name: 'NBA 2K projects', extensions: ['json'] }],
   };
   const result = await dialog.showOpenDialog(mainWindow!, { defaultPath: kind === 'project' ? projectsFolder : undefined, properties: ['openFile'], filters: filters[kind] || filters.image });
-  return result.canceled ? null : result.filePaths[0] || null;
+  return result.canceled || !result.filePaths[0] ? null : access.grant(result.filePaths[0], true);
 });
-ipcMain.handle('folder:choose', async () => { const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory', 'createDirectory'] }); return result.canceled ? null : result.filePaths[0] || null; });
-ipcMain.handle('file:save-dialog', async (_event, payload: JsonObject) => {
+handle('folder:choose', async () => { const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory', 'createDirectory'] }); const path = result.filePaths[0]; if (result.canceled || !path) return null; access.grantTree(path, true); return path; });
+handle('file:save-dialog', async (_event, payload: JsonObject) => {
   const filters: Record<string, Electron.FileFilter[]> = { png: [{ name: 'PNG image', extensions: ['png'] }], dds: [{ name: 'DDS texture', extensions: ['dds'] }], psd: [{ name: 'Photoshop document', extensions: ['psd'] }], iff: [{ name: 'NBA 2K IFF', extensions: ['iff'] }], rdat: [{ name: 'RDAT', extensions: ['rdat'] }] };
-  const result = await dialog.showSaveDialog(mainWindow!, { defaultPath: payload.suggestedName, filters: filters[payload.kind] }); return result.canceled ? null : result.filePath || null;
+  filters.json = [{ name: 'Zone maps', extensions: ['json'] }];
+  const result = await dialog.showSaveDialog(mainWindow!, { defaultPath: payload.suggestedName, filters: filters[payload.kind] }); return result.canceled || !result.filePath ? null : access.grant(result.filePath, true);
 });
-ipcMain.handle('asset:store', (_event, payload: JsonObject) => {
+handle('asset:store', (_event, payload: JsonObject) => {
+  access.check(payload.sourcePath); access.check(payload.projectPath, true);
+  if (!['references', 'logos', 'trims', 'numbers', 'textures', 'paint', 'tweaks'].includes(payload.category)) throw new Error('Unknown asset category.');
   if (!existsSync(payload.sourcePath)) throw new Error('The selected file no longer exists.'); ensureProjectStructure(payload.projectPath);
   const category = safeName(payload.category).toLowerCase(); const destinationFolder = category === 'references' ? join(dirname(payload.projectPath), 'references') : join(dirname(payload.projectPath), 'assets', category);
   mkdirSync(destinationFolder, { recursive: true }); const source = resolve(payload.sourcePath);
@@ -313,17 +327,30 @@ ipcMain.handle('asset:store', (_event, payload: JsonObject) => {
   const hash = createHash('sha256').update(readFileSync(source)).digest('hex').slice(0, 10); const destination = join(destinationFolder, `${safeName(payload.label).toLowerCase()}_${hash}${extname(source).toLowerCase()}`);
   if (!existsSync(destination)) copyFileSync(source, destination); return destination;
 });
-ipcMain.handle('file:data-url', (_event, path: string) => dataUrl(path));
-ipcMain.handle('file:read-text', (_event, path: string) => readFileSync(path, 'utf8'));
-ipcMain.handle('file:write-text', (_event, payload: JsonObject) => { writeFileSync(payload.path, payload.text, 'utf8'); });
-ipcMain.handle('engine:call', (_event, payload: JsonObject) => engine.call(payload.method, payload.params));
-ipcMain.handle('editor:open', (_event, payload: JsonObject) => openEditor(payload.kind, payload.options));
-ipcMain.handle('shell:open', async (_event, path: string) => { if (/^https?:/i.test(path)) await shell.openExternal(path); else await shell.openPath(path); });
-ipcMain.handle('blender:open', async (_event, project: JsonObject) => {
+handle('file:data-url', (_event, path: string) => dataUrl(path));
+handle('file:read-text', (_event, path: string) => readFile(access.check(path), 'utf8'));
+handle('file:write-text', (_event, payload: JsonObject) => { atomicWrite(access.check(payload.path, true), payload.text, true); });
+function validatePaths(value: any, method: string, key = ''): void {
+  if (typeof value === 'string' && /^(?:[a-z]:[\\/]|\\\\)/i.test(value)) {
+    const write = ['destination', 'folder'].includes(key) || (key === 'path' && ['save_texture', 'template_save', 'iff_export'].includes(method));
+    access.check(value, write);
+  } else if (value && typeof value === 'object') for (const [child, item] of Object.entries(value)) validatePaths(item, method, child);
+}
+handle('engine:call', (_event, payload: JsonObject) => {
+  validatePaths(payload.params, payload.method);
+  const run = () => engine.call(payload.method, payload.params);
+  return ['render', 'font_recolor', 'font_preview'].includes(payload.method) ? previews.submit(payload.method + ':' + (payload.params?.kind || ''), run) : run();
+});
+handle('editor:open', (_event, payload: JsonObject) => { validatePaths(payload.options, 'read'); return openEditor(payload.kind, payload.options); });
+handle('shell:open', async (_event, path: string) => { if (/^https?:/i.test(path)) await shell.openExternal(path); else await shell.openPath(access.check(path)); });
+handle('blender:open', async (_event, project: JsonObject) => {
+  validatePaths(project, 'read');
   const result = await engine.call('blender_prepare', { project }); if (!result.blender) throw new Error('Blender was not found.');
   spawn(result.blender, [result.model, '--python', result.script, '--', result.color, result.normal, '0.35', result.settings], { cwd: root, detached: true, windowsHide: false }).unref();
 });
-ipcMain.handle('logo:export-ai-pack', (_event, payload: JsonObject) => {
+handle('logo:export-ai-pack', (_event, payload: JsonObject) => {
+  access.check(payload.folder, true);
+  validatePaths(payload.items, 'read');
   const folder = resolve(String(payload.folder || ''));
   if (!folder) throw new Error('Choose a folder for the AI logo pack.');
   mkdirSync(folder, { recursive: true });
@@ -354,7 +381,7 @@ ipcMain.handle('logo:export-ai-pack', (_event, payload: JsonObject) => {
   writeFileSync(promptPath, prompt, 'utf8');
   return { folder, count: items.length, prompt: promptPath };
 });
-ipcMain.handle('clipboard:write', (_event, text: string) => { clipboard.writeText(String(text || '')); });
+handle('clipboard:write', (_event, text: string) => { clipboard.writeText(String(text || '')); });
 
 app.whenReady().then(() => { mkdirSync(projectsFolder, { recursive: true }); engine.start(); createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

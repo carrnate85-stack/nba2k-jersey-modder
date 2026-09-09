@@ -3,6 +3,12 @@ export interface ProjectSummary { name: string; path: string; modified: number; 
 export interface AppInfo { version: string; root: string; projectsFolder: string; }
 export interface EditorResult { kind: string; state?: JsonObject; project?: JsonObject; }
 export interface JerseyApi {
+  setDirty(value: boolean): Promise<void>;
+  confirmLeave(): Promise<'save' | 'discard' | 'cancel'>;
+  saveRecovery(path: string, project: JsonObject): Promise<void>;
+  discardRecovery(path: string): Promise<void>;
+  closeApp(): Promise<void>;
+  onCloseRequest(listener: () => void): () => void;
   appInfo(): Promise<AppInfo>;
   listProjects(): Promise<ProjectSummary[]>;
   createProject(name: string): Promise<{ path: string; project: JsonObject }>;

@@ -19,6 +19,8 @@ SHARED_STYLE = r"""
 """
 
 
+SHARED_STYLE += (ROOT / "assets/editor-theme.css").read_text(encoding="utf-8")
+
 SELECTOR_HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NBA 2K Trim Selector</title><style>__STYLE__
 #stage{position:relative;min-width:0;min-height:0;background:#0d1015}canvas{width:100%;height:100%;display:block;cursor:crosshair}.hint{color:var(--muted);font-size:12px}
 </style></head><body>

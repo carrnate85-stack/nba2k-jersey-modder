@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import tempfile
+import hashlib
 
 from PIL import Image
 
@@ -65,7 +66,7 @@ class GeneratorService:
         if texture_type == "Region Texture":
             if document.garment != "Jersey": raise ValueError("Region textures are currently available for jerseys.")
             return render_jersey_region_map(self.template(document), document.to_generator_inputs(), JERSEY_REGION_TEMPLATE_IMAGE)
-        if texture_type == "Normal Map":
+        if texture_type in {"Normal Map", "Normal Texture"}:
             base = SHORTS_RETRO_NORMAL_IMAGE if document.garment == "Shorts" else JERSEY_NORMAL_TEMPLATE_IMAGE
             return render_jersey_normal_map(self.template(document), document.to_generator_inputs(), base,
                                             normal_strength=max(0, min(100, strength)))
@@ -92,7 +93,21 @@ class GeneratorService:
             for name, kind in (("jersey_region", "Region Texture"), ("jersey_normal", "Normal Map")):
                 image = self.render_texture(document, kind); image.save(previews / f"{name}.png", "PNG", compress_level=1)
                 save_bc1_dds(image, textures / f"{name}.dds")
-        (source / "project.nba2kproject.json").write_text(json.dumps(document.payload, indent=2), encoding="utf-8")
+        def bundle(value):
+            if isinstance(value, str) and Path(value).is_absolute() and Path(value).is_file():
+                original = Path(value)
+                digest = hashlib.sha256(original.read_bytes()).hexdigest()[:12]
+                target = source / "assets" / f"{digest}_{original.name}"
+                target.parent.mkdir(exist_ok=True)
+                if not target.exists():
+                    shutil.copy2(original, target)
+                return target.relative_to(source).as_posix()
+            if isinstance(value, list):
+                return [bundle(item) for item in value]
+            if isinstance(value, dict):
+                return {key: bundle(item) for key, item in value.items()}
+            return value
+        (source / "project.nba2kproject.json").write_text(json.dumps(bundle(document.payload), indent=2), encoding="utf-8")
         (package / "install_notes.txt").write_text("NBA 2K Jersey Modder export package\n\nReview previews before importing DDS textures.\n", encoding="utf-8")
         return package
 
